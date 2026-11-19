@@ -13,6 +13,7 @@ A cross-platform Electron desktop application. The first milestone is a built-in
 - Find in page, page context menu and common browser keyboard shortcuts.
 - Per-session permission prompts for media, screen capture, geolocation, notifications and clipboard read.
 - Isolated browser processes: remote pages do not receive Node.js access.
+- Local declarative plugin directories: import, validate, enable/disable, export and remove. Enabled plugin Skills and Workflow templates are included in Agent instructions; plugins cannot execute arbitrary code.
 
 This is the browser foundation, not a complete replacement for Chrome, Edge or Firefox. Browser extensions, cross-device sync, password import, bookmark management and advanced privacy controls are not included yet.
 
@@ -63,7 +64,8 @@ Unsigned builds may trigger the operating system's normal security warnings. Pro
 - **Main process:** owns the application window, tab lifecycle, navigation, downloads, permission prompts and native menus.
 - **Browser content:** each tab is a WebContentsView. Tabs share one persistent Chromium session while keeping separate web contents.
 - **Preload:** exposes a narrow, typed IPC API using contextBridge; it does not expose raw Electron APIs.
-- **Renderer:** local React UI for the tab strip, navigation toolbar and address bar.
+- **Renderer:** local React UI for the tab strip, navigation toolbar, address bar and Agent/plugin settings.
+- **Plugin host:** stores local plugin directories under the application user-data directory, validates manifests and referenced resources, and exposes only host-known tool/view identifiers. Plugin content is data, never executable code.
 
 Remote pages run with nodeIntegration: false, contextIsolation: true and sandbox: true. The renderer is not allowed to send arbitrary IPC messages; only the methods in the preload API are exposed.
 
