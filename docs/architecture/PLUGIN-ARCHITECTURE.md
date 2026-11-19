@@ -25,7 +25,7 @@
 | Skill（技能） | 指令、领域知识和工作约定 | 研究报告规范 |
 | Tool 引用 | 对宿主应用已实现工具的标识引用 | 搜索本地文档 |
 | Workflow（工作流） | 可复用的任务模板或步骤定义 | 生成研究简报 |
-| View 声明 | 请求展示宿主应用已支持的面板或视图 | 来源对比面板 |
+| View 声明 | 引用宿主应用已支持的面板或视图 | Browser 或 Agent 面板 |
 
 Agent 由宿主应用根据指令、已选 Skills 和可用 Tools 组合而成，不作为独立的插件运行时。Context 应放在 Skill 或其引用的资源中。Provider 和模型配置属于应用或用户设置。外部系统集成通过宿主应用支持的工具进行配置。
 
@@ -46,11 +46,11 @@ Agent 由宿主应用根据指令、已选 Skills 和可用 Tools 组合而成�
   "skills": ["skills/research.md"],
   "tools": ["browser_get_current_page", "browser_snapshot"],
   "workflows": ["workflows/research-brief.md"],
-  "views": ["views/source-comparison.json"]
+  "views": []
 }
 ```
 
-导入时由宿主应用校验清单、文件路径和所声明的内容类型。Skill 只能引用 Markdown 文件，Workflow 只能引用 Markdown 或 JSON 文件，View 只能引用 JSON 声明且目标必须是宿主已支持的 browser 或 agent 视图。Tool 引用必须指向应用已知的工具；插件不能自行提供可执行处理器，也不能自行获得宿主 API 的访问权限。
+导入时由宿主应用校验清单、文件路径和所声明的内容类型。Skill 只能引用 Markdown 文件，Workflow 只能引用 Markdown 或 JSON 文件，View 只能引用 JSON 声明，且内容必须将 id 指向宿主已支持的 browser 或 agent 视图。Tool 引用必须指向应用已知的工具；插件不能自行提供可执行处理器，也不能自行获得宿主 API 的访问权限。
 
 清单应保持精简。只有真实需求出现时才增加字段，不要提前引入依赖关系图、激活事件系统、逐字段合并策略或通用扩展 SDK。
 
