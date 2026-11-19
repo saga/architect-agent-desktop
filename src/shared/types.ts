@@ -53,7 +53,6 @@ export interface BrowserApi {
   stop(id: string): Promise<void>;
   setContentBounds(bounds: { top: number; left: number; right: number }): void;
   copilotStatus(): Promise<{ status: string; message?: string; provider: AgentProvider }>;
-  agentSetProvider(provider: AgentProvider): Promise<void>;
   agentGetSettings(): Promise<AgentSettings>;
   agentSaveSettings(settings: AgentSettings): Promise<AgentSettings>;
   copilotSend(prompt: string): Promise<void>;
