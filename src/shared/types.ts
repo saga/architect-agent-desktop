@@ -22,7 +22,7 @@ export interface BrowserDownloadEvent {
   savePath?: string;
 }
 
-export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done"; status?: string; text?: string; }
+export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done" | "tool"; status?: string; text?: string; }
 
 export interface BrowserApi {
   getState(): Promise<BrowserState>;
@@ -34,7 +34,7 @@ export interface BrowserApi {
   goForward(id: string): Promise<void>;
   reload(id: string): Promise<void>;
   stop(id: string): Promise<void>;
-  setContentBounds(bounds: { top: number; left: number }): void;
+  setContentBounds(bounds: { top: number; left: number; right: number }): void;
   copilotStatus(): Promise<{ status: string; message?: string }>;
   copilotSend(prompt: string): Promise<void>;
   copilotCancel(): Promise<void>;
