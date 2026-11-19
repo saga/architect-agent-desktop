@@ -190,8 +190,9 @@ export class CopilotDesktopAgent {
    const option=normalized?.contextWindowOptions?.find(item=>item.value===this.settings.contextWindow);
    if(!option)throw new Error("当前 CodeBuddy 模型不支持所选 Context Window；请重新 Inspect 模型后选择有效档位。");
    const temp=mkdtempSync(path.join(tmpdir(),"architect-agent-codebuddy-context-"));
+   const configDir=path.join(temp,".codebuddy");
    try{
-    const configDir=path.join(temp,".codebuddy");mkdirSync(configDir,{recursive:true});
+    mkdirSync(configDir,{recursive:true});
     const sourceFiles=[path.join(codeBuddyWorkspace(),".codebuddy","models.json"),path.join(homedir(),".codebuddy","models.json")];
     for(const source of sourceFiles)if(existsSync(source)){writeFileSync(path.join(configDir,"models.json"),readFileSync(source),{mode:0o600});break;}
     writeFileSync(path.join(configDir,"settings.json"),JSON.stringify({contextWindow:this.settings.contextWindow},null,2)+"\n",{encoding:"utf8",mode:0o600});
