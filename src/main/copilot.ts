@@ -1,4 +1,4 @@
-import type { CopilotClient, CopilotSession } from "@github/copilot-sdk";
+import type { CopilotClient, CopilotSession } from "@github/copilot-sdk" with { "resolution-mode": "import" };
 import { z } from "zod";
 
 export interface BrowserAgentTools {
