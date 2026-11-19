@@ -65,7 +65,7 @@ The canonical model is a binary split tree:
 - `panel`: stable id and min/max dimensions / visibility.
 - `split`: horizontal or vertical axis, ratio, first and second child, splitter thickness.
 
-This supports nested layouts without coupling the model to React or Electron. Workspace Tab Groups are represented by versioned group metadata and pure create/move/remove/activate operations. The browser tab strip remains a separate browser-tab feature; panel Tab Group selection UI is not yet connected to the layout renderer. Floating Agent panels use a separate BrowserWindow root with persisted bounds and redocking.
+This supports nested layouts without coupling the model to React or Electron. Workspace Tab Groups have versioned group metadata and a renderer switcher for Browser and Agent. Selecting a group tab updates panel visibility in the persisted tree, so the native Browser view and React Agent panel share the same workspace slot. The browser tab strip remains a separate browser-tab feature. Floating Agent panels use a separate BrowserWindow root with persisted bounds and redocking.
 
 All coordinates are logical pixels (DIP). The main process clamps rectangles to the BrowserWindow content area before calling Electron. Device scale factor is applied only at raster boundaries, not in the persisted layout model.
 
@@ -94,7 +94,8 @@ The main process computes the native Browser rectangle from the same split model
 - [x] version-2 workspace document with nested tree, tab-group metadata and floating roots
 - [x] validate and migrate legacy version-1 panel preferences
 - [ ] free-form drag/drop targets and docking preview
-- [ ] panel Tab Group selection UI and focus order
+- [x] Browser/Agent Tab Group switcher drives persisted active-panel visibility
+- [ ] generalized keyboard focus order across arbitrary panel types
 
 ### Phase 4 — Native view composition
 - [x] centralized native child-view registry, bounds clamping, visibility and layer ordering
@@ -105,7 +106,7 @@ The main process computes the native Browser rectangle from the same split model
 ### Phase 5 — Advanced workspace
 - [x] floating Agent root, detached BrowserWindow, redocking and bounds restore
 - [x] workspace Tab Group data model and membership operations
-- [ ] Tab Group UI that switches active panel content
+- [x] Tab Group UI that switches Browser/Agent panel content
 - [ ] floating roots for arbitrary panels, not only Agent
 - [ ] maximize/restore policy for docked panels
 - [ ] cross-platform interaction and performance tests
