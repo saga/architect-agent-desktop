@@ -21,7 +21,7 @@ This is the browser foundation, not a complete replacement for Chrome, Edge or F
 
 ## Requirements
 
-- Node.js 22.12 or newer.
+- Node.js 22.13 or newer.
 - npm.
 - macOS or Windows for native packaging. Development can also run on Linux.
 
