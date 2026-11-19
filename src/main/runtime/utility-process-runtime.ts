@@ -154,7 +154,7 @@ export class UtilityProcessAgentRuntime {
         } else if (message.type === "error") finish("failed", undefined, String(message.error ?? "Code execution failed."));
       });
       child.once("exit", (code) => { if (!settled) finish("failed", undefined, "Runtime process exited before returning a result (code " + code + ")."); });
-      child.postMessage({ type: "execute-code", executionId: id, code: request.code });
+      child.postMessage({ type: "execute-code", executionId: id, code: request.code, providers: request.providers });
     });
   }
 
