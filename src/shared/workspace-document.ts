@@ -80,7 +80,7 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
       alwaysOnTop: row.alwaysOnTop === true,
     };
   });
-  if (floating.some((item) => !item.id || !item.panelId || panelIds.includes(item.panelId))) throw new Error("Duplicate or empty floating panel identity.");
+  if (floating.some((item) => !item.id || !panelIds.includes(item.panelId)) || new Set(floating.map((item) => item.id)).size !== floating.length || new Set(floating.map((item) => item.panelId)).size !== floating.length) throw new Error("Duplicate or empty floating panel identity.");
   const groupsInput = Array.isArray(input.tabGroups) ? input.tabGroups : [];
   const groupIds = new Set<string>();
   const groupedPanels = new Set<string>();
