@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentSessionItem } from "../shared/types";
 
-/** The renderer keeps the visible transcript; the main process caps what it persists. */
-export const MAX_AGENT_SESSION_ITEMS = 200;
-
+/** Session messages are stored individually in SQLite; no transcript tail truncation is applied. */
 /**
  * Validate and normalize persisted transcript items.
  * Unknown kinds and malformed entries are dropped rather than failing the load.
@@ -25,5 +23,5 @@ export function parseAgentSessionItems(value: unknown): AgentSessionItem[] {
       createdAt: typeof item.createdAt === "number" && Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
     });
   }
-  return items.slice(-MAX_AGENT_SESSION_ITEMS);
+  return items;
 }
