@@ -51,7 +51,8 @@ export interface BrowserApi {
   goForward(id: string): Promise<void>;
   reload(id: string): Promise<void>;
   stop(id: string): Promise<void>;
-  setContentBounds(bounds: { top: number; left: number; right: number }): void;
+  setContentBounds(bounds: { top: number; left: number; width: number }): void;
+  onToggleAgent(listener: () => void): () => void;
   copilotStatus(): Promise<{ status: string; message?: string; provider: AgentProvider }>;
   agentGetSettings(): Promise<AgentSettings>;
   agentSaveSettings(settings: AgentSettings): Promise<AgentSettings>;
