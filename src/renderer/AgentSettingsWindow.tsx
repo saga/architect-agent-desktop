@@ -93,7 +93,7 @@ export default function AgentSettingsWindow() {
             </Radio>
             <Radio value="allow-all">
               <span className="tool-permission-title">Allow all</span>
-              <span className="tool-permission-desc">不询问，允许所有工具调用，包括本机命令和文件修改。仅在你信任请求时使用。</span>
+              <span className="tool-permission-desc">不询问，允许所有工具调用，包括本机命令、文件修改和网页 JS/CSS 注入。仅在你信任请求时使用。</span>
             </Radio>
           </Radio.Group>
         </Form.Item>

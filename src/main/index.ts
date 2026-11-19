@@ -18,7 +18,7 @@ import { z } from "zod";
 import { CopilotDesktopAgent } from "./copilot";
 import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
-import type { AgentProvider, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import type { AgentChatMessage, AgentProvider, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { calculateLayout } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { findPanel, setPanelVisibility } from "./layout/layout-tree";
@@ -142,6 +142,24 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
     await tab.view.webContents.executeJavaScript("window.scrollBy({top:" + (direction==="down" ? amount : -amount) + ",behavior:'smooth'})");
     return "Scrolled " + direction + " by " + amount + " pixels.";
+  },
+  async executeJavaScript(code) {
+    if (!code.trim()) throw new Error("No JavaScript provided.");
+    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    const result=await tab.view.webContents.executeJavaScript(`(async () => {\n${code}\n})()`, true);
+    if (result===undefined || result===null) return "JavaScript executed.";
+    return typeof result==="string" ? result : JSON.stringify(result);
+  },
+  async injectCss(css) {
+    if (!css.trim()) throw new Error("No CSS provided.");
+    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    await tab.view.webContents.executeJavaScript(`(() => {
+      let style=document.querySelector("style[data-agent-injected-css]");
+      if (!style) { style=document.createElement("style"); style.setAttribute("data-agent-injected-css","true"); document.head.appendChild(style); }
+      style.textContent=${JSON.stringify(css)};
+      return true;
+    })()`, true);
+    return "Injected CSS into " + tab.url + ".";
   }
 }, agentSettings);
 let downloadSequence = 0;
@@ -1126,9 +1144,9 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("copilot:send", async (event, input: unknown) => {
     assertTrustedSender(event);
-    const parsed = z.object({ prompt: z.string().trim().min(1).max(30000) }).safeParse(input);
+    const parsed = z.object({ prompt: z.string().trim().min(1).max(30000), history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(12000) })).max(20).optional() }).safeParse(input);
     if (!parsed.success) throw new Error("Message must contain 1–30,000 characters.");
-    return copilotAgent.send(parsed.data.prompt);
+    return copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined);
   });
   ipcMain.handle("copilot:cancel", async (event) => {
     assertTrustedSender(event);

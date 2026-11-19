@@ -36,6 +36,10 @@ export interface AgentModelInfo {
 }
 export type AgentThinkingLevel = "low" | "medium" | "high" | "xhigh";
 export type AgentToolPermission = "browser-only" | "assisted" | "allow-all";
+export interface AgentChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
 export interface AgentSettings {
   provider: AgentProvider;
   copilotModel: string;
@@ -86,7 +90,7 @@ export interface BrowserApi {
   agentInspectModels(provider: AgentProvider): Promise<AgentModelInfo[]>;
   onAgentSettingsUpdated(listener: (settings: AgentSettings) => void): () => void;
   agentSaveSettings(settings: AgentSettings): Promise<AgentSettings>;
-  copilotSend(prompt: string): Promise<void>;
+  copilotSend(prompt: string, history?: AgentChatMessage[]): Promise<void>;
   copilotCancel(): Promise<void>;
   onCopilotEvent(listener: (event: CopilotEvent) => void): () => void;
   findInPage(id: string, text: string): Promise<void>;

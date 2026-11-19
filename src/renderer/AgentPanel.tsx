@@ -62,9 +62,13 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const send = async (value: string) => {
     const prompt = value.trim();
     if (!prompt || loading) return;
+    const history = items
+      .filter((item) => !item.loading && item.content.trim())
+      .slice(-12)
+      .map((item) => ({ role: item.role, content: item.content.trim().slice(0, 6000) }));
     setItems((current) => [...current, { key: crypto.randomUUID(), role: "user", content: prompt }]);
     setLoading(true);
-    try { await window.browser.copilotSend(prompt); }
+    try { await window.browser.copilotSend(prompt, history); }
     catch (error) { setLoading(false); message.error(error instanceof Error ? error.message : String(error)); }
   };
 

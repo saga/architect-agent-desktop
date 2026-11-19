@@ -44,7 +44,7 @@ const api: BrowserApi = {
     return () => ipcRenderer.removeListener("agent:settings-updated", handler);
   },
   agentSaveSettings: (settings: AgentSettings) => ipcRenderer.invoke("agent:save-settings", settings),
-  copilotSend: (prompt) => ipcRenderer.invoke("copilot:send", { prompt }),
+  copilotSend: (prompt, history) => ipcRenderer.invoke("copilot:send", { prompt, history }),
   copilotCancel: () => ipcRenderer.invoke("copilot:cancel"),
   onCopilotEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: CopilotEvent) => listener(payload);
