@@ -32,6 +32,9 @@ button { color: inherit; }
   background: #fff;
 }
 
+ .app-shell.agent-grouped { grid-template-columns: minmax(0, 1fr); }
+.workspace-tab-group { display:flex; align-items:center; gap:2px; flex:0 0 auto; }
+.agent-group-content { position:absolute; left:0; right:0; bottom:0; z-index:3; overflow:hidden; background:#fff; }
 .app-shell.agent-open {
   grid-template-columns: minmax(0, 1fr) 390px;
 }
