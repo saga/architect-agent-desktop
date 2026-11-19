@@ -41,7 +41,11 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
 
 export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done" | "tool"; status?: string; text?: string; }
 
+export interface WorkspaceLayoutState { version: 1; agentPanelWidth: number; agentPanelVisible: boolean; }
+
 export interface BrowserApi {
+  getWorkspaceLayout(): Promise<WorkspaceLayoutState>;
+  saveWorkspaceLayout(layout: WorkspaceLayoutState): Promise<WorkspaceLayoutState>;
   getState(): Promise<BrowserState>;
   createTab(url?: string): Promise<string>;
   activateTab(id: string): Promise<void>;
