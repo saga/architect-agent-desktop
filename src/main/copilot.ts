@@ -101,7 +101,7 @@ const ALLOW_ALL_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser with Allow all permissions.",
 "The user has enabled all available tools. Workspace file tools may read and write files inside the selected project root. CodeBuddy also exposes its built-in shell tools; Copilot does not expose a shell tool in this app. execute_code orchestrates the desktop APIs listed in its current tool description.",
 "Browser tools remain the preferred way to inspect and operate the current page: browser_get_current_page, browser_snapshot, browser_screenshot, browser_console, browser_list_tabs, browser_navigate, browser_open_tab, browser_switch_tab, browser_click, browser_fill, browser_scroll, browser_cdp.",
-"Allow all also enables browser_execute_javascript, browser_inject_css and browser_cdp. Use browser_inject_css for page styling requests such as changing the background color, browser_execute_javascript for page behavior, and browser_cdp only for allowlisted diagnostics. Verify the result with browser_get_current_page or browser_screenshot when practical.",
+"Allow all also enables browser_execute_javascript, browser_inject_css and browser_cdp. Use browser_inject_css for page styling requests such as changing the background color, browser_execute_javascript for page behavior, and browser_cdp only for read-only diagnostics; it does not expose page JavaScript execution or synthetic input. Verify the result with browser_get_current_page or browser_screenshot when practical.",
 "Treat \"current page\" as the active tab. Do not substitute a new local HTML file or the macOS wallpaper unless the user explicitly asks for that.",
 "When editing files, running commands or injecting page code, report exactly what you did."
 ].join("\n");
@@ -117,7 +117,7 @@ function historyPrompt(history: AgentChatMessage[] | undefined, prompt: string):
 }
 export class CopilotDesktopAgent {
  private workspacePath:string|null;
- private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null; private codeRuntimeAbortController:AbortController|null=null; private readonly codeRuntime = new UtilityProcessAgentRuntime();
+ private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null; private readonly codeRuntimeAbortControllers = new Set<AbortController>(); private readonly codeRuntime = new UtilityProcessAgentRuntime();
  constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:()=>string=()=>"",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string)=>void=()=>{}){this.settings=settings;this.workspacePath=workspacePath;}
  async setWorkspacePath(workspacePath:string|null):Promise<void>{if(workspacePath===this.workspacePath)return;if(this.active)throw new Error("Wait for the current Agent request to finish before changing the workspace.");await this.stop();this.workspacePath=workspacePath;}
  private workspaceInstructions():string{return this.workspacePath?"Current local project workspace root: "+this.workspacePath+". Treat this as the project root. Use relative paths for workspace file tools and do not access files outside this directory.":"No local project workspace is selected. Do not attempt local project file operations until the user selects a workspace."; }
@@ -166,7 +166,7 @@ export class CopilotDesktopAgent {
   if(this.settings.toolPermission==="allow-all")tools.push(
    {name:"browser_execute_javascript",description:"Execute JavaScript in the active tab. Allows page behavior changes and CSS injection. Only available with Allow all.",schema:z.object({code:z.string().min(1).max(20000)}),handler:({code}:{code:string})=>report("Execute JavaScript",()=>b.executeJavaScript(code))},
    {name:"browser_inject_css",description:"Inject CSS into the active tab to change page styling, for example the background color. Only available with Allow all.",schema:z.object({css:z.string().min(1).max(20000)}),handler:({css}:{css:string})=>report("Inject CSS",()=>b.injectCss(css))},
-   {name:"browser_cdp",description:"Send an allowlisted Chrome DevTools Protocol command to the active tab for diagnostics. Only available with Allow all. Prefer browser_snapshot, browser_click and browser_fill for normal interaction.",schema:z.object({method:z.string().min(1).max(200),params:z.record(z.string(),z.unknown()).optional()}),handler:({method,params}:{method:string;params?:Record<string,unknown>})=>report("CDP "+method,()=>b.cdp(method,params))}
+   {name:"browser_cdp",description:"Run a read-only, allowlisted Chrome DevTools Protocol diagnostic against the active tab. Page JavaScript execution, synthetic input, navigation, cookies and storage commands are not exposed. Only available with Allow all.",schema:z.object({method:z.string().min(1).max(200),params:z.record(z.string(),z.unknown()).optional()}),handler:({method,params}:{method:string;params?:Record<string,unknown>})=>report("CDP "+method,()=>b.cdp(method,params))}
   );
   const callableTools = tools.filter(tool =>
    this.settings.toolPermission === "allow-all" ||
@@ -205,23 +205,21 @@ export class CopilotDesktopAgent {
    schema:z.object({code:z.string().min(1).max(100000)}),
    handler:async({code}:{code:string})=>{
     const abortController=new AbortController();
-    this.codeRuntimeAbortController=abortController;
-    this.codeRuntime.setToolCallHandler(async(name,input)=>{
-     const method=providerMethods.get(name);
-     if(!method) throw new Error("Tool is not available in the current permission mode: "+name);
-     return method(input);
-    });
+    this.codeRuntimeAbortControllers.add(abortController);
     try {
      const result=await this.codeRuntime.executeGeneratedCode({
       mode:"generated-code",code:normalizeCode(code),providers:resolvedProviders.map(provider=>provider.name),
       workspaceRoot:this.workspacePath??undefined,signal:abortController.signal,
       capabilities:["tools.call"],limits:{timeoutMs:30000,maxOutputBytes:256*1024,maxLogEntries:200}
+     }, async(name,input)=>{
+      const method=providerMethods.get(name);
+      if(!method) throw new Error("Tool is not available in the current permission mode: "+name);
+      return method(input);
      });
      if(result.status!=="completed") throw new Error(result.error??"Code Mode execution failed.");
      return JSON.stringify({result:result.result,logs:result.logs});
     } finally {
-     this.codeRuntimeAbortController=null;
-     this.codeRuntime.setToolCallHandler(null);
+     this.codeRuntimeAbortControllers.delete(abortController);
     }
    }
   });
@@ -283,7 +281,7 @@ export class CopilotDesktopAgent {
   finally{clearTimeout(timeout);this.codeBuddyQuery=null;this.codeBuddyAbortController=null;cleanup?.();}
  }
  async send(prompt:string,history?:AgentChatMessage[]):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt,history);else await this.sendCopilot(prompt,history);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
- async cancel():Promise<void>{this.codeRuntimeAbortController?.abort();if(this.settings.provider==="codebuddy"){this.codeBuddyAbortController?.abort();if(this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();}else if(this.active&&this.session)await this.session.abort();}
+ async cancel():Promise<void>{for(const controller of this.codeRuntimeAbortControllers)controller.abort();if(this.settings.provider==="codebuddy"){this.codeBuddyAbortController?.abort();if(this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();}else if(this.active&&this.session)await this.session.abort();}
  isBusy():boolean{return this.active;}
- async stop():Promise<void>{if(this.active){try{await this.cancel();}catch{/* the request is being torn down */}}this.codeRuntime.setToolCallHandler(null);await this.codeRuntime.dispose();const client=this.client;this.client=null;this.session=null;if(client){try{await client.stop();}catch{/* already stopped */}}}
+ async stop():Promise<void>{if(this.active){try{await this.cancel();}catch{/* the request is being torn down */}}for(const controller of this.codeRuntimeAbortControllers)controller.abort();await this.codeRuntime.dispose();const client=this.client;this.client=null;this.session=null;if(client){try{await client.stop();}catch{/* already stopped */}}}
 }

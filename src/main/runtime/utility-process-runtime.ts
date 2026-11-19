@@ -74,7 +74,10 @@ export class UtilityProcessAgentRuntime {
     this.toolCallHandler = handler;
   }
 
-  async executeGeneratedCode(request: CodeModeRequest): Promise<RuntimeExecutionResult> {
+  async executeGeneratedCode(
+    request: CodeModeRequest,
+    toolCallHandler: (name: string, input: unknown) => Promise<unknown>,
+  ): Promise<RuntimeExecutionResult> {
     if (request.mode !== "generated-code" || !request.code.trim()) throw new Error("Generated code is required.");
     if (request.code.length > 100_000) throw new Error("Generated code exceeds the 100 KB limit.");
     const id = randomUUID();
@@ -132,7 +135,13 @@ export class UtilityProcessAgentRuntime {
             try {
               const capability = message.capability as RuntimeCapability;
               if (!capabilities.has(capability)) throw new Error("Capability not granted: " + capability);
-              const handler = this.handlers[capability];
+              const handler = capability === "tools.call"
+                ? async (_context: RuntimeCapabilityContext, args: unknown) => {
+                    const input = args as { name?: unknown; input?: unknown };
+                    if (typeof input?.name !== "string" || !input.name) throw new Error("A tool name is required.");
+                    return toolCallHandler(input.name, input.input ?? {});
+                  }
+                : this.handlers[capability];
               if (!handler) throw new Error("Capability is not implemented: " + capability);
               const value = await handler(context, message.args);
               const serialized = JSON.stringify(value);
@@ -154,7 +163,13 @@ export class UtilityProcessAgentRuntime {
         } else if (message.type === "error") finish("failed", undefined, String(message.error ?? "Code execution failed."));
       });
       child.once("exit", (code) => { if (!settled) finish("failed", undefined, "Runtime process exited before returning a result (code " + code + ")."); });
-      child.postMessage({ type: "execute-code", executionId: id, code: request.code, providers: request.providers });
+      child.postMessage({
+        type: "execute-code",
+        executionId: id,
+        code: request.code,
+        providers: request.providers,
+        maxOutputBytes: limits.maxOutputBytes,
+      });
     });
   }
 

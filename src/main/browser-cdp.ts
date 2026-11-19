@@ -5,32 +5,23 @@ export const BROWSER_CDP_PROTOCOL = "1.3";
 export const BROWSER_CDP_TIMEOUT_MS = 30_000;
 
 /**
- * Deny-by-default CDP methods exposed to the Agent. Cookie, storage, target
- * and network-interception methods stay off this list.
+ * Read-only CDP diagnostics exposed to the Agent. Page execution, synthetic
+ * input, navigation, cookies, storage, targets and network interception stay
+ * outside this allowlist; normal browser interaction uses dedicated tools.
  */
 export const BROWSER_CDP_ALLOWLIST = new Set([
   "Page.enable",
-  "Page.reload",
   "Page.captureScreenshot",
   "Page.getLayoutMetrics",
-  "Page.bringToFront",
   "DOM.enable",
   "DOM.getDocument",
   "DOM.querySelector",
   "DOM.querySelectorAll",
   "DOM.getBoxModel",
   "DOM.describeNode",
-  "DOM.scrollIntoViewIfNeeded",
   "DOM.getOuterHTML",
   "DOM.getAttributes",
   "Runtime.enable",
-  "Runtime.evaluate",
-  "Runtime.callFunctionOn",
-  "Runtime.getProperties",
-  "Runtime.awaitPromise",
-  "Input.dispatchMouseEvent",
-  "Input.dispatchKeyEvent",
-  "Input.insertText",
   "Accessibility.enable",
   "Accessibility.getFullAXTree",
   "Accessibility.getPartialAXTree",

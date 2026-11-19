@@ -39,6 +39,29 @@ describe("AgentTraceStore", () => {
     store.close();
   });
 
+  it("redacts credentials embedded in free-form text and URLs", () => {
+    const store = new AgentTraceStore(temporaryDirectory());
+    store.record({
+      sessionId: "session-redaction", traceId: "trace-redaction", workspacePath: null, type: "provider.request",
+      data: {
+        prompt: "Call https://alice:super-secret@example.com with Authorization: Bearer header-token",
+        query: 'api_key="inline-secret" access_token=access-secret',
+        output: "github_pat_abcdefghijklmnopqrstuvwxyz0123456789",
+        privateKey: `-----BEGIN PRIVATE KEY-----
+private-material
+-----END PRIVATE KEY-----`,
+      },
+    });
+    const event = store.query({ traceId: "trace-redaction" })[0]?.data as Record<string, unknown>;
+    expect(event.prompt).not.toContain("super-secret");
+    expect(event.prompt).not.toContain("header-token");
+    expect(event.query).not.toContain("inline-secret");
+    expect(event.query).not.toContain("access-secret");
+    expect(event.output).not.toContain("github_pat_");
+    expect(event.privateKey).toBe("[REDACTED PRIVATE KEY]");
+    store.close();
+  });
+
   it("persists the complete session transcript independently of the 200-item legacy window", () => {
     const store = new AgentTraceStore(temporaryDirectory());
     const items = Array.from({ length: 250 }, (_, index) => ({

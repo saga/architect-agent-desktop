@@ -89,6 +89,13 @@ parentPort.on("message", (event) => {
         const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => (...values: unknown[]) => Promise<unknown>;
         const execute = new AsyncFunction(...providerNames, "log", '"use strict"; return await (' + (message.code as string) + ')();');
         const value = await execute(...namespaces, api.log);
+        const maxOutputBytes = Number.isSafeInteger(message.maxOutputBytes) && Number(message.maxOutputBytes) > 0
+          ? Number(message.maxOutputBytes)
+          : 256 * 1024;
+        const serialized = JSON.stringify(value);
+        if (Buffer.byteLength(serialized ?? "null", "utf8") > maxOutputBytes) {
+          throw new Error("Execution result exceeds the output limit.");
+        }
         send({ type: "result", value });
       } catch (error) {
         send({ type: "error", error: error instanceof Error ? error.stack ?? error.message : String(error) });

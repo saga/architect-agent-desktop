@@ -15,13 +15,31 @@ export interface AgentTraceInput {
   timestamp?: string;
 }
 
-const SECRET_KEY = /authorization|(^|[_-])token($|[_-])|api[_-]?key|password|secret|cookie|credential|private[_-]?key/i;
-const BEARER = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
+const SECRET_KEY = /authorization|proxy[_-]?authorization|(^|[_-])(?:access|refresh|id)?[_-]?token($|[_-])|api[_-]?key|x[_-]?api[_-]?key|password|passwd|secret|cookie|credential|private[_-]?key|subscription[_-]?key/i;
+const SECRET_ASSIGNMENT = /(["']?(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|password|passwd|secret|private[_-]?key|credential|subscription[_-]?key)["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^&\s,;}]+)/gi;
+const SENSITIVE_HEADER = /\b(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key)\s*:\s*[^\r\n]+/gi;
+const BEARER = /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi;
+const PEM_PRIVATE_KEY = /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/gi;
+const URL_CREDENTIALS = /(\bhttps?:\/\/)[^\s/@:]+:[^\s/@]+@/gi;
+const COMMON_TOKENS = /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:ant-)?[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
+
+function redactString(value: string): string {
+  return value
+    .replace(PEM_PRIVATE_KEY, "[REDACTED PRIVATE KEY]")
+    .replace(BEARER, "[REDACTED]")
+    .replace(SENSITIVE_HEADER, "[REDACTED HEADER]")
+    .replace(SECRET_ASSIGNMENT, (_match, prefix: string, raw: string) => {
+      const quote = raw[0] === String.fromCharCode(34) || raw[0] === "'" ? raw[0] : "";
+      return prefix + (quote ? quote + "[REDACTED]" + quote : "[REDACTED]");
+    })
+    .replace(URL_CREDENTIALS, "$1[REDACTED]@")
+    .replace(COMMON_TOKENS, "[REDACTED TOKEN]");
+}
 
 function redact(value: unknown, key = "", seen = new WeakSet<object>()): unknown {
   if (SECRET_KEY.test(key)) return "[REDACTED]";
-  if (typeof value === "string") return value.replace(BEARER, "Bearer [REDACTED]");
+  if (typeof value === "string") return redactString(value);
   if (Array.isArray(value)) {
     if (seen.has(value)) return "[Circular]";
     seen.add(value);
