@@ -40,6 +40,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
       }
       if (event.type === "error") {
         setLoading(false);
+        setStatus("error");
         setItems((current) => [...current, { key: crypto.randomUUID(), role: "assistant", content: event.text ?? "Request failed." }]);
       }
     });
