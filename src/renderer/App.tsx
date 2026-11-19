@@ -61,9 +61,9 @@ function App() {
     const unsubscribeDownload = window.browser.onDownload(setLatestDownload);
     const unsubscribeAgentToggle = window.browser.onToggleAgent(() => {
       void window.browser.getWorkspaceLayout().then((layout) => {
-        if (!layout.agentPanelVisible) return window.browser.redockAgentPanel();
+        if (!layout.agentPanelVisible) { void window.browser.redockAgentPanel(); return; }
         setAgentOpen(false);
-        return window.browser.saveWorkspaceLayout({ ...layout, agentPanelVisible: false });
+        void window.browser.saveWorkspaceLayout({ ...layout, agentPanelVisible: false });
       }).catch((error: unknown) => console.error("Unable to toggle Agent panel", error));
     });
 
