@@ -7,6 +7,7 @@ import { homedir, tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
 import path from "node:path";
 import { UtilityProcessAgentRuntime } from "./runtime/utility-process-runtime";
+import { createCodeModeDescription, createToolProviders, normalizeCode, resolveProvider } from "./runtime/codemode";
 import { detachedCliOptions, isManagedSession, parseCredits } from "./agent-runtime.js";
 import { agentProcessEnvironment } from "./login-shell-env.js";
 import { listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, writeWorkspaceFile } from "./workspace-files.js";
@@ -167,30 +168,58 @@ export class CopilotDesktopAgent {
    {name:"browser_inject_css",description:"Inject CSS into the active tab to change page styling, for example the background color. Only available with Allow all.",schema:z.object({css:z.string().min(1).max(20000)}),handler:({css}:{css:string})=>report("Inject CSS",()=>b.injectCss(css))},
    {name:"browser_cdp",description:"Send an allowlisted Chrome DevTools Protocol command to the active tab for diagnostics. Only available with Allow all. Prefer browser_snapshot, browser_click and browser_fill for normal interaction.",schema:z.object({method:z.string().min(1).max(200),params:z.record(z.string(),z.unknown()).optional()}),handler:({method,params}:{method:string;params?:Record<string,unknown>})=>report("CDP "+method,()=>b.cdp(method,params))}
   );
-  const callableTools = tools.filter(tool => this.settings.toolPermission === "allow-all" || tool.name.startsWith("browser_") || (this.settings.toolPermission === "assisted" && tool.name.startsWith("workspace_")));
+  const callableTools = tools.filter(tool =>
+   this.settings.toolPermission === "allow-all" ||
+   tool.name.startsWith("browser_") ||
+   (this.settings.toolPermission === "assisted" && tool.name.startsWith("workspace_"))
+  );
+  const brokerTools = callableTools.map(tool => ({
+   ...tool,
+   schema: { toJSONSchema: () => z.toJSONSchema(tool.schema) },
+   handler: async (input: unknown) => {
+    this.recordTrace("tool.call",{name:tool.name,input,source:"code-mode"},"running");
+    const parsed=tool.schema.safeParse(input ?? {});
+    if(!parsed.success) {
+     this.recordTrace("tool.failed",{name:tool.name,input,error:parsed.error.message,source:"code-mode"},"failed");
+     throw new Error("Invalid tool input: "+parsed.error.message);
+    }
+    try {
+     const value=await tool.handler(parsed.data);
+     const output=typeof value==="string"?value:JSON.stringify(value)??String(value);
+     this.recordTrace("tool.result",{name:tool.name,input,result:output.slice(0,10000),source:"code-mode"},"completed");
+     return value;
+    } catch(error) {
+     this.recordTrace("tool.failed",{name:tool.name,input,error:error instanceof Error?error.message:String(error),source:"code-mode"},"failed");
+     throw error;
+    }
+   }
+  }));
+  const resolvedProviders=createToolProviders(brokerTools).map(resolveProvider);
+  const providerMethods=new Map<string,(input?:unknown)=>Promise<unknown>>();
+  for(const provider of resolvedProviders) {
+   for(const [method,fn] of Object.entries(provider.fns)) providerMethods.set(provider.name+"."+method,fn);
+  }
   tools.push({
    name:"execute_code",
-   description:"Execute JavaScript in a dedicated Electron UtilityProcess for multi-step tasks. Use tools.call(name, input) to invoke the same permission-checked desktop tools available to you. The code process is not a security sandbox; do not use it to bypass tool permissions. Return only compact results.",
+   description:createCodeModeDescription(resolvedProviders),
    schema:z.object({code:z.string().min(1).max(100000)}),
    handler:async({code}:{code:string})=>{
-    const allowed=new Map(callableTools.map(tool=>[tool.name,tool]));
     const abortController=new AbortController();
     this.codeRuntimeAbortController=abortController;
     this.codeRuntime.setToolCallHandler(async(name,input)=>{
-     const tool=allowed.get(name);
-     if(!tool) throw new Error("Tool is not available in the current permission mode: "+name);
-     this.recordTrace("tool.call",{name,input,source:"code-mode"},"running");
-     const parsed=tool.schema.safeParse(input);if(!parsed.success) throw new Error("Invalid tool input: "+parsed.error.message);try{const value=await tool.handler(parsed.data);const output=typeof value==="string"?value:value.text;this.recordTrace("tool.result",{name,input,result:output,source:"code-mode"},"completed");return value;}
-     catch(error){this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error),source:"code-mode"},"failed");throw error;}
+     const method=providerMethods.get(name);
+     if(!method) throw new Error("Tool is not available in the current permission mode: "+name);
+     return method(input);
     });
-    try{
+    try {
      const result=await this.codeRuntime.executeGeneratedCode({
-      mode:"generated-code",code,workspaceRoot:this.workspacePath??undefined,signal:abortController.signal,
+      mode:"generated-code",code:normalizeCode(code),providers:resolvedProviders.map(provider=>provider.name),
+      workspaceRoot:this.workspacePath??undefined,signal:abortController.signal,
       capabilities:["tools.call"],limits:{timeoutMs:30000,maxOutputBytes:256*1024,maxLogEntries:200}
      });
      if(result.status!=="completed") throw new Error(result.error??"Code Mode execution failed.");
      return JSON.stringify({result:result.result,logs:result.logs});
-    }finally{
+    } finally {
      this.codeRuntimeAbortController=null;
      this.codeRuntime.setToolCallHandler(null);
     }

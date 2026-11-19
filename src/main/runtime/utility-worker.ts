@@ -71,12 +71,24 @@ parentPort.on("message", (event) => {
     return;
   }
   if (message.type === "execute-code" && typeof message.executionId === "string" && typeof message.code === "string") {
+    const providerNames = Array.isArray(message.providers)
+      ? message.providers.filter((name): name is string => typeof name === "string" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name))
+      : [];
     currentExecutionId = message.executionId;
     void (async () => {
       try {
+        const namespaces = providerNames.map((provider) => Object.freeze(new Proxy({}, {
+          get: (_target, method) => {
+            if (typeof method !== "string" || method === "then") return undefined;
+            return (input: unknown = {}) => callCapability("tools.call", {
+              name: provider + "." + method,
+              input,
+            });
+          },
+        })));
         const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => (...values: unknown[]) => Promise<unknown>;
-        const execute = new AsyncFunction("tools", "log", message.code as string);
-        const value = await execute(api.tools, api.log);
+        const execute = new AsyncFunction(...providerNames, "log", '"use strict"; return await (' + (message.code as string) + ')();');
+        const value = await execute(...namespaces, api.log);
         send({ type: "result", value });
       } catch (error) {
         send({ type: "error", error: error instanceof Error ? error.stack ?? error.message : String(error) });
