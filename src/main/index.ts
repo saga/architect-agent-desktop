@@ -70,7 +70,7 @@ function loadWorkspaceLayout(): WorkspaceLayoutState {
 let workspaceLayout = loadWorkspaceLayout();
 function loadWorkspaceDocument(): WorkspaceDocument {
   try { return parseWorkspaceDocument(JSON.parse(readFileSync(WORKSPACE_DOCUMENT_PATH, "utf8"))); }
-  catch { return parseWorkspaceDocument(DEFAULT_WORKSPACE_DOCUMENT); }
+  catch { return parseWorkspaceDocument(workspaceLayout); }
 }
 let workspaceDocument = loadWorkspaceDocument();
 const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", systemPrompt: "" };
