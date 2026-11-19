@@ -140,7 +140,7 @@ export function createCodeModeDescription(providers: ResolvedProvider[]): string
   const types = [generateTypesFromJsonSchema(providers), "declare const log: { info(message: unknown): void; warn(message: unknown): void; error(message: unknown): void; };"].filter(Boolean).join("\n\n");
   return [
     "Execute JavaScript to orchestrate multiple desktop tools in one run. Prefer this for multi-step workflows, parallel operations, and filtering or aggregating large results without returning intermediate data to the model.",
-    "Tools are exposed as typed namespaces (for example browser.listTabs(), browser.getCurrentPage(), workspace.readFile({ path })). Each method returns a Promise. Use await and Promise.all; return a compact final result. Ordinary tool calling remains available for simple, single-step actions.",
+    "Tools are exposed as typed namespaces. Each method returns a Promise. Use await and Promise.all; return a compact final result. The declarations below are the complete Code Mode API for the current permission mode. Ordinary tool calling remains available for simple, single-step actions.",
     "The code runs in an Electron UtilityProcess, not a security sandbox. Do not use Code Mode to bypass permissions. Only the listed tool namespaces are brokered; direct Node.js APIs are not restricted by tool permissions.",
     "Available API:",
     types,
