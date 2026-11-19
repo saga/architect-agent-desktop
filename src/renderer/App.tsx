@@ -171,7 +171,7 @@ function App() {
   const splitterPlacement = agentOpen && !horizontalDock ? { gridRow: 2, gridColumn: 1 } : agentOpen && agentFirst ? { gridColumn: 2, gridRow: 1 } : { gridColumn: 2, gridRow: 1 };
   const agentPlacement = agentOpen && !horizontalDock ? { gridRow: agentFirst ? 1 : 3, gridColumn: 1 } : agentOpen && agentFirst ? { gridColumn: 1, gridRow: 1 } : { gridColumn: 3, gridRow: 1 };
   if (isFloatingAgentWindow) {
-    return <div className="agent-floating-root"><AgentPanel onClose={() => { void window.browser.redockAgentPanel(); }} onDock={(position) => { void window.browser.redockAgentPanel().then(() => window.browser.getWorkspaceLayout()).then((layout) => window.browser.saveWorkspaceLayout({ ...layout, agentPanelPosition: position })); }} /></div>;
+    return <div className="agent-floating-root"><AgentPanel onClose={() => { void window.browser.redockAgentPanel(); }} onDock={(position) => { void window.browser.redockAgentPanel(position); }} /></div>;
   }
 
   return (
