@@ -65,7 +65,7 @@ function App() {
     if (!element) return;
 
     const updateHeight = () => {
-      window.browser.setContentBounds({ top: Math.ceil(element.getBoundingClientRect().height), left: agentOpen ? 390 : 0 });
+      window.browser.setContentBounds({ top: Math.ceil(element.getBoundingClientRect().height), left: 0, right: agentOpen ? 390 : 0 });
     };
 
     const observer = new ResizeObserver(updateHeight);
