@@ -57,7 +57,7 @@ Workspace State / Layout Tree (versioned JSON)
 6. DOM adapter: applies the same rectangles to React surfaces where a native view is not needed.
 7. Persistence: versioned JSON with validation and safe fallback.
 
-The current implementation includes a pure geometry kernel, versioned workspace document persistence, four-way Agent docking controls, orientation-aware splitter resizing, and a main-process adapter that computes native Browser WebContentsView bounds from the workspace split. The tree utility layer supports left/right/top/bottom docking operations, split-ratio updates, visibility changes, removal/collapse, normalization and duplicate-ID validation. The renderer currently exposes explicit four-way dock controls and a resizable splitter; free-form drag targets and docking previews remain a separate interaction enhancement. AgentPanel remains React DOM and consumes the same workspace geometry as the native Browser view. A detached Agent BrowserWindow is supported, including redocking, bounds persistence and restore on restart.
+The current implementation includes a pure geometry kernel, versioned workspace document persistence, four-way Agent docking controls, orientation-aware splitter resizing, and a main-process adapter that computes native Browser WebContentsView bounds from the workspace split. The tree utility layer supports left/right/top/bottom docking operations, split-ratio updates, visibility changes, removal/collapse, normalization and duplicate-ID validation. The renderer exposes explicit four-way dock controls, drag-to-dock targets in the browser chrome, and an orientation-aware resizable splitter. The targets preview the four legal docking directions; arbitrary geometry previews for nested splits remain a future refinement. AgentPanel remains React DOM and consumes the same workspace geometry as the native Browser view. A detached Agent BrowserWindow is supported, including redocking, bounds persistence and restore on restart.
 
 ## Layout model
 
@@ -93,7 +93,8 @@ The main process computes the native Browser rectangle from the same split model
 - [x] pure split-ratio, dock, remove/collapse, visibility and normalization operations
 - [x] version-2 workspace document with nested tree, tab-group metadata and floating roots
 - [x] validate and migrate legacy version-1 panel preferences
-- [ ] free-form drag/drop targets and docking preview
+- [x] drag/drop targets for four-way Agent docking
+- [ ] live geometry preview for arbitrary nested split targets
 - [x] Browser/Agent Tab Group switcher drives persisted active-panel visibility
 - [ ] generalized keyboard focus order across arbitrary panel types
 
@@ -108,7 +109,7 @@ The main process computes the native Browser rectangle from the same split model
 - [x] workspace Tab Group data model and membership operations
 - [x] Tab Group UI that switches Browser/Agent panel content
 - [ ] floating roots for arbitrary panels, not only Agent
-- [ ] maximize/restore policy for docked panels
+- [x] maximize/restore Agent through Browser/Agent Tab Group mode
 - [ ] cross-platform interaction and performance tests
 
 ## Invariants
