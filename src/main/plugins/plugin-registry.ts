@@ -36,6 +36,8 @@ export interface PluginSummary extends PluginManifest {
 }
 interface RegistryState { version: 1; enabled: Record<string, boolean>; }
 
+const viewDeclarationSchema = z.object({ id: z.enum(["browser", "agent"]), title: z.string().trim().min(1).max(80).optional() }).strict();
+
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
 const MAX_SKILL_CONTEXT = 40_000;
@@ -98,9 +100,20 @@ export function validatePluginDirectory(directory: string): PluginManifest {
   if (new Set(paths).size !== paths.length) throw new Error("插件资源路径不能重复。");
   for (const relativePath of paths) {
     const file = resolveResource(root, relativePath);
+    if (manifest.skills.includes(relativePath) && path.extname(relativePath).toLowerCase() !== ".md") {
+      throw new Error("Skill 文件必须使用 Markdown：" + relativePath);
+    }
+    if (manifest.workflows.includes(relativePath) && ![".md", ".json"].includes(path.extname(relativePath).toLowerCase())) {
+      throw new Error("Workflow 文件必须使用 Markdown 或 JSON：" + relativePath);
+    }
     if (manifest.views.includes(relativePath)) {
-      try { JSON.parse(readFileSync(file, "utf8")); }
+      if (path.extname(relativePath).toLowerCase() !== ".json") throw new Error("View 声明必须使用 JSON：" + relativePath);
+      let declaration: unknown;
+      try { declaration = JSON.parse(readFileSync(file, "utf8")); }
       catch { throw new Error("View 声明必须是有效 JSON：" + relativePath); }
+      if (!viewDeclarationSchema.safeParse(declaration).success) {
+        throw new Error("View 声明只能引用宿主已支持的 browser 或 agent 视图：" + relativePath);
+      }
     }
   }
   return manifest;
