@@ -1,4 +1,5 @@
-import { validateLayout, type LayoutNode } from "../main/layout/layout-engine";
+import type { LayoutNode } from "./layout-types";
+import { validateLayout } from "../main/layout/layout-engine";
 
 export interface WorkspaceTabGroup {
   id: string;
