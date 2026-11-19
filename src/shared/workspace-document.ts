@@ -60,7 +60,9 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
     } else if (node.type !== "panel") throw new Error("Unknown layout node.");
     return ids;
   };
-  const panelIds = [...collect(root)].filter((id) => id !== "workspace-root");
+  const collectPanels = (node: LayoutNode): string[] => node.type === "panel" ? [node.id] : [...collectPanels(node.first), ...collectPanels(node.second)];
+  const panelIds = collectPanels(root);
+  const allNodeIds = collect(root);
   const floatingInput = Array.isArray(input.floating) ? input.floating : [];
   const floating = floatingInput.slice(0, 12).map((item) => {
     if (!item || typeof item !== "object") throw new Error("Invalid floating panel.");
@@ -80,14 +82,20 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
   });
   if (floating.some((item) => !item.id || !item.panelId || panelIds.includes(item.panelId))) throw new Error("Duplicate or empty floating panel identity.");
   const groupsInput = Array.isArray(input.tabGroups) ? input.tabGroups : [];
+  const groupIds = new Set<string>();
+  const groupedPanels = new Set<string>();
   const tabGroups = groupsInput.slice(0, 32).map((item) => {
     const row = item as Record<string, unknown>;
     const members = Array.isArray(row.panelIds) ? row.panelIds.filter((id): id is string => typeof id === "string").slice(0, 64) : [];
     const active = typeof row.activePanelId === "string" && members.includes(row.activePanelId) ? row.activePanelId : members[0] || "";
-    if (!row.id || members.length === 0 || new Set(members).size !== members.length) throw new Error("Invalid workspace tab group.");
-    return { id: String(row.id), panelIds: members, activePanelId: active };
+    const groupId = String(row.id || "");
+    if (!groupId || groupIds.has(groupId) || members.length === 0 || new Set(members).size !== members.length || members.some((id) => !panelIds.includes(id) || groupedPanels.has(id))) throw new Error("Invalid workspace tab group.");
+    groupIds.add(groupId); members.forEach((id) => groupedPanels.add(id));
+    return { id: groupId, panelIds: members, activePanelId: active };
   });
+  if (floating.some((item) => allNodeIds.has(item.id))) throw new Error("Floating root ID conflicts with layout tree.");
   const activePanelId = typeof input.activePanelId === "string" ? input.activePanelId : "browser";
+  if (!panelIds.includes(activePanelId) && !floating.some((item) => item.panelId === activePanelId)) throw new Error("Active panel is not part of the workspace.");
   return { version: 2, root, tabGroups, floating, activePanelId };
 }
 
