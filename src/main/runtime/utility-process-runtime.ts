@@ -20,6 +20,7 @@ const DEFAULT_LIMITS = {
 
 function safeEntry(skillRootValue: string, entry: string): { root: string; file: string } {
   if (!entry || path.isAbsolute(entry) || entry.includes(String.fromCharCode(92)) || entry.includes(String.fromCharCode(0))) {
+    throw new Error("Skill entry must be a package-relative path.");
   }
   const segments = entry.split("/");
   if (segments.some(part => !part || part === "." || part === "..")) {
