@@ -235,7 +235,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       >
         <strong className="agent-panel-title">Browser Agent</strong>
         <div className="agent-subtitle" title={subtitle}>{subtitle}</div>
-        <div className="agent-workspace" title={workspaceProject.path || "尚未选择本地项目目录"}>{workspaceProject.name ? "工作区：" + workspaceProject.name : "未选择工作区"}</div>
+        <div className="agent-workspace" title={workspaceProject.path || "尚未选择本地项目目录"}>{workspaceProject.name ? "工作区：" + workspaceProject.name + " · " + (settings.toolPermission === "browser-only" ? "文件访问关闭" : settings.toolPermission === "assisted" ? "只读" : "可读写") : "未选择工作区"}</div>
       </div>
       <div className="agent-panel-toolbar">
         <Tag className="agent-status-tag" color={status === "ready" ? "success" : "default"}>{status}</Tag>
