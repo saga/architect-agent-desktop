@@ -44,41 +44,49 @@ export class CopilotDesktopAgent {
     };
     return [
       defineTool("browser_get_current_page", {
+        skipPermission: true,
         description: "Read the active browser tab's title, URL, visible text, headings, links and interactive controls. Use this before answering questions about the page.",
         parameters: z.object({}),
         handler: async () => report("Read current page", await browser.getCurrentPage()),
       }),
       defineTool("browser_list_tabs", {
+        skipPermission: true,
         description: "List all open browser tabs and identify the active tab.",
         parameters: z.object({}),
         handler: async () => report("List tabs", await browser.listTabs()),
       }),
       defineTool("browser_navigate", {
+        skipPermission: true,
         description: "Navigate the active browser tab to an http(s) URL.",
         parameters: z.object({ url: z.string().url().max(2048) }),
         handler: async ({ url }) => report("Navigate", await browser.navigate(url)),
       }),
       defineTool("browser_open_tab", {
+        skipPermission: true,
         description: "Open a URL in a new browser tab.",
         parameters: z.object({ url: z.string().url().max(2048) }),
         handler: async ({ url }) => report("Open tab", await browser.openTab(url)),
       }),
       defineTool("browser_switch_tab", {
+        skipPermission: true,
         description: "Switch the active browser tab using an ID returned by browser_list_tabs.",
         parameters: z.object({ tabId: z.string().min(1).max(100) }),
         handler: async ({ tabId }) => report("Switch tab", await browser.switchTab(tabId)),
       }),
       defineTool("browser_click", {
+        skipPermission: true,
         description: "Click a visible non-submit page element using a CSS selector. Never use this for purchases, payments, sending messages, deleting data, account/security changes, or form submission; explain the action and ask the user to do those themselves.",
         parameters: z.object({ selector: z.string().min(1).max(500) }),
         handler: async ({ selector }) => report("Click element", await browser.click(selector)),
       }),
       defineTool("browser_fill", {
+        skipPermission: true,
         description: "Fill a visible non-password text field or textarea. This does not submit the form.",
         parameters: z.object({ selector: z.string().min(1).max(500), value: z.string().max(10000) }),
         handler: async ({ selector, value }) => report("Fill field", await browser.fill(selector, value)),
       }),
       defineTool("browser_scroll", {
+        skipPermission: true,
         description: "Scroll the active page up or down.",
         parameters: z.object({ direction: z.enum(["up", "down"]), amount: z.number().int().min(100).max(2000).default(650) }),
         handler: async ({ direction, amount }) => report("Scroll page", await browser.scroll(direction, amount)),
