@@ -22,9 +22,12 @@ function App() {
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState("");
   const [latestDownload, setLatestDownload] = useState<BrowserDownloadEvent | null>(null);
-  const [agentOpen, setAgentOpen] = useState(true);\n  const [agentWidth, setAgentWidth] = useState(390);\n  const splitterDrag = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [agentOpen, setAgentOpen] = useState(true);
+  const [agentWidth, setAgentWidth] = useState(390);
+  const splitterDrag = useRef<{ startX: number; startWidth: number } | null>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
-  const browserWorkspaceRef = useRef<HTMLDivElement>(null);\n  const appShellRef = useRef<HTMLDivElement>(null);
+  const browserWorkspaceRef = useRef<HTMLDivElement>(null);
+  const appShellRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
 
@@ -34,7 +37,11 @@ function App() {
   );
 
   useEffect(() => {
-    void window.browser.getWorkspaceLayout().then((layout) => {\n      setAgentWidth(layout.agentPanelWidth);\n      setAgentOpen(layout.agentPanelVisible);\n    }).catch((error: unknown) => console.error("Unable to load workspace layout", error));\n    const unsubscribeState = window.browser.onState(setBrowserState);
+    void window.browser.getWorkspaceLayout().then((layout) => {
+      setAgentWidth(layout.agentPanelWidth);
+      setAgentOpen(layout.agentPanelVisible);
+    }).catch((error: unknown) => console.error("Unable to load workspace layout", error));
+    const unsubscribeState = window.browser.onState(setBrowserState);
     const unsubscribeFocus = window.browser.onFocusAddress(() => {
       addressRef.current?.focus();
       addressRef.current?.select();
@@ -115,7 +122,24 @@ function App() {
     }
   }, [activeTab]);
 
-  const isSecure = activeTab?.url.startsWith("https://") ?? false;\n\n  const saveWorkspaceLayout = (visible = agentOpen, width = agentWidth) => {\n    void window.browser.saveWorkspaceLayout({ version: 1, agentPanelWidth: width, agentPanelVisible: visible }).catch((error: unknown) => console.error("Unable to save workspace layout", error));\n  };\n  const onSplitterPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {\n    event.currentTarget.setPointerCapture(event.pointerId);\n    splitterDrag.current = { startX: event.clientX, startWidth: agentWidth };\n  };\n  const onSplitterPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {\n    if (!splitterDrag.current) return;\n    setAgentWidth(Math.max(280, Math.min(720, splitterDrag.current.startWidth + splitterDrag.current.startX - event.clientX)));\n  };\n  const onSplitterPointerUp = () => {\n    if (!splitterDrag.current) return;\n    splitterDrag.current = null;\n    saveWorkspaceLayout(agentOpen, agentWidth);\n  };
+  const isSecure = activeTab?.url.startsWith("https://") ?? false;
+
+  const saveWorkspaceLayout = (visible = agentOpen, width = agentWidth) => {
+    void window.browser.saveWorkspaceLayout({ version: 1, agentPanelWidth: width, agentPanelVisible: visible }).catch((error: unknown) => console.error("Unable to save workspace layout", error));
+  };
+  const onSplitterPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    splitterDrag.current = { startX: event.clientX, startWidth: agentWidth };
+  };
+  const onSplitterPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!splitterDrag.current) return;
+    setAgentWidth(Math.max(280, Math.min(720, splitterDrag.current.startWidth + splitterDrag.current.startX - event.clientX)));
+  };
+  const onSplitterPointerUp = () => {
+    if (!splitterDrag.current) return;
+    splitterDrag.current = null;
+    saveWorkspaceLayout(agentOpen, agentWidth);
+  };
 
   return (
     <div ref={appShellRef} className={"app-shell" + (agentOpen ? " agent-open" : "")} style={{ gridTemplateColumns: agentOpen ? `minmax(0, 1fr) 6px ${agentWidth}px` : "minmax(0, 1fr)" }}>
@@ -268,7 +292,10 @@ function App() {
         )}
       </div>
       </div>
-      {agentOpen && <div className="workspace-splitter" role="separator" aria-orientation="vertical" aria-label="Resize Agent panel" tabIndex={0}\n        onPointerDown={onSplitterPointerDown} onPointerMove={onSplitterPointerMove} onPointerUp={onSplitterPointerUp} onPointerCancel={onSplitterPointerUp}\n        onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { const next = Math.max(280, Math.min(720, agentWidth + (event.key === "ArrowLeft" ? 16 : -16))); setAgentWidth(next); saveWorkspaceLayout(true, next); } }} />}\n      {agentOpen && <AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} />}
+      {agentOpen && <div className="workspace-splitter" role="separator" aria-orientation="vertical" aria-label="Resize Agent panel" tabIndex={0}
+        onPointerDown={onSplitterPointerDown} onPointerMove={onSplitterPointerMove} onPointerUp={onSplitterPointerUp} onPointerCancel={onSplitterPointerUp}
+        onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { const next = Math.max(280, Math.min(720, agentWidth + (event.key === "ArrowLeft" ? 16 : -16))); setAgentWidth(next); saveWorkspaceLayout(true, next); } }} />}
+      {agentOpen && <AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} />}
     </div>
   );
 }
