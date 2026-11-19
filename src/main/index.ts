@@ -20,6 +20,8 @@ import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import type { AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { calculateLayout, type LayoutNode } from "./layout/layout-engine";
+import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
+import type { WorkspaceLayoutState } from "../shared/types";
 
 const APP_ID = "com.saga.architectagentdesktop";
 const HOME_URL = "https://www.google.com/";
@@ -50,6 +52,12 @@ let contentTop = DEFAULT_CONTENT_TOP;
 let contentLeft = 0;
 let contentWidth: number | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
+const WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
+function loadWorkspaceLayout(): WorkspaceLayoutState {
+  try { return parseWorkspaceLayout(JSON.parse(readFileSync(WORKSPACE_LAYOUT_PATH, "utf8"))); }
+  catch { return { ...DEFAULT_WORKSPACE_LAYOUT }; }
+}
+let workspaceLayout = loadWorkspaceLayout();
 const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", systemPrompt: "" };
 function loadAgentSettings(): AgentSettings {
   try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" ? raw.thinkingLevel : "medium", copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? raw.systemPrompt.slice(0, 12000) : "" }; } catch { return { ...DEFAULT_SETTINGS }; }
@@ -766,7 +774,7 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
   }
 }
 
-function registerIpcHandlers(): void {
+function registerIpcHandlers(): void {\n  ipcMain.handle("workspace:get-layout", (event) => { assertTrustedSender(event); return { ...workspaceLayout }; });\n  ipcMain.handle("workspace:save-layout", (event, input: unknown) => {\n    assertTrustedSender(event);\n    const parsed = z.object({ version: z.literal(1), agentPanelWidth: z.number().finite().min(280).max(720), agentPanelVisible: z.boolean() }).safeParse(input);\n    if (!parsed.success) throw new Error("Invalid workspace layout.");\n    workspaceLayout = parseWorkspaceLayout(parsed.data);\n    writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });\n    return { ...workspaceLayout };\n  });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
   ipcMain.handle("browser:get-state", (event) => {
     assertTrustedSender(event);
