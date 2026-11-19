@@ -1,34 +1,23 @@
-# ADR-002: Profiles Compose Plugins and Workspace Configuration
+# ADR-002: Simple Team Profiles with Local Overrides
 
 **Status:** Proposed  
 **Date:** 2026-11-19
 
 ## Context
 
-Different teams and individual users require different combinations of tools, skills, workflows, context and panels. Separate application builds or hard-coded team modes would make these variations expensive to maintain.
+Different teams need different workspace defaults, while individuals need to retain personal preferences. A layered inheritance and generic merge system would add complexity without a current need for centralized administration.
 
 ## Decision
 
-Use a versioned Profile as the composition unit for a working environment. A profile selects installed plugins and contributions, supplies schema-validated configuration, references a workspace layout and may define task presets.
+Use a simple Profile JSON document to select installed plugins, provide non-secret plugin configuration and optionally reference a saved Layout Engine layout.
 
-The target layering is Built-in Defaults -> optional Organization Baseline -> Team Profile -> User Overrides -> Session Overrides.
+The initial precedence is limited to built-in defaults, one active Team Profile and local user overrides. Session-only changes are temporary. No organization layer, nested inheritance or remote synchronization is required.
 
-The first local implementation may omit the Organization Baseline and use import/export for Team Profiles. Security policy and permission grants are not profile configuration and cannot be weakened by profile layers.
+The Layout Engine remains the owner of layout schema and persistence. Profiles reference layouts rather than defining a parallel representation.
 
 ## Consequences
 
-Positive:
-- Teams can share a workspace definition without distributing a separate application.
-- Personal preferences can coexist with team conventions.
-- Profiles can be inspected, versioned and exchanged as files.
-
-Trade-offs:
-- Merge semantics and schema compatibility must be explicit.
-- Missing plugins and failed activation need visible recovery behavior.
-- Profile portability requires strict exclusion of secrets and local runtime state.
-
-## Constraints
-
-- Importing a profile does not install arbitrary code or grant permissions.
-- Session overrides do not silently modify saved profiles.
-- The effective profile must identify the source layer for resolved settings.
+- Team workspaces can be shared as files and version-controlled externally.
+- Profile resolution remains deterministic and easy to explain.
+- Security permissions, approval decisions, credentials and secrets are never profile configuration.
+- More complex inheritance or merge semantics require evidence from real usage before being added.
