@@ -4,23 +4,8 @@
  * The engine owns geometry only. Electron Views, React panels and native
  * windows are adapters that consume the resulting rectangles.
  */
-export type LayoutAxis = "horizontal" | "vertical";
-export type LayoutNode =
-  | { type: "panel"; id: string; minWidth?: number; minHeight?: number; maxWidth?: number; maxHeight?: number; visible?: boolean }
-  | { type: "split"; id: string; axis: LayoutAxis; ratio: number; first: LayoutNode; second: LayoutNode; splitterSize?: number };
-
-export interface LayoutRect { x: number; y: number; width: number; height: number }
-export interface LayoutResult {
-  bounds: Record<string, LayoutRect>;
-  hidden: string[];
-  overflow: string[];
-  version: number;
-}
-export interface LayoutOptions {
-  splitterSize?: number;
-  minPanelSize?: number;
-  pixelRatio?: number;
-}
+import type { LayoutAxis, LayoutNode, LayoutOptions, LayoutRect, LayoutResult } from "../../shared/layout-types";
+export type { LayoutAxis, LayoutNode, LayoutOptions, LayoutRect, LayoutResult } from "../../shared/layout-types";
 
 const finite = (n: number, fallback: number) => Number.isFinite(n) ? n : fallback;
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
