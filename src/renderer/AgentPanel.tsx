@@ -13,13 +13,20 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     void window.browser.copilotStatus().then((result) => setStatus(result.status)).catch(() => setStatus("error"));
-    return window.browser.onCopilotEvent((event: CopilotEvent) => {
+    const unsubscribe = window.browser.onCopilotEvent((event: CopilotEvent) => {
       if (event.type === "status" && event.status) setStatus(event.status);
       if (event.type === "delta" && event.text) setItems((current) => {
         const next = [...current];
         const last = next[next.length - 1];
         if (last?.role === "assistant" && last.loading) last.content += event.text;
         else next.push({ key: crypto.randomUUID(), role: "assistant", content: event.text ?? "", loading: true });
+        return next;
+      });
+      if (event.type === "message" && event.text) setItems((current) => {
+        const next = [...current];
+        const last = next[next.length - 1];
+        if (last?.role === "assistant") { last.content = event.text ?? last.content; last.loading = false; }
+        else next.push({ key: crypto.randomUUID(), role: "assistant", content: event.text ?? "" });
         return next;
       });
       if (event.type === "done") {
@@ -32,6 +39,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
         setItems((current) => [...current, { key: crypto.randomUUID(), role: "assistant", content: event.text ?? "Request failed." }]);
       }
     });
+    return unsubscribe;
   }, []);
 
   const send = async (value: string) => {

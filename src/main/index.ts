@@ -707,7 +707,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("copilot:status", async (event) => {
     assertTrustedSender(event);
-    return copilotAgent.status();
+    return await copilotAgent.status();
   });
   ipcMain.handle("copilot:send", async (event, input: unknown) => {
     assertTrustedSender(event);
@@ -742,6 +742,10 @@ app.whenReady().then(() => {
       createMainWindow();
     }
   });
+});
+
+app.on("before-quit", () => {
+  void copilotAgent.stop();
 });
 
 app.on("window-all-closed", () => {

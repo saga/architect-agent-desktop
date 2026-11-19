@@ -15,22 +15,21 @@ export class CopilotDesktopAgent {
 
   constructor(publish: (event: CopilotEvent) => void) { this.publish = publish; }
 
-  status(): { status: string; message?: string } {
-    if (this.session) return { status: "ready" };
-    if (this.starting) return { status: "starting" };
-    return { status: "unauthenticated", message: "Sign in with GitHub Copilot CLI to use the agent." };
+  async status(): Promise<{ status: string; message?: string }> {
+    try { await this.ensureSession(); return { status: "ready" }; }
+    catch (error) { return { status: "unauthenticated", message: error instanceof Error ? error.message : String(error) }; }
   }
 
   private async ensureSession(): Promise<CopilotSession> {
     if (this.session) return this.session;
     if (!this.starting) {
       this.starting = (async () => {
-        const client = new CopilotClient({ useLoggedInUser: true });
+        const client = new CopilotClient({ useLoggedInUser: true, mode: "empty" });
         this.client = client;
         await client.start();
         this.session = await client.createSession({
           streaming: true,
-          onPermissionRequest: async () => ({ kind: "denied-no-approval" } as never),
+          onPermissionRequest: async () => ({ kind: "user-not-available" } as never),
           onMcpAuthRequest: async () => ({ kind: "cancelled" } as never),
         });
         this.publish({ type: "status", status: "ready" });
@@ -58,7 +57,9 @@ export class CopilotDesktopAgent {
         if (delta) this.publish({ type: "delta", text: delta });
       });
       try {
-        await session.sendAndWait({ prompt }, 300_000);
+        const finalEvent = await session.sendAndWait({ prompt }, 300_000);
+        const finalContent = (finalEvent as unknown as { data?: { content?: string } } | undefined)?.data?.content;
+        if (typeof finalContent === "string" && finalContent) this.publish({ type: "message", text: finalContent });
         this.publish({ type: "done" });
       } finally { off(); }
     } catch (error) {

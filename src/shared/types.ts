@@ -22,7 +22,7 @@ export interface BrowserDownloadEvent {
   savePath?: string;
 }
 
-export interface CopilotEvent { type: "status" | "delta" | "error" | "done"; status?: string; text?: string; }
+export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done"; status?: string; text?: string; }
 
 export interface BrowserApi {
   getState(): Promise<BrowserState>;
