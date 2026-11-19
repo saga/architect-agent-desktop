@@ -137,7 +137,7 @@ export function normalizeCode(input: string): string {
 }
 
 export function createCodeModeDescription(providers: ResolvedProvider[]): string {
-  const types = [generateTypesFromJsonSchema(providers), "declare const log: { info(message: unknown): void; warn(message: unknown): void; error(message: unknown): void; };"].filter(Boolean).join("\\n\\n");
+  const types = [generateTypesFromJsonSchema(providers), "declare const log: { info(message: unknown): void; warn(message: unknown): void; error(message: unknown): void; };"].filter(Boolean).join("\n\n");
   return [
     "Execute JavaScript to orchestrate multiple desktop tools in one run. Prefer this for multi-step workflows, parallel operations, and filtering or aggregating large results without returning intermediate data to the model.",
     "Tools are exposed as typed namespaces (for example browser.listTabs(), browser.getCurrentPage(), workspace.readFile({ path })). Each method returns a Promise. Use await and Promise.all; return a compact final result. Ordinary tool calling remains available for simple, single-step actions.",
