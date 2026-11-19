@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { calculateLayout, validateLayout } = require("../dist/main/layout/layout-engine.js");
 const { dockPanel, removePanel, collectPanelIds, normalizeLayout } = require("../dist/main/layout/layout-tree.js");
-const { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, activateWorkspaceTab } = require("../dist/shared/workspace-document.js");
+const { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, activateWorkspaceTab, createWorkspaceTabGroup, movePanelToTabGroup, removePanelFromTabGroup } = require("../dist/shared/workspace-document.js");
 
 const base = {
   type: "split",
@@ -93,4 +93,18 @@ test("workspace parser rejects duplicate IDs and invalid group members", () => {
   assert.throws(() => parseWorkspaceDocument(duplicate));
   const invalidGroup = { ...DEFAULT_WORKSPACE_DOCUMENT, tabGroups: [{ id: "g", panelIds: ["missing"], activePanelId: "missing" }] };
   assert.throws(() => parseWorkspaceDocument(invalidGroup));
+});
+
+test("workspace tab groups support create, move and detach membership", () => {
+  const withAgent = {
+    ...DEFAULT_WORKSPACE_DOCUMENT,
+    root: { type: "split", id: "root", axis: "horizontal", ratio: 0.5,
+      first: { type: "panel", id: "browser" }, second: { type: "panel", id: "agent" } },
+  };
+  const grouped = createWorkspaceTabGroup(withAgent, "workspace-tabs", ["browser", "agent"], "browser");
+  assert.equal(grouped.tabGroups[0].panelIds.length, 2);
+  const moved = movePanelToTabGroup({ ...grouped, tabGroups: [{ id: "browser-only", panelIds: ["browser"], activePanelId: "browser" }] }, "browser-only", "agent");
+  assert.deepEqual(moved.tabGroups[0].panelIds, ["browser", "agent"]);
+  const detached = removePanelFromTabGroup(grouped, "workspace-tabs", "agent");
+  assert.deepEqual(detached.tabGroups[0].panelIds, ["browser"]);
 });
