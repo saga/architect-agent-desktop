@@ -43,9 +43,70 @@ let browserSession: Session;
 let activeTabId: string | null = null;
 let attachedView: WebContentsView | null = null;
 let contentTop = DEFAULT_CONTENT_TOP;
-let contentLeft = 0;
+let contentLeft = 0;\nlet contentRight = 0;
 const copilotAgent = new CopilotDesktopAgent((payload) => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("copilot:event", payload);
+}, {
+  async getCurrentPage() {
+    const tab = activeTabId ? tabs.get(activeTabId) : null;
+    if (!tab) return "No active browser tab.";
+    return await tab.view.webContents.executeJavaScript(`(() => {
+      const clean = (s) => (s || "").replace(/\\s+/g, " ").trim();
+      const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };
+      const bodyText = clean(document.body?.innerText).slice(0, 18000);
+      const headings = [...document.querySelectorAll("h1,h2,h3")].filter(visible).slice(0, 40).map(e => clean(e.innerText));
+      const links = [...document.querySelectorAll("a[href]")].filter(visible).slice(0, 60).map(a => ({ text: clean(a.innerText || a.getAttribute("aria-label")), href: a.href }));
+      const controls = [...document.querySelectorAll("button,input,textarea,select,[role=button]")].filter(visible).slice(0, 60).map((e,i) => ({ tag:e.tagName.toLowerCase(), type:e.type || "", text:clean(e.innerText || e.getAttribute("aria-label") || e.getAttribute("placeholder")), name:e.getAttribute("name"), id:e.id, selector:e.id ? "#" + CSS.escape(e.id) : e.getAttribute("name") ? e.tagName.toLowerCase() + "[name=" + JSON.stringify(e.getAttribute("name")) + "]" : e.tagName.toLowerCase() + ":nth-of-type(" + (Array.from(e.parentElement?.children || []).filter(x => x.tagName === e.tagName).indexOf(e)+1) + ")" }));
+      return JSON.stringify({ title:document.title, url:location.href, headings, text:bodyText, links, controls });
+    })()`);
+  },
+  async listTabs() {
+    return JSON.stringify({ activeTabId, tabs: currentState().tabs.map(t => ({ id:t.id, title:t.title, url:t.url, active:t.id===activeTabId, loading:t.isLoading })) });
+  },
+  async navigate(url) {
+    if (!safeWebUrl(url)) throw new Error("Only http(s) URLs are allowed.");
+    if (!activeTabId) throw new Error("No active tab.");
+    const tab=tabs.get(activeTabId); if (!tab) throw new Error("Active tab not found.");
+    await tab.view.webContents.loadURL(url); return "Navigated active tab to " + url;
+  },
+  async openTab(url) {
+    if (!safeWebUrl(url)) throw new Error("Only http(s) URLs are allowed.");
+    const id=createTab(url); return "Opened new tab " + id + " at " + url;
+  },
+  async switchTab(tabId) {
+    if (!tabs.has(tabId)) throw new Error("Unknown tab ID.");
+    activateTab(tabId); return "Switched to tab " + tabId;
+  },
+  async click(selector) {
+    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    return await tab.view.webContents.executeJavaScript(`(() => {
+      const el=document.querySelector(${JSON.stringify(selector)});
+      if (!el) throw new Error("Element not found: " + ${JSON.stringify(selector)});
+      const r=el.getBoundingClientRect(); if (r.width<=0 || r.height<=0) throw new Error("Element is not visible.");
+      const text=(el.innerText || el.getAttribute("aria-label") || "").trim();
+      const type=(el.getAttribute("type") || "").toLowerCase();
+      if (type==="submit" || el.tagName==="FORM" || /pay|purchase|buy now|place order|delete|remove account|send message|transfer|confirm payment|unsubscribe/i.test(text)) throw new Error("Potentially consequential action blocked. Ask the user to perform it.");
+      el.click(); return "Clicked " + (text || el.tagName) + ".";
+    })()`);
+  },
+  async fill(selector, value) {
+    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    return await tab.view.webContents.executeJavaScript(`(() => {
+      const el=document.querySelector(${JSON.stringify(selector)});
+      if (!el) throw new Error("Field not found.");
+      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) throw new Error("Only input and textarea fields can be filled.");
+      if (el instanceof HTMLInputElement && ["password","hidden","submit","button","file"].includes(el.type)) throw new Error("This field type cannot be filled by the agent.");
+      const setter=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
+      setter?.call(el, ${JSON.stringify(value)});
+      el.dispatchEvent(new Event("input", { bubbles:true })); el.dispatchEvent(new Event("change", { bubbles:true }));
+      return "Filled field " + (el.getAttribute("aria-label") || el.name || el.id || el.tagName) + ". Form was not submitted.";
+    })()`);
+  },
+  async scroll(direction, amount) {
+    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    await tab.view.webContents.executeJavaScript("window.scrollBy({top:" + (direction==="down" ? amount : -amount) + ",behavior:'smooth'})");
+    return "Scrolled " + direction + " by " + amount + " pixels.";
+  },
 });
 let downloadSequence = 0;
 
@@ -117,7 +178,7 @@ function updateActiveBounds(): void {
   attachedView.setBounds({
     x: Math.max(0, Math.min(contentLeft, width)),
     y: top,
-    width: Math.max(0, width - Math.max(0, Math.min(contentLeft, width))),
+    width: Math.max(0, width - Math.max(0, Math.min(contentLeft, width)) - Math.max(0, Math.min(contentRight, width))),
     height: Math.max(0, height - top),
   });
 }
@@ -698,10 +759,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.on("browser:set-content-bounds", (event, bounds: unknown) => {
     if (!isTrustedAppSender(event.sender)) return;
-    const parsed = z.object({ top: z.number().finite().min(0).max(300), left: z.number().finite().min(0).max(900) }).safeParse(bounds);
+    const parsed = z.object({ top: z.number().finite().min(0).max(300), left: z.number().finite().min(0).max(900), right: z.number().finite().min(0).max(900) }).safeParse(bounds);
     if (!parsed.success) return;
     contentTop = Math.round(parsed.data.top);
-    contentLeft = Math.round(parsed.data.left);
+    contentLeft = Math.round(parsed.data.left);\n    contentRight = Math.round(parsed.data.right);
     updateActiveBounds();
   });
 
