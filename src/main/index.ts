@@ -692,13 +692,57 @@ function isTrustedAppSender(webContents: WebContents): boolean {
 }
 
 function openAgentSettingsWindow(): void {
-  if (agentSettingsWindow && !agentSettingsWindow.isDestroyed()) { agentSettingsWindow.show(); agentSettingsWindow.focus(); return; }
+  if (agentSettingsWindow && !agentSettingsWindow.isDestroyed()) {
+    agentSettingsWindow.show();
+    agentSettingsWindow.focus();
+    return;
+  }
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  agentSettingsWindow = new BrowserWindow({ parent: mainWindow, modal: true, width: 560, height: 680, minWidth: 520, minHeight: 600, resizable: true, maximizable: false, minimizable: false, title: "Agent Settings", backgroundColor: "#ffffff", autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, "../preload/index.js"), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+
+  // WebContentsView is a native child view and is always composited above the
+  // main renderer's DOM. Keep settings in a real native child window instead
+  // of trying to place a React/Ant Design modal over the embedded browser.
+  const settingsWindow = new BrowserWindow({
+    parent: mainWindow,
+    modal: true,
+    show: false,
+    width: 600,
+    height: 720,
+    minWidth: 540,
+    minHeight: 620,
+    resizable: true,
+    maximizable: false,
+    minimizable: false,
+    title: "Agent 配置",
+    backgroundColor: "#ffffff",
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/index.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  agentSettingsWindow = settingsWindow;
+  settingsWindow.once("ready-to-show", () => {
+    if (!settingsWindow.isDestroyed()) {
+      settingsWindow.center();
+      settingsWindow.show();
+      settingsWindow.focus();
+    }
+  });
+  settingsWindow.on("closed", () => {
+    if (agentSettingsWindow === settingsWindow) agentSettingsWindow = null;
+  });
+
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devServerUrl) void agentSettingsWindow.loadURL(devServerUrl + (devServerUrl.includes("?") ? "&" : "?") + "agent-settings=1");
-  else void agentSettingsWindow.loadFile(path.join(__dirname, "../renderer/index.html"), { query: { "agent-settings": "1" } });
-  agentSettingsWindow.on("closed", () => { agentSettingsWindow = null; });
+  const loading = devServerUrl
+    ? settingsWindow.loadURL(devServerUrl + (devServerUrl.includes("?") ? "&" : "?") + "agent-settings=1")
+    : settingsWindow.loadFile(path.join(__dirname, "../renderer/index.html"), { query: { "agent-settings": "1" } });
+  void loading.catch((error: unknown) => {
+    console.error("Unable to open Agent settings window", error);
+    if (!settingsWindow.isDestroyed()) settingsWindow.close();
+  });
 }
 
 function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
