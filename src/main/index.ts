@@ -21,6 +21,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { calculateLayout, type LayoutNode } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
+import { setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
 import type { WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
 import { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel } from "../shared/workspace-document";
@@ -217,21 +218,7 @@ function updateActiveBounds(): void {
     width: Math.max(0, Math.min(contentWidth ?? (width - left), width - left)),
     height,
   };
-  const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
-  const splitterSize = workspaceLayout.agentPanelVisible ? 6 : 0;
-  const agentSize = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;
-  const axisSize = isHorizontal ? viewport.width : viewport.height;
-  const available = Math.max(0, axisSize - splitterSize);
-  const browserSize = Math.max(0, available - agentSize);
-  const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
-  const browserNode: LayoutNode = { type: "panel", id: "browser", minWidth: 320, minHeight: 240 };
-  const agentNode: LayoutNode = { type: "panel", id: "agent", minWidth: 280, minHeight: 240, visible: workspaceLayout.agentPanelVisible };
-  const layoutTree: LayoutNode = {
-    type: "split", id: "workspace-root", axis: isHorizontal ? "horizontal" : "vertical",
-    ratio: available > 0 ? (agentFirst ? agentSize : browserSize) / available : 1, splitterSize,
-    first: agentFirst ? agentNode : browserNode,
-    second: agentFirst ? browserNode : agentNode,
-  };
+  const layoutTree = setPanelVisibility(workspaceDocument.root, "agent", workspaceLayout.agentPanelVisible);
   const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
   const browserBounds = layout.bounds.browser;
   if (!browserBounds) {
@@ -965,7 +952,7 @@ function registerIpcHandlers(): void {
     if (!parsed.success) throw new Error("Invalid workspace layout.");
     workspaceLayout = parseWorkspaceLayout(parsed.data);
     writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
-    const root = workspaceDocument.root;
+    let root = setPanelVisibility(workspaceDocument.root, "agent", workspaceLayout.agentPanelVisible);
     if (root.type === "split" && root.first.type === "panel" && root.second.type === "panel" && new Set([root.first.id, root.second.id]).size === 2 && [root.first.id, root.second.id].includes("browser") && [root.first.id, root.second.id].includes("agent")) {
       const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
       const [windowWidth, windowHeight] = mainWindow?.getContentSize() ?? [1200, 800];
@@ -973,15 +960,15 @@ function registerIpcHandlers(): void {
       const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
       const agentSize = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;
       const browserSize = Math.max(0, available - agentSize);
+      const browserNode = root.first.id === "browser" ? root.first : root.second;
+      const agentNode = root.first.id === "agent" ? root.first : root.second;
       root.axis = isHorizontal ? "horizontal" : "vertical";
-      root.ratio = workspaceLayout.agentPanelVisible && available > 0 ? Math.max(0.05, Math.min(0.95, (agentFirst ? agentSize : browserSize) / available)) : 0.5;
-      const browserNode = root.first.id === "browser" || root.second.id === "browser" ? (root.first.id === "browser" ? root.first : root.second) : { type: "panel" as const, id: "browser", minWidth: 320, minHeight: 240 };
-      const agentNode = root.first.id === "agent" || root.second.id === "agent" ? (root.first.id === "agent" ? root.first : root.second) : { type: "panel" as const, id: "agent", minWidth: 280, minHeight: 240 };
+      root.ratio = workspaceLayout.agentPanelVisible ? Math.max(0.05, Math.min(0.95, (agentFirst ? agentSize : browserSize) / available)) : 0.5;
       root.first = agentFirst ? { ...agentNode, visible: workspaceLayout.agentPanelVisible } : browserNode;
       root.second = agentFirst ? browserNode : { ...agentNode, visible: workspaceLayout.agentPanelVisible };
-      workspaceDocument = { ...workspaceDocument, root };
-      writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
     }
+    workspaceDocument = { ...workspaceDocument, root };
+    writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
     return { ...workspaceLayout };
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
