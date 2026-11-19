@@ -89,6 +89,10 @@ Choose **打开工作区** in the main toolbar to select a local project directo
 
 在 Agent 面板工具栏中打开「Session Explorer」，可以按工作区查看完整会话消息、运行事件时间线、工具调用参数与结果、模型请求耗时以及 SDK 可观察到的上下文内容。模型 Token 用量仅在 Provider 实际返回 usage 数据时展示；SDK 未暴露的底层请求不会被推断。会话消息逐条保存在 SQLite session_messages 表中，不再受旧版 200 条消息截断影响。详见 [ADR-003](docs/architecture/adr/ADR-003-session-explorer.md)。
 
+## Agent Runtime 与 Code Mode
+
+Runtime 基础设计、可信 Skill 的 UtilityProcess 执行、Capability API，以及 LLM 动态代码的安全边界见 [Agent Runtime、Code Mode 与安全沙箱设计](docs/architecture/AGENT-RUNTIME-AND-SANDBOX.md)。当前 Native Runtime 仅面向可信本地脚本；LLM 生成代码在 OS 级 Sandbox Backend 落地前保持禁用。现有插件仍是声明式资源，不会因导入而执行 JavaScript。
+
 ## Plugins
 
 Open **Agent 与插件配置** from the application settings, then import a plugin directory. The repository includes a working example at `examples/plugins/research-assistant`.
