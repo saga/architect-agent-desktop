@@ -19,8 +19,12 @@ import { z } from "zod";
 import { CopilotDesktopAgent } from "./copilot";
 import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import { MAX_AGENT_SESSION_ITEMS, parseAgentSessionItems } from "./agent-session";
+import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
+import { writeJsonAtomic } from "./json-store";
+import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./login-shell-env";
 import { calculateLayout } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { findPanel, setPanelVisibility } from "./layout/layout-tree";
@@ -70,7 +74,6 @@ const AGENT_SESSION_PATH = path.join(app.getPath("userData"), "agent-session.jso
 const WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
 const WORKSPACE_DOCUMENT_PATH = path.join(app.getPath("userData"), "workspace-document.json");
 const WINDOW_STATE_PATH = path.join(app.getPath("userData"), "window-state.json");
-const MAX_AGENT_SESSION_ITEMS = 200;
 function loadWorkspaceLayout(): WorkspaceLayoutState {
   try { return parseWorkspaceLayout(JSON.parse(readFileSync(WORKSPACE_LAYOUT_PATH, "utf8"))); }
   catch { return { ...DEFAULT_WORKSPACE_LAYOUT }; }
@@ -85,25 +88,6 @@ const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "",
 function loadAgentSettings(): AgentSettings {
   try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" || raw.thinkingLevel === "xhigh" ? raw.thinkingLevel : "medium", toolPermission: raw.toolPermission === "assisted" || raw.toolPermission === "allow-all" ? raw.toolPermission : "browser-only", contextWindow: typeof raw.contextWindow === "number" && Number.isSafeInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined, copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? (raw.systemPrompt.trim() ? raw.systemPrompt.slice(0, 12000) : DEFAULT_SETTINGS.systemPrompt) : DEFAULT_SETTINGS.systemPrompt }; } catch { return { ...DEFAULT_SETTINGS }; }
 }
-function parseAgentSessionItems(value: unknown): AgentSessionItem[] {
-  if (!Array.isArray(value)) return [];
-  const items: AgentSessionItem[] = [];
-  for (const raw of value) {
-    if (!raw || typeof raw !== "object") continue;
-    const item = raw as Partial<AgentSessionItem>;
-    if (!["user", "assistant", "tool", "error"].includes(item.kind ?? "")) continue;
-    if (typeof item.content !== "string") continue;
-    items.push({
-      id: typeof item.id === "string" && item.id ? item.id.slice(0, 100) : randomUUID(),
-      kind: item.kind as AgentSessionItem["kind"],
-      content: item.content.slice(0, 20000),
-      ...(typeof item.toolName === "string" ? { toolName: item.toolName.slice(0, 200) } : {}),
-      ...(item.toolState === "done" || item.toolState === "error" ? { toolState: item.toolState } : {}),
-      createdAt: typeof item.createdAt === "number" && Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
-    });
-  }
-  return items.slice(-MAX_AGENT_SESSION_ITEMS);
-}
 function loadAgentSession(): AgentSessionItem[] {
   try {
     const parsed = JSON.parse(readFileSync(AGENT_SESSION_PATH, "utf8")) as { items?: unknown };
@@ -114,10 +98,17 @@ function loadAgentSession(): AgentSessionItem[] {
 }
 function saveAgentSession(items: AgentSessionItem[]): void {
   const trimmed = parseAgentSessionItems(items).slice(-MAX_AGENT_SESSION_ITEMS);
-  writeFileSync(AGENT_SESSION_PATH, JSON.stringify({ version: 1, updatedAt: Date.now(), items: trimmed }, null, 2), { encoding: "utf8", mode: 0o600 });
+  try {
+    writeJsonAtomic(AGENT_SESSION_PATH, { version: 1, updatedAt: Date.now(), items: trimmed });
+  } catch (error) {
+    recordOperation("session", "save failed: " + (error instanceof Error ? error.message : String(error)));
+  }
 }
 let agentSettings = loadAgentSettings();
 const copilotAgent = new CopilotDesktopAgent((payload) => {
+  if (payload.type === "status" || payload.type === "tool" || payload.type === "error" || payload.type === "done") {
+    recordOperation("agent", [payload.type, payload.status, payload.toolName, payload.toolState, payload.text].filter(Boolean).join(" "));
+  }
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("copilot:event", payload);
   if (agentPanelWindow && !agentPanelWindow.isDestroyed()) agentPanelWindow.webContents.send("copilot:event", payload);
 }, {
@@ -217,7 +208,9 @@ let downloadSequence = 0;
 function safeWebUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:" || url.href === "about:blank";
+    if (url.protocol !== "http:" && url.protocol !== "https:") return url.href === "about:blank";
+    // Embedded credentials leak into history, screenshots and crash reports.
+    return !url.username && !url.password;
   } catch {
     return value === "about:blank";
   }
@@ -441,6 +434,13 @@ function attachTabEvents(tab: BrowserTab): void {
     }
   });
 
+  webContents.on("will-redirect", (event, url) => {
+    if (!safeWebUrl(url)) {
+      event.preventDefault();
+      openExternalIfSupported(url);
+    }
+  });
+
   webContents.setWindowOpenHandler(({ url }) => {
     if (safeWebUrl(url)) {
       void createTab(url);
@@ -490,9 +490,17 @@ function attachTabEvents(tab: BrowserTab): void {
     Menu.buildFromTemplate(items).popup({ window: mainWindow });
   });
 
-  webContents.on("render-process-gone", () => {
+  webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    // -3 is ERR_ABORTED, which fires for ordinary redirects and cancellations.
+    if (!isMainFrame || errorCode === -3) return;
+    recordOperation("browser", `did-fail-load ${errorCode} ${errorDescription} ${validatedURL}`);
+  });
+
+  webContents.on("render-process-gone", (_event, details) => {
     tab.isLoading = false;
     tab.title = "This page crashed";
+    tab.cdp.resetUids();
+    recordOperation("browser", `render-process-gone ${details.reason} exitCode=${details.exitCode} url=${tab.url}`);
     sendState();
   });
 }
@@ -859,7 +867,7 @@ function saveWindowState(): void {
   const maximized = mainWindow.isMaximized();
   const bounds = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds();
   try {
-    writeFileSync(WINDOW_STATE_PATH, JSON.stringify({ ...bounds, maximized }, null, 2), { encoding: "utf8", mode: 0o600 });
+    writeJsonAtomic(WINDOW_STATE_PATH, { ...bounds, maximized });
   } catch {
     // Window geometry is a convenience; ignore write failures.
   }
@@ -867,6 +875,45 @@ function saveWindowState(): void {
 function scheduleWindowStateSave(): void {
   if (windowStateTimer) clearTimeout(windowStateTimer);
   windowStateTimer = setTimeout(() => { windowStateTimer = undefined; saveWindowState(); }, 400);
+}
+
+async function recoverWindowRenderer(window: BrowserWindow, details: Electron.RenderProcessGoneDetails): Promise<void> {
+  recordCrash("render-process-gone", new Error(`reason=${details.reason} exitCode=${details.exitCode}`));
+  const { response } = await dialog.showMessageBox({
+    type: "error",
+    title: "窗口渲染进程已停止",
+    message: "应用界面意外停止运行。",
+    detail: `原因：${details.reason}（退出码 ${details.exitCode}）\n\n重新加载通常可以恢复；正在进行的 Agent 请求会被中断。`,
+    buttons: ["重新加载窗口", "退出应用"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (response === 0) {
+    if (!window.isDestroyed()) window.reload();
+    return;
+  }
+  app.quit();
+}
+
+function attachWindowDiagnostics(window: BrowserWindow, label: string, recoverWithDialog = false): void {
+  window.webContents.on("preload-error", (_event, preloadPath, error) => {
+    recordCrash(`${label}-preload-error`, new Error(`${preloadPath}: ${error.message}`));
+  });
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return;
+    recordOperation("app", `${label} did-fail-load ${errorCode} ${errorDescription} ${validatedURL}`);
+  });
+  window.webContents.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    recordOperation("app", `${label} render-process-gone ${details.reason} exitCode=${details.exitCode}`);
+    if (recoverWithDialog) {
+      void recoverWindowRenderer(window, details);
+      return;
+    }
+    // Auxiliary windows are disposable; close them so the app stays usable.
+    if (!window.isDestroyed()) window.close();
+  });
 }
 
 function createMainWindow(): void {
@@ -893,6 +940,7 @@ function createMainWindow(): void {
   mainWindow.on("maximize", scheduleWindowStateSave);
   mainWindow.on("unmaximize", scheduleWindowStateSave);
   mainWindow.on("close", saveWindowState);
+  attachWindowDiagnostics(mainWindow, "main", true);
   mainWindow.webContents.on("before-input-event", (event, input) => {
     handleBrowserShortcut(event, input);
   });
@@ -933,14 +981,14 @@ function publishWorkspaceLayout(): void {
 
 function redockAgentPanel(position?: "left" | "right" | "top" | "bottom"): void {
   workspaceDocument = redockFloatingPanel(workspaceDocument, "agent");
-  writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+  writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
   if (agentPanelWindow && !agentPanelWindow.isDestroyed()) {
     closingAgentPanelForRedock = true;
     agentPanelWindow.close();
   }
   agentPanelWindow = null;
   workspaceLayout = { ...workspaceLayout, agentPanelVisible: true, ...(position ? { agentPanelPosition: position } : {}) };
-  writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
+  writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
   const root = workspaceDocument.root;
   if (root.type === "split" && root.first.type === "panel" && root.second.type === "panel") {
     const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
@@ -956,7 +1004,7 @@ function redockAgentPanel(position?: "left" | "right" | "top" | "bottom"): void 
     root.first = agentFirst ? { ...agentNode, visible: true } : browserNode;
     root.second = agentFirst ? browserNode : { ...agentNode, visible: true };
     workspaceDocument = { ...workspaceDocument, root };
-    writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+    writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
   }
   publishWorkspaceLayout();
   updateActiveBounds();
@@ -978,8 +1026,9 @@ function floatAgentPanel(): void {
     },
   });
   agentPanelWindow = window;
+  attachWindowDiagnostics(window, "agent-panel");
   workspaceDocument = createFloatingPanel(workspaceDocument, "agent", { x: 120, y: 100, width: 480, height: 760 });
-  writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+  writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
   const updateFloatingBounds = () => {
     const bounds = window.getBounds();
     workspaceDocument = { ...workspaceDocument, floating: workspaceDocument.floating.map((item) => item.panelId === "agent" ? { ...item, bounds } : item) };
@@ -988,7 +1037,7 @@ function floatAgentPanel(): void {
   window.on("resize", updateFloatingBounds);
   window.on("close", () => {
     updateFloatingBounds();
-    writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+    writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
   });
   window.on("closed", () => {
     if (agentPanelWindow === window) agentPanelWindow = null;
@@ -996,9 +1045,9 @@ function floatAgentPanel(): void {
     closingAgentPanelForRedock = false;
     if (!wasRedocking && !isQuitting) {
       workspaceDocument = redockFloatingPanel(workspaceDocument, "agent");
-      writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+      writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
       workspaceLayout = { ...workspaceLayout, agentPanelVisible: true };
-      writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
+      writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
       publishWorkspaceLayout();
       updateActiveBounds();
     }
@@ -1013,7 +1062,7 @@ function floatAgentPanel(): void {
     if (!window.isDestroyed()) window.close();
   });
   workspaceLayout = { ...workspaceLayout, agentPanelVisible: false };
-  writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
+  writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
   publishWorkspaceLayout();
   updateActiveBounds();
 }
@@ -1051,6 +1100,7 @@ function openAgentSettingsWindow(): void {
     },
   });
   agentSettingsWindow = settingsWindow;
+  attachWindowDiagnostics(settingsWindow, "agent-settings");
   settingsWindow.once("ready-to-show", () => {
     if (!settingsWindow.isDestroyed()) {
       settingsWindow.center();
@@ -1096,8 +1146,8 @@ function registerIpcHandlers(): void {
     }
     const agentPanel = findPanel(workspaceDocument.root, "agent");
     workspaceLayout = { ...workspaceLayout, agentPanelVisible: Boolean(agentPanel && agentPanel.visible !== false) };
-    writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
-    writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+    writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
+    writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
     publishWorkspaceLayout();
     updateActiveBounds();
     return workspaceDocument;
@@ -1107,7 +1157,7 @@ function registerIpcHandlers(): void {
     const parsed = z.object({ version: z.literal(1), agentPanelWidth: z.number().finite().min(280).max(720), agentPanelVisible: z.boolean(), agentPanelPosition: z.enum(["left", "right", "top", "bottom"]).default("right") }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid workspace layout.");
     workspaceLayout = parseWorkspaceLayout(parsed.data);
-    writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
+    writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
     let root = setPanelVisibility(workspaceDocument.root, "agent", workspaceLayout.agentPanelVisible);
     if (root.type === "split" && root.first.type === "panel" && root.second.type === "panel" && new Set([root.first.id, root.second.id]).size === 2 && [root.first.id, root.second.id].includes("browser") && [root.first.id, root.second.id].includes("agent")) {
       const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
@@ -1124,7 +1174,7 @@ function registerIpcHandlers(): void {
       root.second = agentFirst ? browserNode : { ...agentNode, visible: workspaceLayout.agentPanelVisible };
     }
     workspaceDocument = { ...workspaceDocument, root };
-    writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+    writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
     return { ...workspaceLayout };
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
@@ -1244,7 +1294,7 @@ function registerIpcHandlers(): void {
     if (!parsed.success) throw new Error("Invalid Agent settings.");
     await copilotAgent.configure(parsed.data);
     agentSettings = parsed.data;
-    writeFileSync(SETTINGS_PATH, JSON.stringify(agentSettings, null, 2), { encoding: "utf8", mode: 0o600 });
+    writeJsonAtomic(SETTINGS_PATH, agentSettings);
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("agent:settings-updated", agentSettings);
     if (agentPanelWindow && !agentPanelWindow.isDestroyed()) agentPanelWindow.webContents.send("agent:settings-updated", agentSettings);
     return copilotAgent.getSettings();
@@ -1282,6 +1332,9 @@ function registerIpcHandlers(): void {
 }
 
 app.setAppUserModelId(APP_ID);
+installCrashHandlers();
+recordOperation("app", `start ${app.getVersion()} ${process.platform}/${process.arch}`);
+void primeLoginShellEnvironment();
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -1315,10 +1368,76 @@ if (hasSingleInstanceLock) {
   });
 }
 
-app.on("before-quit", () => {
+let quitState: "idle" | "confirming" | "stopping" | "ready" = "idle";
+
+async function confirmQuitWhileBusy(): Promise<boolean> {
+  const options: Electron.MessageBoxOptions = {
+    type: "question",
+    title: "Agent 仍在运行",
+    message: "Agent 正在处理请求。",
+    detail: "现在退出会停止当前请求并终止 Agent 进程。",
+    buttons: ["取消", "停止并退出"],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  };
+  const window = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  const { response } = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options);
+  return response === 1;
+}
+
+/** Stop the agent, but never let a stuck SDK hold the application open. */
+function stopAgentForQuit(): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      recordOperation("app", "agent stop timed out after 5000ms");
+      resolve();
+    }, 5000);
+    copilotAgent.stop().then(
+      () => { clearTimeout(timer); resolve(); },
+      (error: unknown) => {
+        recordOperation("app", "agent stop failed: " + (error instanceof Error ? error.message : String(error)));
+        clearTimeout(timer);
+        resolve();
+      }
+    );
+  });
+}
+
+async function shutdown(): Promise<void> {
+  if (quitState !== "idle") return;
+  quitState = "confirming";
+
+  if (copilotAgent.isBusy()) {
+    let proceed = true;
+    try { proceed = await confirmQuitWhileBusy(); }
+    catch { /* a failed dialog must not trap the user in the app */ }
+    if (!proceed) { quitState = "idle"; return; }
+  }
+
+  quitState = "stopping";
   isQuitting = true;
   saveWindowState();
-  void copilotAgent.stop();
+  recordOperation("app", "quit");
+  await stopAgentForQuit();
+
+  quitState = "ready";
+  app.quit();
+}
+
+app.on("before-quit", (event) => {
+  // A second quit request during shutdown reuses the same flow.
+  if (quitState === "ready") {
+    isQuitting = true;
+    saveWindowState();
+    return;
+  }
+  event.preventDefault();
+  void shutdown();
+});
+
+app.on("will-quit", () => {
+  disposeLoginShellEnvironment();
 });
 
 app.on("window-all-closed", () => {

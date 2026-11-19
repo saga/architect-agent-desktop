@@ -7,6 +7,7 @@ import { homedir, tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
 import path from "node:path";
 import { detachedCliOptions, isManagedSession, parseCredits } from "./agent-runtime.js";
+import { agentProcessEnvironment } from "./login-shell-env.js";
 export * from "./agent-runtime.js";
 
 type ModelRecord = Record<string, unknown>;
@@ -121,7 +122,7 @@ export class CopilotDesktopAgent {
   const { CopilotClient } = await import("@github/copilot-sdk");
   const inspectDirectory = path.join(app.getPath("userData"), "copilot-inspect");
   mkdirSync(inspectDirectory, { recursive: true });
-  const client = new CopilotClient({ useLoggedInUser: true, mode: "empty", baseDirectory: inspectDirectory });
+  const client = new CopilotClient({ useLoggedInUser: true, mode: "empty", baseDirectory: inspectDirectory, env: await agentProcessEnvironment() });
   try { await client.start(); const result = await client.listModels(); const models=(Array.isArray(result) ? result : []).map(model => normalizeModelInfo("copilot", model)).filter((m): m is AgentModelInfo => Boolean(m)); models.forEach(model=>this.inspectedModels.set("copilot:"+model.id,model)); return models; }
   finally { await client.stop().catch(() => undefined); }
  }
@@ -155,7 +156,7 @@ export class CopilotDesktopAgent {
   );
   return tools;
  }
- private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{if(this.settings.copilotModel.trim()&&!this.inspectedModels.has("copilot:"+this.settings.copilotModel))await this.inspectModels("copilot");const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),...((this.inspectedModels.get("copilot:"+this.settings.copilotModel)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),...(this.settings.systemPrompt.trim()?{systemMessage:{mode:"append",content:this.settings.systemPrompt.trim()}}:{}),tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{const result=await handler(input);if(typeof result==="string")return result;return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};}} as never)),onPermissionRequest:async()=>({kind:"user-not-available"} as never),onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
+ private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{if(this.settings.copilotModel.trim()&&!this.inspectedModels.has("copilot:"+this.settings.copilotModel))await this.inspectModels("copilot");const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory,env:await agentProcessEnvironment()});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),...((this.inspectedModels.get("copilot:"+this.settings.copilotModel)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),...(this.settings.systemPrompt.trim()?{systemMessage:{mode:"append",content:this.settings.systemPrompt.trim()}}:{}),tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{const result=await handler(input);if(typeof result==="string")return result;return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};}} as never)),onPermissionRequest:async()=>({kind:"user-not-available"} as never),onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
  private async sendCopilot(prompt:string,history?:AgentChatMessage[]){const session=await this.ensureCopilotSession();let sawDelta=false;const off=session.on("assistant.message_delta",event=>{const delta=(event as unknown as{data?:{deltaContent?:string}}).data?.deltaContent;if(delta){sawDelta=true;this.publish({type:"delta",text:delta});}});try{const result=await session.sendAndWait({prompt:instructionsFor(this.settings.toolPermission)+"\n\n"+historyPrompt(history,prompt)},300000);const text=(result as unknown as{data?:{content?:string}}|undefined)?.data?.content;if(text&&!sawDelta)this.publish({type:"message",text});}finally{off();}}
  private async sendCodeBuddy(prompt:string,history?:AgentChatMessage[]){
   const sdk=await import("@tencent-ai/agent-sdk");
@@ -186,10 +187,12 @@ export class CopilotDesktopAgent {
   }
   const permission=this.settings.toolPermission;
   const READ_ONLY_BUILTINS=["Read","Glob","Grep","WebFetch","WebSearch","ListMcpResources","ReadMcpResource","ViewImage"];
+  const detached=isManagedSession()?detachedCliOptions():null;
+  const runtimeEnv=await agentProcessEnvironment();
   const queryOptions={
     ...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:effort?{type:"adaptive" as const}:{type:"disabled" as const},
     systemPrompt:{append:[this.settings.systemPrompt.trim(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
-    cwd,...(isManagedSession()?detachedCliOptions():{}),settingSources,persistSession:false,maxTurns:12,
+    cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{})},settingSources,persistSession:false,maxTurns:12,
     mcpServers:{browser:server},allowedTools:allowed,
     ...(permission==="browser-only"?{permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}:
       permission==="assisted"?{permissionMode:"default" as const,tools:READ_ONLY_BUILTINS,disallowedTools:builtinToolNames.filter(name=>!READ_ONLY_BUILTINS.includes(name)),allowedTools:[...allowed,...READ_ONLY_BUILTINS]}:
@@ -205,5 +208,6 @@ export class CopilotDesktopAgent {
  }
  async send(prompt:string,history?:AgentChatMessage[]):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt,history);else await this.sendCopilot(prompt,history);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
  async cancel():Promise<void>{if(this.settings.provider==="codebuddy"){this.codeBuddyAbortController?.abort();if(this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();}else if(this.active&&this.session)await this.session.abort();}
- async stop():Promise<void>{const client=this.client;this.client=null;this.session=null;if(client)await client.stop();}
+ isBusy():boolean{return this.active;}
+ async stop():Promise<void>{if(this.active){try{await this.cancel();}catch{/* the request is being torn down */}}const client=this.client;this.client=null;this.session=null;if(client){try{await client.stop();}catch{/* already stopped */}}}
 }
