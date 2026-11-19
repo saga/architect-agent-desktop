@@ -7,7 +7,7 @@ import type { AgentSettings, CopilotEvent } from "../shared/types";
 type ChatItem = { key: string; role: "user" | "assistant"; content: string; loading?: boolean };
 const EMPTY_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", systemPrompt: "" };
 
-export default function AgentPanel({ onClose, onDock, onFloat }: { onClose: () => void; onDock: (position: "left" | "right" | "top" | "bottom") => void; onFloat?: () => void }) {
+export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMaximize, onRestore }: { onClose: () => void; onDock: (position: "left" | "right" | "top" | "bottom") => void; onFloat?: () => void; onDragState?: (active: boolean) => void; onMaximize?: () => void; onRestore?: () => void }) {
   const [status, setStatus] = useState("checking");
   const [statusMessage, setStatusMessage] = useState("");
   const [settings, setSettings] = useState<AgentSettings>(EMPTY_SETTINGS);
@@ -72,7 +72,7 @@ export default function AgentPanel({ onClose, onDock, onFloat }: { onClose: () =
   const modelName = settings.provider === "copilot" ? settings.copilotModel : settings.codebuddyModel;
 
   return <aside className="agent-panel">
-    <header className="agent-panel-header">
+    <header className="agent-panel-header" draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", "agent-panel"); onDragState?.(true); }} onDragEnd={() => onDragState?.(false)}>
       <div><strong>Browser Agent</strong><div className="agent-subtitle">{providerName} · {modelName || "使用 CLI 默认模型"} · {settings.thinkingLevel} thinking</div></div>
       <div className="agent-dock-actions" aria-label="Dock Agent panel">
         <Tooltip title="Dock left"><Button size="small" type="text" aria-label="Dock left" onClick={() => onDock("left")}>⇤</Button></Tooltip>
@@ -81,6 +81,8 @@ export default function AgentPanel({ onClose, onDock, onFloat }: { onClose: () =
         <Tooltip title="Dock bottom"><Button size="small" type="text" aria-label="Dock bottom" onClick={() => onDock("bottom")}>⇣</Button></Tooltip>
       </div>
       <Tag color={status === "ready" ? "success" : "default"}>{status}</Tag>
+      {onMaximize && <Tooltip title="最大化到工作区"><Button type="text" size="small" onClick={onMaximize}>□</Button></Tooltip>}
+      {onRestore && <Tooltip title="恢复分栏布局"><Button type="text" size="small" onClick={onRestore}>▣</Button></Tooltip>}
       {onFloat && <Tooltip title="浮动为独立窗口"><Button type="text" size="small" onClick={onFloat}>↗</Button></Tooltip>}
       <Tooltip title="Agent 配置"><Button type="text" size="small" icon={<SettingOutlined />} onClick={() => void openSettings()} /></Tooltip>
       <Button type="text" size="small" onClick={onClose}>×</Button>
