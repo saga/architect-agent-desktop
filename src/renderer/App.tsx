@@ -324,7 +324,7 @@ function App() {
 
           <div className="toolbar-actions">
             {!groupedWorkspace && <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => { if (!agentOpen) { void window.browser.redockAgentPanel(); return; } setAgentOpen(false); saveWorkspaceLayout(false); }} /></Tooltip>}
-            {!groupedWorkspace && <Button size="small" type="text" disabled={agentIsFloating} onClick={groupAgentWithBrowser}>Tab Agent</Button>}
+            {!groupedWorkspace && <Button size="small" type="text" disabled={agentIsFloating} onClick={() => groupAgentWithBrowser()}>Tab Agent</Button>}
             {groupedWorkspace && <div className="workspace-tab-group">
               <Button size="small" type={activeWorkspacePanel === "browser" ? "primary" : "text"} onClick={() => activateWorkspacePanel("browser")}>Browser</Button>
               <Button size="small" type={activeWorkspacePanel === "agent" ? "primary" : "text"} onClick={() => activateWorkspacePanel("agent")}>Agent</Button>
