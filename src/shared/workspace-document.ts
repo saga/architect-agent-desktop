@@ -1,0 +1,117 @@
+import type { LayoutNode } from "../main/layout/layout-engine";
+
+export interface WorkspaceTabGroup {
+  id: string;
+  panelIds: string[];
+  activePanelId: string;
+}
+
+export interface FloatingPanelRoot {
+  id: string;
+  panelId: string;
+  bounds: { x: number; y: number; width: number; height: number };
+  alwaysOnTop?: boolean;
+}
+
+export interface WorkspaceDocument {
+  version: 2;
+  root: LayoutNode;
+  tabGroups: WorkspaceTabGroup[];
+  floating: FloatingPanelRoot[];
+  activePanelId: string;
+}
+
+export const DEFAULT_WORKSPACE_DOCUMENT: WorkspaceDocument = {
+  version: 2,
+  root: {
+    type: "split", id: "workspace-root", axis: "horizontal", ratio: 0.68, splitterSize: 6,
+    first: { type: "panel", id: "browser", minWidth: 320, minHeight: 240 },
+    second: { type: "panel", id: "agent", minWidth: 280, minHeight: 240 },
+  },
+  tabGroups: [{ id: "browser-tabs", panelIds: ["browser"], activePanelId: "browser" }],
+  floating: [],
+  activePanelId: "browser",
+};
+
+const finite = (value: unknown, fallback: number) =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
+  if (!value || typeof value !== "object") return structuredClone(DEFAULT_WORKSPACE_DOCUMENT);
+  const input = value as Record<string, unknown>;
+  if (input.version !== 2 || !input.root || typeof input.root !== "object") {
+    // Version 1 only stored Agent width/visibility. Migrate it into the v2 tree.
+    const legacy = input as { agentPanelWidth?: unknown; agentPanelVisible?: unknown };
+    const width = Math.round(Math.max(280, Math.min(720, finite(legacy.agentPanelWidth, 390))));
+    const visible = legacy.agentPanelVisible !== false;
+    const root = structuredClone(DEFAULT_WORKSPACE_DOCUMENT.root) as Extract<LayoutNode, { type: "split" }>;
+    root.ratio = visible ? Math.max(0.05, Math.min(0.95, 1 - width / 1200)) : 1;
+    root.second = { ...root.second, visible };
+    return { ...structuredClone(DEFAULT_WORKSPACE_DOCUMENT), root };
+  }
+  const root = input.root as LayoutNode;
+  const collect = (node: LayoutNode, ids = new Set<string>()): Set<string> => {
+    if (!node || typeof node !== "object" || typeof node.id !== "string" || !node.id.trim() || ids.has(node.id)) throw new Error("Invalid workspace layout tree.");
+    ids.add(node.id);
+    if (node.type === "split") {
+      if (node.axis !== "horizontal" && node.axis !== "vertical") throw new Error("Invalid split axis.");
+      if (!Number.isFinite(node.ratio) || node.ratio <= 0 || node.ratio >= 1) throw new Error("Invalid split ratio.");
+      collect(node.first, ids); collect(node.second, ids);
+    } else if (node.type !== "panel") throw new Error("Unknown layout node.");
+    return ids;
+  };
+  const panelIds = [...collect(root)].filter((id) => id !== "workspace-root");
+  const floatingInput = Array.isArray(input.floating) ? input.floating : [];
+  const floating = floatingInput.slice(0, 12).map((item) => {
+    if (!item || typeof item !== "object") throw new Error("Invalid floating panel.");
+    const row = item as Record<string, unknown>;
+    const bounds = row.bounds as Record<string, unknown>;
+    if (!bounds) throw new Error("Invalid floating bounds.");
+    return {
+      id: String(row.id || ""),
+      panelId: String(row.panelId || ""),
+      bounds: {
+        x: finite(bounds.x, 80), y: finite(bounds.y, 80),
+        width: Math.max(320, Math.min(1600, finite(bounds.width, 640))),
+        height: Math.max(240, Math.min(1200, finite(bounds.height, 480))),
+      },
+      alwaysOnTop: row.alwaysOnTop === true,
+    };
+  });
+  if (floating.some((item) => !item.id || !item.panelId || panelIds.includes(item.panelId))) throw new Error("Duplicate or empty floating panel identity.");
+  const groupsInput = Array.isArray(input.tabGroups) ? input.tabGroups : [];
+  const tabGroups = groupsInput.slice(0, 32).map((item) => {
+    const row = item as Record<string, unknown>;
+    const members = Array.isArray(row.panelIds) ? row.panelIds.filter((id): id is string => typeof id === "string").slice(0, 64) : [];
+    const active = typeof row.activePanelId === "string" && members.includes(row.activePanelId) ? row.activePanelId : members[0] || "";
+    if (!row.id || members.length === 0 || new Set(members).size !== members.length) throw new Error("Invalid workspace tab group.");
+    return { id: String(row.id), panelIds: members, activePanelId: active };
+  });
+  const activePanelId = typeof input.activePanelId === "string" ? input.activePanelId : "browser";
+  return { version: 2, root, tabGroups, floating, activePanelId };
+}
+
+export function createFloatingPanel(
+  document: WorkspaceDocument,
+  panelId: string,
+  bounds: FloatingPanelRoot["bounds"],
+): WorkspaceDocument {
+  if (document.floating.some((item) => item.panelId === panelId)) return document;
+  return {
+    ...document,
+    floating: [...document.floating, { id: "floating-" + panelId, panelId, bounds }],
+  };
+}
+
+export function redockFloatingPanel(document: WorkspaceDocument, panelId: string): WorkspaceDocument {
+  return { ...document, floating: document.floating.filter((item) => item.panelId !== panelId) };
+}
+
+export function activateWorkspaceTab(document: WorkspaceDocument, groupId: string, panelId: string): WorkspaceDocument {
+  return {
+    ...document,
+    tabGroups: document.tabGroups.map((group) =>
+      group.id === groupId && group.panelIds.includes(panelId) ? { ...group, activePanelId: panelId } : group),
+    activePanelId: panelId,
+  };
+}
