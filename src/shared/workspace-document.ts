@@ -69,11 +69,11 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
     } else if (node.type !== "panel") throw new Error("Unknown layout node.");
     return ids;
   };
-  const collectPanels = (node: LayoutNode): string[] => node.type === "panel" ? [node.id] : [...collectPanels(node.first), ...collectPanels(node.second)];
-  const panelIds = collectPanels(root);
+  const allNodeIds = collect(root);
   const layoutErrors = validateLayout(root);
   if (layoutErrors.length > 0) throw new Error("Invalid workspace layout tree: " + layoutErrors.join(" "));
-  const allNodeIds = collect(root);
+  const collectPanels = (node: LayoutNode): string[] => node.type === "panel" ? [node.id] : [...collectPanels(node.first), ...collectPanels(node.second)];
+  const panelIds = collectPanels(root);
   const floatingInput = Array.isArray(input.floating) ? input.floating : [];
   const floating = floatingInput.slice(0, 12).map((item) => {
     if (!item || typeof item !== "object") throw new Error("Invalid floating panel.");
