@@ -104,7 +104,7 @@ export class CopilotDesktopAgent {
         await client.start();
         this.session = await client.createSession({
           streaming: true,
-          tools: { definitions: this.browserTools() },
+          tools: this.browserTools(),
           onPermissionRequest: async () => ({ kind: "user-not-available" } as never),
           onMcpAuthRequest: async () => ({ kind: "cancelled" } as never),
         });
