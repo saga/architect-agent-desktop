@@ -22,6 +22,8 @@ export interface BrowserDownloadEvent {
   savePath?: string;
 }
 
+export interface CopilotEvent { type: "status" | "delta" | "error" | "done"; status?: string; text?: string; }
+
 export interface BrowserApi {
   getState(): Promise<BrowserState>;
   createTab(url?: string): Promise<string>;
@@ -32,7 +34,11 @@ export interface BrowserApi {
   goForward(id: string): Promise<void>;
   reload(id: string): Promise<void>;
   stop(id: string): Promise<void>;
-  setContentTop(height: number): void;
+  setContentBounds(bounds: { top: number; left: number }): void;
+  copilotStatus(): Promise<{ status: string; message?: string }>;
+  copilotSend(prompt: string): Promise<void>;
+  copilotCancel(): Promise<void>;
+  onCopilotEvent(listener: (event: CopilotEvent) => void): () => void;
   findInPage(id: string, text: string): Promise<void>;
   stopFindInPage(id: string): Promise<void>;
   onState(listener: (state: BrowserState) => void): () => void;

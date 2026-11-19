@@ -87,3 +87,9 @@ Remote pages run with nodeIntegration: false, contextIsolation: true and sandbox
 - The browser profile is stored under Electron's user data directory.
 - Site permission approvals last for the current app session. Unsupported permissions are denied by default.
 - No auto-update service, telemetry or remote account service is configured.
+
+## Copilot Agent
+
+The application integrates the official Node.js GitHub Copilot SDK in the Electron main process. The renderer talks to it through a narrow preload API; browser tabs never receive SDK or Node.js access. IPC request payloads are validated with Zod.
+
+The chat surface uses Ant Design and Ant Design X. The SDK's signed-in-user authentication uses stored credentials from a GitHub Copilot CLI login. VS Code sign-in alone is not a documented credential source; sign in to Copilot CLI if the SDK reports that no credentials are available. The SDK package includes its compatible CLI runtime.

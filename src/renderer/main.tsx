@@ -1,6 +1,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { ConfigProvider, App as AntApp } from "antd";
+import { XProvider } from "@ant-design/x";
 import "./styles.css";
 
 const root = document.getElementById("root");
@@ -11,6 +13,8 @@ if (!root) {
 
 createRoot(root).render(
   <React.StrictMode>
-    <App />
+    <ConfigProvider theme={{ token: { colorPrimary: "#1677ff", borderRadius: 8, fontSize: 13 } }}>
+      <AntApp><XProvider><App /></XProvider></AntApp>
+    </ConfigProvider>
   </React.StrictMode>,
 );

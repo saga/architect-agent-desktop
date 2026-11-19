@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { BrowserApi, BrowserDownloadEvent, BrowserState } from "../shared/types";
+import type { BrowserApi, BrowserDownloadEvent, BrowserState, CopilotEvent } from "../shared/types";
 
 const api: BrowserApi = {
   getState: () => ipcRenderer.invoke("browser:get-state"),
@@ -11,7 +11,15 @@ const api: BrowserApi = {
   goForward: (id) => ipcRenderer.invoke("browser:go-forward", id),
   reload: (id) => ipcRenderer.invoke("browser:reload", id),
   stop: (id) => ipcRenderer.invoke("browser:stop", id),
-  setContentTop: (height) => ipcRenderer.send("browser:set-content-top", height),
+  setContentBounds: (bounds) => ipcRenderer.send("browser:set-content-bounds", bounds),
+  copilotStatus: () => ipcRenderer.invoke("copilot:status"),
+  copilotSend: (prompt) => ipcRenderer.invoke("copilot:send", { prompt }),
+  copilotCancel: () => ipcRenderer.invoke("copilot:cancel"),
+  onCopilotEvent: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: CopilotEvent) => listener(payload);
+    ipcRenderer.on("copilot:event", handler);
+    return () => ipcRenderer.removeListener("copilot:event", handler);
+  },
   findInPage: (id, text) => ipcRenderer.invoke("browser:find-in-page", id, text),
   stopFindInPage: (id) => ipcRenderer.invoke("browser:stop-find-in-page", id),
   onState: (listener) => {

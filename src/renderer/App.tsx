@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import AgentPanel from "./AgentPanel";
+import { Button, Tooltip } from "antd";
+import { RobotOutlined } from "@ant-design/icons";
 
 const EMPTY_STATE: BrowserState = { tabs: [], activeTabId: null };
 
@@ -19,6 +22,7 @@ function App() {
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState("");
   const [latestDownload, setLatestDownload] = useState<BrowserDownloadEvent | null>(null);
+  const [agentOpen, setAgentOpen] = useState(false);
   const chromeRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
@@ -61,7 +65,7 @@ function App() {
     if (!element) return;
 
     const updateHeight = () => {
-      window.browser.setContentTop(Math.ceil(element.getBoundingClientRect().height));
+      window.browser.setContentBounds({ top: Math.ceil(element.getBoundingClientRect().height), left: agentOpen ? 390 : 0 });
     };
 
     const observer = new ResizeObserver(updateHeight);
@@ -204,6 +208,7 @@ function App() {
           </form>
 
           <div className="toolbar-actions">
+            <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => setAgentOpen((open) => !open)} /></Tooltip>
             <button className="toolbar-button download-button" type="button"
               aria-label="Dismiss recent download status"
               title={latestDownload ? latestDownload.fileName : "Downloads"}

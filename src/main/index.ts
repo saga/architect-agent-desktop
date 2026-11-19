@@ -14,6 +14,8 @@ import {
   type WebContents,
 } from "electron";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { CopilotDesktopAgent } from "./copilot";
 import path from "node:path";
 import type { BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 
@@ -41,6 +43,10 @@ let browserSession: Session;
 let activeTabId: string | null = null;
 let attachedView: WebContentsView | null = null;
 let contentTop = DEFAULT_CONTENT_TOP;
+let contentLeft = 0;
+const copilotAgent = new CopilotDesktopAgent((payload) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("copilot:event", payload);
+});
 let downloadSequence = 0;
 
 function safeWebUrl(value: string): boolean {
@@ -109,9 +115,9 @@ function updateActiveBounds(): void {
   const [width, height] = mainWindow.getContentSize();
   const top = Math.max(0, Math.min(contentTop, height));
   attachedView.setBounds({
-    x: 0,
+    x: Math.max(0, Math.min(contentLeft, width)),
     y: top,
-    width: Math.max(0, width),
+    width: Math.max(0, width - Math.max(0, Math.min(contentLeft, width))),
     height: Math.max(0, height - top),
   });
 }
@@ -688,6 +694,30 @@ function registerIpcHandlers(): void {
   ipcMain.handle("browser:stop-find-in-page", (event, id: string) => {
     assertTrustedSender(event);
     tabs.get(id)?.view.webContents.stopFindInPage("clearSelection");
+  });
+
+  ipcMain.on("browser:set-content-bounds", (event, bounds: unknown) => {
+    if (!isTrustedAppSender(event.sender)) return;
+    const parsed = z.object({ top: z.number().finite().min(0).max(300), left: z.number().finite().min(0).max(900) }).safeParse(bounds);
+    if (!parsed.success) return;
+    contentTop = Math.round(parsed.data.top);
+    contentLeft = Math.round(parsed.data.left);
+    updateActiveBounds();
+  });
+
+  ipcMain.handle("copilot:status", async (event) => {
+    assertTrustedSender(event);
+    return copilotAgent.status();
+  });
+  ipcMain.handle("copilot:send", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.object({ prompt: z.string().trim().min(1).max(30000) }).safeParse(input);
+    if (!parsed.success) throw new Error("Message must contain 1–30,000 characters.");
+    return copilotAgent.send(parsed.data.prompt);
+  });
+  ipcMain.handle("copilot:cancel", async (event) => {
+    assertTrustedSender(event);
+    return copilotAgent.cancel();
   });
 
   ipcMain.on("browser:set-content-top", (event, height: number) => {
