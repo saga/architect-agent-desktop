@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_AGENT_SESSION_ITEMS, parseAgentSessionItems } from "../src/main/agent-session";
+import { parseAgentSessionItems } from "../src/main/agent-session";
 
 describe("parseAgentSessionItems", () => {
   it("returns an empty list for non-arrays", () => {
@@ -38,17 +38,17 @@ describe("parseAgentSessionItems", () => {
     expect(item!.id).toHaveLength(100);
   });
 
-  it("keeps only the newest items", () => {
-    const items = Array.from({ length: MAX_AGENT_SESSION_ITEMS + 25 }, (_, index) => ({
+  it("keeps the complete transcript instead of truncating it to 200 items", () => {
+    const items = Array.from({ length: 250 }, (_, index) => ({
       kind: "user",
       content: "message " + index,
     }));
 
     const parsed = parseAgentSessionItems(items);
 
-    expect(parsed).toHaveLength(MAX_AGENT_SESSION_ITEMS);
-    expect(parsed[0]!.content).toBe("message 25");
-    expect(parsed.at(-1)!.content).toBe("message " + (MAX_AGENT_SESSION_ITEMS + 24));
+    expect(parsed).toHaveLength(250);
+    expect(parsed[0]!.content).toBe("message 0");
+    expect(parsed.at(-1)!.content).toBe("message 249");
   });
 
   it("ignores unknown tool states", () => {
