@@ -72,6 +72,7 @@ let contentLeft = 0;
 let contentWidth: number | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
 const AGENT_SESSION_ROOT = path.join(app.getPath("userData"), "agent-sessions");
+const LEGACY_AGENT_SESSION_PATH = path.join(app.getPath("userData"), "agent-session.json");
 const WORKSPACE_PROJECT_PATH = path.join(app.getPath("userData"), "workspace-project.json");
 const WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
 const WORKSPACE_DOCUMENT_PATH = path.join(app.getPath("userData"), "workspace-document.json");
@@ -112,6 +113,12 @@ function loadAgentSession(): AgentSessionItem[] {
     const parsed = JSON.parse(readFileSync(currentAgentSessionPath(), "utf8")) as { items?: unknown };
     return parseAgentSessionItems(parsed.items);
   } catch {
+    if (!workspaceProject.path) {
+      try {
+        const legacy = JSON.parse(readFileSync(LEGACY_AGENT_SESSION_PATH, "utf8")) as { items?: unknown };
+        return parseAgentSessionItems(legacy.items);
+      } catch { /* no legacy default-workspace session */ }
+    }
     return [];
   }
 }
@@ -1411,6 +1418,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("agent:clear-session", (event) => {
     assertTrustedSender(event);
     rmSync(currentAgentSessionPath(), { force: true });
+    if (!workspaceProject.path) rmSync(LEGACY_AGENT_SESSION_PATH, { force: true });
   });
 
   ipcMain.on("browser:set-content-top", (event, height: number) => {
