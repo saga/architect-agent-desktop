@@ -186,7 +186,7 @@ function updateActiveBounds(): void {
   attachedView.setBounds({
     x: Math.max(0, Math.min(contentLeft, width)),
     y: top,
-    width: Math.max(0, Math.min(contentWidth ?? (width - contentLeft - contentRight), width - Math.max(0, Math.min(contentLeft, width)))),
+    width: Math.max(0, Math.min(contentWidth ?? (width - contentLeft), width - Math.max(0, Math.min(contentLeft, width)))),
     height: Math.max(0, height - top),
   });
 }
