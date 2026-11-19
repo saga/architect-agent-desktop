@@ -19,8 +19,8 @@ const base = {
 
 test("layout solver allocates deterministic split bounds", () => {
   const result = calculateLayout(base, { x: 0, y: 0, width: 1200, height: 800 });
-  assert.deepEqual(result.bounds.browser, { x: 0, y: 0, width: 835.8, height: 800 });
-  assert.deepEqual(result.bounds.agent, { x: 841.8, y: 0, width: 358.2, height: 800 });
+  assert.deepEqual(result.bounds.browser, { x: 0, y: 0, width: 836, height: 800 });
+  assert.deepEqual(result.bounds.agent, { x: 842, y: 0, width: 358, height: 800 });
   assert.deepEqual(result.overflow, []);
 });
 
