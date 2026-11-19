@@ -22,6 +22,8 @@ export interface BrowserDownloadEvent {
   savePath?: string;
 }
 
+export type AgentProvider = "copilot" | "codebuddy";
+
 export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done" | "tool"; status?: string; text?: string; }
 
 export interface BrowserApi {
@@ -35,7 +37,8 @@ export interface BrowserApi {
   reload(id: string): Promise<void>;
   stop(id: string): Promise<void>;
   setContentBounds(bounds: { top: number; left: number; right: number }): void;
-  copilotStatus(): Promise<{ status: string; message?: string }>;
+  copilotStatus(): Promise<{ status: string; message?: string; provider: AgentProvider }>;
+  agentSetProvider(provider: AgentProvider): Promise<void>;
   copilotSend(prompt: string): Promise<void>;
   copilotCancel(): Promise<void>;
   onCopilotEvent(listener: (event: CopilotEvent) => void): () => void;
