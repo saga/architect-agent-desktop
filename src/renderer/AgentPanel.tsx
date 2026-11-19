@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Tag, message, Modal, Input, Select, Space, Tooltip } from "antd";
+import { Alert, Button, Tag, message, Modal, Input, Select, Tooltip } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import { Bubble, Sender } from "@ant-design/x";
 import type { AgentProvider, AgentSettings, CopilotEvent } from "../shared/types";
