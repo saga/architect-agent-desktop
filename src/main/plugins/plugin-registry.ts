@@ -106,6 +106,10 @@ export function validatePluginDirectory(directory: string): PluginManifest {
     if (manifest.workflows.includes(relativePath) && ![".md", ".json"].includes(path.extname(relativePath).toLowerCase())) {
       throw new Error("Workflow 文件必须使用 Markdown 或 JSON：" + relativePath);
     }
+    if (manifest.workflows.includes(relativePath) && path.extname(relativePath).toLowerCase() === ".json") {
+      try { JSON.parse(readFileSync(file, "utf8")); }
+      catch { throw new Error("Workflow JSON 格式无效：" + relativePath); }
+    }
     if (manifest.views.includes(relativePath)) {
       if (path.extname(relativePath).toLowerCase() !== ".json") throw new Error("View 声明必须使用 JSON：" + relativePath);
       let declaration: unknown;
