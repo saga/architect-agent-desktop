@@ -178,7 +178,7 @@ export default function AgentSettingsWindow() {
       <Divider />
       <section className="plugin-manager">
         <div className="plugin-manager-heading">
-          <div><h2>插件管理</h2><p>导入声明式插件目录。插件只能提供 Skills、宿主工具引用、工作流和受支持视图声明，不能运行任意代码。</p></div>
+          <div><h2>插件管理</h2><p>目录中需要包含 manifest.json。可参考仓库 examples/plugins/research-assistant。插件只能提供 Skills、宿主工具引用、工作流和宿主视图声明，不能运行任意代码。</p></div>
           <Button type="primary" loading={pluginBusy} onClick={() => void importPlugin()}>导入插件目录</Button>
         </div>
         <List
@@ -196,7 +196,7 @@ export default function AgentSettingsWindow() {
               title={<span>{plugin.name} <Tag>{plugin.version}</Tag></span>}
               description={<>
                 <div>{plugin.description || plugin.id}</div>
-                <div className="settings-field-help">Skills {plugin.skills.length} · Tools {plugin.tools.length} · Workflows {plugin.workflows.length} · Views {plugin.views.length}</div>
+                <div className="settings-field-help">Skills {plugin.skills.length} · Tools {plugin.tools.length} · Workflows {plugin.workflows.length} · Views {plugin.views.length}{plugin.tools.length ? " · " + plugin.tools.join(", ") : ""}</div>
               </>}
             />
           </List.Item>}
