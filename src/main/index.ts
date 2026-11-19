@@ -234,18 +234,19 @@ function updateActiveBounds(): void {
   if (snapshotActive && currentBrowserBounds) nativeViewStack.setBounds("snapshot", currentBrowserBounds);
 }
 
-function hideSnapshot(): void {
+function hideSnapshot(restoreFocus = false): void {
   if (!snapshotView) { snapshotActive = false; return; }
   nativeViewStack.unregister("snapshot", true);
   snapshotView = null;
   snapshotActive = false;
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("browser:snapshot-state", false);
+  if (restoreFocus && activeTabId) nativeViewStack.focus("browser:" + activeTabId);
 }
 
 async function toggleSnapshot(): Promise<boolean> {
   if (snapshotCapturing) return snapshotActive;
   if (snapshotActive) {
-    hideSnapshot();
+    hideSnapshot(true);
     return false;
   }
   const tab = activeTabId ? tabs.get(activeTabId) : null;
@@ -267,6 +268,7 @@ async function toggleSnapshot(): Promise<boolean> {
     await view.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
     snapshotActive = true;
     nativeViewStack.show("snapshot");
+    nativeViewStack.focus("snapshot");
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("browser:snapshot-state", true);
     if (currentBrowserBounds) nativeViewStack.setBounds("snapshot", currentBrowserBounds);
     return true;
