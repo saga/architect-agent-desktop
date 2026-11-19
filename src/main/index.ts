@@ -206,9 +206,9 @@ function updateActiveBounds(): void {
   const top = Math.max(0, Math.min(contentTop, height));
   const viewport = {
     x: left,
-    y: top,
+    y: 0,
     width: Math.max(0, Math.min(contentWidth ?? (width - left), width - left)),
-    height: Math.max(0, height - top),
+    height,
   };
   const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
   const splitterSize = workspaceLayout.agentPanelVisible ? 6 : 0;
@@ -232,8 +232,8 @@ function updateActiveBounds(): void {
     return;
   }
   nativeViewStack.setBounds("browser:" + activeTabId, {
-    x: browserBounds.x, y: browserBounds.y,
-    width: browserBounds.width, height: browserBounds.height,
+    x: browserBounds.x, y: browserBounds.y + top,
+    width: browserBounds.width, height: Math.max(0, browserBounds.height - top),
   });
 }
 
