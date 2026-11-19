@@ -113,7 +113,7 @@ export class CopilotDesktopAgent {
    const temp=mkdtempSync(path.join(tmpdir(),"architect-agent-codebuddy-context-"));
    try{
     const configDir=path.join(temp,".codebuddy");mkdirSync(configDir,{recursive:true});
-    const sourceFiles=[path.join(homedir(),".codebuddy","models.json"),path.join(codeBuddyWorkspace(),".codebuddy","models.json")];
+    const sourceFiles=[path.join(codeBuddyWorkspace(),".codebuddy","models.json"),path.join(homedir(),".codebuddy","models.json")];
     for(const source of sourceFiles)if(existsSync(source)){writeFileSync(path.join(configDir,"models.json"),readFileSync(source),{mode:0o600});break;}
     writeFileSync(path.join(configDir,"settings.json"),JSON.stringify({contextWindow:this.settings.contextWindow},null,2)+"\n",{encoding:"utf8",mode:0o600});
    }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
