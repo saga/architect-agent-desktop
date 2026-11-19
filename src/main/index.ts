@@ -45,7 +45,6 @@ let activeTabId: string | null = null;
 let attachedView: WebContentsView | null = null;
 let contentTop = DEFAULT_CONTENT_TOP;
 let contentLeft = 0;
-let contentRight = 0;
 let contentWidth: number | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
 const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", systemPrompt: "" };
