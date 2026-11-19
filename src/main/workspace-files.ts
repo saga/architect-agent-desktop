@@ -12,9 +12,9 @@ function workspaceRoot(root: string): string {
   return resolved;
 }
 
-function assertInside(root: string, target: string): void {
+function assertInside(root: string, target: string, allowRoot = false): void {
   const relative = path.relative(root, target);
-  if (!relative || relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) {
+  if ((!allowRoot && !relative) || relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) {
     throw new Error("文件路径必须位于当前工作区内。");
   }
 }
@@ -30,8 +30,10 @@ function resolveWorkspaceFile(rootInput: string, relativePath: string): { root: 
   let current = root;
   for (const segment of path.relative(root, file).split(path.sep)) {
     current = path.join(current, segment);
-    if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
-      throw new Error("工作区文件操作不跟随符号链接。");
+    try {
+      if (lstatSync(current).isSymbolicLink()) throw new Error("工作区文件操作不跟随符号链接。");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
   return { root, file };
@@ -101,7 +103,7 @@ export function writeWorkspaceFile(rootInput: string, relativePath: string, cont
   }
   const target = resolveWorkspaceFile(rootInput, relativePath);
   const parent = realpathSync(path.dirname(target.file));
-  assertInside(target.root, parent);
+  assertInside(target.root, parent, true);
   if (!statSync(parent).isDirectory()) throw new Error("目标目录不存在。");
   if (existsSync(target.file) && !lstatSync(target.file).isFile()) {
     throw new Error("只能覆盖普通文件，不能覆盖目录或符号链接。");
