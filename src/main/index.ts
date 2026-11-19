@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   clipboard,
   dialog,
+  desktopCapturer,
   ipcMain,
   Menu,
   type MenuItemConstructorOptions,
@@ -435,6 +436,56 @@ function installPermissionHandlers(): void {
       return false;
     }
   });
+
+  browserSession.setDisplayMediaRequestHandler((request, callback) => {
+    if (!request.userGesture) {
+      callback(null);
+      return;
+    }
+
+    const window = mainWindow;
+    if (!window || window.isDestroyed()) {
+      callback(null);
+      return;
+    }
+
+    void desktopCapturer.getSources({
+      types: ["screen", "window"],
+      thumbnailSize: { width: 0, height: 0 },
+      fetchWindowIcons: false,
+    }).then(async (sources) => {
+      const available = sources.slice(0, 7);
+      if (available.length === 0) {
+        callback(null);
+        return;
+      }
+
+      const result = await dialog.showMessageBox(window, {
+        type: "question",
+        title: "Share your screen",
+        message: "Choose a screen or window to share.",
+        detail: "The selected source will be shared with the requesting website.",
+        buttons: ["Cancel", ...available.map((source) => source.name)],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+
+      const selected = available[result.response - 1];
+      if (!selected) {
+        callback(null);
+        return;
+      }
+
+      callback({
+        video: selected,
+        ...(request.audioRequested && process.platform === "win32" ? { audio: "loopback" as const } : {}),
+      });
+    }).catch((error: unknown) => {
+      console.error("Unable to list screen capture sources", error);
+      callback(null);
+    });
+  }, { useSystemPicker: process.platform === "darwin" });
 
   browserSession.on("will-download", (_event, item) => {
     const id = ++downloadSequence;
