@@ -87,7 +87,7 @@ parentPort.on("message", (event) => {
           },
         })));
         const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => (...values: unknown[]) => Promise<unknown>;
-        const execute = new AsyncFunction(...providerNames, "log", "use strict"; return await (" + (message.code as string) + ")(););
+        const execute = new AsyncFunction(...providerNames, "log", "use strict"; return await (" + (message.code as string) + ")();
         const value = await execute(...namespaces, api.log);
         send({ type: "result", value });
       } catch (error) {
