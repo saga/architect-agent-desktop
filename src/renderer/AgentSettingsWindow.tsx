@@ -111,7 +111,7 @@ export default function AgentSettingsWindow() {
 
   return <main className="settings-window">
     <header className="settings-window-header">
-      <div><h1>Agent 配置</h1><p>选择 Provider，并读取当前账号可用模型及其能力选项</p></div>
+      <div><h1>Agent 与插件配置</h1><p>配置 Agent 模型、权限，并管理本机声明式插件</p></div>
     </header>
     <section className="settings-window-content">
       <Form layout="vertical" requiredMark={false}>
