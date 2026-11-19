@@ -161,20 +161,20 @@ function App() {
   };
   const groupAgentWithBrowser = () => {
     const grouped = createWorkspaceTabGroup(workspaceDocument, "browser-agent-tabs", ["browser", "agent"], "browser");
-    const visibleRoot = setWorkspacePanelVisibility(setWorkspacePanelVisibility(grouped.root, "browser", true), "agent", false);
-    void persistWorkspaceDocument({ ...grouped, root: visibleRoot });
+    const visibleDocument = setWorkspacePanelVisibility(setWorkspacePanelVisibility(grouped, "browser", true), "agent", false);
+    void persistWorkspaceDocument(visibleDocument);
   };
   const activateWorkspacePanel = (panelId: "browser" | "agent") => {
     if (!workspaceGroup) return;
     const next = activateWorkspaceTab(workspaceDocument, workspaceGroup.id, panelId);
-    const root = setWorkspacePanelVisibility(setWorkspacePanelVisibility(next.root, "browser", panelId === "browser"), "agent", panelId === "agent");
-    void persistWorkspaceDocument({ ...next, root });
+    const visibleDocument = setWorkspacePanelVisibility(setWorkspacePanelVisibility(next, "browser", panelId === "browser"), "agent", panelId === "agent");
+    void persistWorkspaceDocument(visibleDocument);
   };
   const splitAgentFromBrowser = () => {
     if (!workspaceGroup) return;
     const next = ungroupWorkspacePanel(workspaceDocument, workspaceGroup.id, "agent");
-    const root = setWorkspacePanelVisibility(setWorkspacePanelVisibility(next.root, "browser", true), "agent", true);
-    void persistWorkspaceDocument({ ...next, root });
+    const visibleDocument = setWorkspacePanelVisibility(setWorkspacePanelVisibility(next, "browser", true), "agent", true);
+    void persistWorkspaceDocument(visibleDocument);
   };
 
   const saveWorkspaceLayout = (visible = agentOpen, width = agentWidth, position = agentPosition) => {
