@@ -72,7 +72,7 @@ parentPort.on("message", (event) => {
   }
   if (message.type === "execute-code" && typeof message.executionId === "string" && typeof message.code === "string") {
     const providerNames = Array.isArray(message.providers)
-      ? message.providers.filter((name): name is string => typeof name === "string" && /^[A-Za-z_$][\\w$]*$/.test(name))
+      ? message.providers.filter((name): name is string => typeof name === "string" && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name))
       : [];
     currentExecutionId = message.executionId;
     void (async () => {
@@ -87,7 +87,7 @@ parentPort.on("message", (event) => {
           },
         })));
         const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => (...values: unknown[]) => Promise<unknown>;
-        const execute = new AsyncFunction(...providerNames, "log", "use strict"; return await (" + (message.code as string) + ")();
+        const execute = new AsyncFunction(...providerNames, "log", '"use strict"; return await (' + (message.code as string) + ')();');
         const value = await execute(...namespaces, api.log);
         send({ type: "result", value });
       } catch (error) {
