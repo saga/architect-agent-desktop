@@ -19,12 +19,13 @@ function normalizeModelInfo(provider: AgentProvider, raw: unknown): AgentModelIn
  if (!id) return undefined;
  const caps = asRecord(item.capabilities), supports = asRecord(caps.supports);
  const rawEfforts = item.supportedEffortLevels ?? item.reasoningEfforts ?? supports.reasoningEffort ?? item.effortLevels;
- const effortValues = Array.isArray(rawEfforts) ? rawEfforts : typeof rawEfforts === "string" ? [rawEfforts] : [];
+ const effortValues = Array.isArray(rawEfforts) ? rawEfforts : typeof rawEfforts === "string" ? [rawEfforts] : provider === "copilot" && supports.reasoningEffort === true ? ["low","medium","high","xhigh"] : [];
  const efforts = [...new Set(effortValues.filter((v): v is string => typeof v === "string" && ["low","medium","high","xhigh"].includes(v.toLowerCase())).map(v => v.toLowerCase()))];
  const maxInputTokens = positiveTokens(item.maxInputTokens ?? asRecord(caps.limits).max_context_window_tokens);
  const cw = asRecord(item.contextWindow), rawLengths = cw.supportedLengths;
  const lengths = Array.isArray(rawLengths) ? rawLengths.map(positiveTokens) : [];
- const validLengths = [...new Set(lengths.filter((v): v is number => v !== undefined && (!maxInputTokens || v <= maxInputTokens)))].sort((a,b)=>a-b);
+ const allLengthsValid = Boolean(maxInputTokens && lengths.length >= 2 && lengths.every((v): v is number => v !== undefined && v <= maxInputTokens));
+ const validLengths = allLengthsValid ? [...new Set(lengths as number[])].sort((a,b)=>a-b) : [];
  const contextWindowOptions = provider === "codebuddy" && validLengths.length >= 2 ? validLengths.map(v=>({value:v,label:v%1000000===0?(v/1000000)+"M":v%1000===0?(v/1000)+"K":v.toLocaleString("en-US")+" tokens"})) : undefined;
  return { provider, id, name: typeof item.name === "string" && item.name.trim() ? item.name : id,
   ...(typeof item.description === "string" ? {description:item.description} : {}),
