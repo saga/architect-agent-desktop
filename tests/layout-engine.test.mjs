@@ -194,4 +194,6 @@ test("ungrouping restores both panels to the split tree", () => {
   assert.equal(ungrouped.root.second.visible, true);
   assert.equal(ungrouped.tabGroups.some((group) => group.panelIds.includes("agent")), false);
   assert.equal(ungrouped.activePanelId, "browser");
+  const regrouped = createWorkspaceTabGroup(ungrouped, "browser-agent", ["browser", "agent"], "agent");
+  assert.equal(regrouped.tabGroups.some((group) => group.id === "browser-agent" && group.panelIds.length === 2), true);
 });
