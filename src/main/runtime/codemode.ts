@@ -115,7 +115,8 @@ export function generateTypesFromJsonSchema(providers: ResolvedProvider[]): stri
     const methods = Object.entries(provider.descriptors).map(([name, descriptor]) => {
       const input = schemaType(descriptor.inputSchema);
       const description = descriptor.description.replace(/\*\//g, "* /").replace(/\n/g, " ").trim();
-      const argument = descriptor.inputSchema.type === "object" && !Object.keys(descriptor.inputSchema.properties ?? {}).length ? "input?: " + input : "input: " + input;\n      return `  /** ${description} */\n  ${sanitizeToolName(name)}(${argument}): Promise<unknown>;`;
+      const argument = descriptor.inputSchema.type === "object" && !Object.keys(descriptor.inputSchema.properties ?? {}).length ? "input?: " + input : "input: " + input;
+      return `  /** ${description} */\n  ${sanitizeToolName(name)}(${argument}): Promise<unknown>;`;
     });
     declarations.push(`declare const ${sanitizeToolName(provider.name)}: {\n${methods.join("\n")}\n};`);
   }
