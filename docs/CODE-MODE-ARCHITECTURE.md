@@ -10,7 +10,7 @@ Code Mode 是 Agent 的一种执行策略，不是新的模型 Provider。Copilo
 
 1. Agent 通过 `execute_code` 提交 JavaScript。
 2. Main Process 为本次执行创建独立 UtilityProcess。
-3. UtilityProcess 执行异步 JavaScript，提供 `tools.call(name, input)`、`workspace.*` 和 `log.*` API。
+3. UtilityProcess 执行异步 JavaScript，提供 `tools.call(name, input)` 和 `log.*` API。
 4. `tools.call` 通过 IPC 返回 Main Process，由 Main Process 执行现有 Tool Handler。
 5. 现有 handler 继续执行权限判断、结果发布和 Trace 记录。
 6. 执行结束、超时或取消后，终止本次 UtilityProcess。
