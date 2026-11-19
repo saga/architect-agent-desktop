@@ -57,7 +57,7 @@ Workspace State / Layout Tree (versioned JSON)
 6. DOM adapter: applies the same rectangles to React surfaces where a native view is not needed.
 7. Persistence: versioned JSON with validation and safe fallback.
 
-The current implementation introduces the pure geometry kernel first. It deliberately does not move AgentPanel into a WebContentsView yet. That migration should follow only after the geometry and lifecycle adapters are covered by tests.
+The current implementation includes the pure geometry kernel, versioned workspace state persistence, a resizable Agent panel splitter, and a main-process adapter that computes the Browser WebContentsView bounds from the same horizontal workspace split. AgentPanel remains a React DOM panel; its rectangle is represented by the same split model and CSS grid track. Moving AgentPanel into a WebContentsView is a later adapter change, not a prerequisite for sharing layout state.
 
 ## Layout model
 
@@ -120,5 +120,5 @@ This preserves the current UI while replacing ad-hoc bounds arithmetic with a de
 - Min constraints are respected when feasible; otherwise overflow is explicit and deterministic.
 - Hiding either side of a split gives the remaining visible side the full rectangle.
 - Repeated resize/activate/close cycles do not leave stale bounds or detached views.
-- Layout JSON can be validated and safely restored after app restart.
+- Layout JSON can be validated and safely restored after app restart.\n- Agent panel width and visibility persist across application restarts.
 - Electron adapter tests cover z-order and view lifecycle separately from geometry tests.
