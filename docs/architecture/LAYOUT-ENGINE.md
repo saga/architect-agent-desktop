@@ -57,7 +57,7 @@ Workspace State / Layout Tree (versioned JSON)
 6. DOM adapter: applies the same rectangles to React surfaces where a native view is not needed.
 7. Persistence: versioned JSON with validation and safe fallback.
 
-The current implementation includes the pure geometry kernel, a version-1 persistence record for Agent panel width/visibility, a resizable Agent panel splitter, and a main-process adapter that computes the Browser WebContentsView bounds from a horizontal split. The tree utility layer now also supports safe panel docking (left/right/top/bottom), split-ratio updates, visibility changes, panel removal with parent collapse, tree normalization, and duplicate-ID validation. These are model operations; the renderer does not yet expose drag docking. AgentPanel remains a React DOM panel; its rectangle is represented by the same split model and CSS grid track. Moving AgentPanel into a WebContentsView is a later adapter change, not a prerequisite for sharing layout state.
+The current implementation includes a pure geometry kernel, versioned workspace document persistence, four-way Agent docking controls, orientation-aware splitter resizing, and a main-process adapter that computes native Browser WebContentsView bounds from the workspace split. The tree utility layer supports left/right/top/bottom docking operations, split-ratio updates, visibility changes, removal/collapse, normalization and duplicate-ID validation. The renderer currently exposes explicit four-way dock controls and a resizable splitter; free-form drag targets and docking previews remain a separate interaction enhancement. AgentPanel remains React DOM and consumes the same workspace geometry as the native Browser view. A detached Agent BrowserWindow is supported, including redocking, bounds persistence and restore on restart.
 
 ## Layout model
 
@@ -65,7 +65,7 @@ The canonical model is a binary split tree:
 - `panel`: stable id and min/max dimensions / visibility.
 - `split`: horizontal or vertical axis, ratio, first and second child, splitter thickness.
 
-This supports nested layouts without coupling the model to React or Electron. The current browser tab strip is still a browser-specific tab bar, not a workspace Tab Group. Workspace Tab Groups need an explicit group node with active-tab state and serialization before they can be called implemented. Floating panels likewise require separate roots, native BrowserWindow ownership, and redocking; they are not implemented yet.
+This supports nested layouts without coupling the model to React or Electron. Workspace Tab Groups are represented by versioned group metadata and pure create/move/remove/activate operations. The browser tab strip remains a separate browser-tab feature; panel Tab Group selection UI is not yet connected to the layout renderer. Floating Agent panels use a separate BrowserWindow root with persisted bounds and redocking.
 
 All coordinates are logical pixels (DIP). The main process clamps rectangles to the BrowserWindow content area before calling Electron. Device scale factor is applied only at raster boundaries, not in the persisted layout model.
 
@@ -96,9 +96,10 @@ This preserves the current UI while replacing ad-hoc bounds arithmetic with a de
 - [ ] keyboard focus order and panel activation
 
 ### Phase 4 — Native view composition
-- Agent panel WebContentsView and overlay view adapters
-- centralized child-view order and focus restoration
-- live overlay and Snapshot coordinator integration
+- [x] centralized native child-view registry, bounds clamping, visibility and layer ordering
+- [x] Browser tab WebContentsView lifecycle routed through NativeViewStackManager
+- [x] Snapshot overlay WebContentsView and Live-mode teardown
+- [ ] move AgentPanel React UI into a native WebContentsView (not required for current composition)
 
 ### Phase 5 — Advanced workspace
 - [ ] workspace Tab Groups (distinct from the browser's web-tab strip)
