@@ -9,6 +9,11 @@ const api: BrowserApi = {
   floatAgentPanel: () => ipcRenderer.invoke("workspace:float-agent"),
   redockAgentPanel: () => ipcRenderer.invoke("workspace:redock-agent"),
   toggleSnapshot: () => ipcRenderer.invoke("browser:toggle-snapshot"),
+  onSnapshotState: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, active: boolean) => listener(active);
+    ipcRenderer.on("browser:snapshot-state", handler);
+    return () => ipcRenderer.removeListener("browser:snapshot-state", handler);
+  },
   onWorkspaceLayoutUpdated: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, layout: WorkspaceLayoutState) => listener(layout);
     ipcRenderer.on("workspace:layout-updated", handler);
