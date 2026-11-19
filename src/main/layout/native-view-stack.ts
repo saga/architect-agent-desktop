@@ -1,4 +1,4 @@
-import { BrowserWindow, type Rectangle, type WebContentsView } from "electron";
+import type { BrowserWindow, Rectangle, WebContentsView } from "electron";
 
 export type NativeLayer = "browser" | "agent" | "overlay";
 
