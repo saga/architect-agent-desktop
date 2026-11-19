@@ -116,7 +116,7 @@ function historyPrompt(history: AgentChatMessage[] | undefined, prompt: string):
 }
 export class CopilotDesktopAgent {
  private workspacePath:string|null;
- private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null; private readonly codeRuntime = new UtilityProcessAgentRuntime();
+ private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null; private codeRuntimeAbortController:AbortController|null=null; private readonly codeRuntime = new UtilityProcessAgentRuntime();
  constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:()=>string=()=>"",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string)=>void=()=>{}){this.settings=settings;this.workspacePath=workspacePath;}
  async setWorkspacePath(workspacePath:string|null):Promise<void>{if(workspacePath===this.workspacePath)return;if(this.active)throw new Error("Wait for the current Agent request to finish before changing the workspace.");await this.stop();this.workspacePath=workspacePath;}
  private workspaceInstructions():string{return this.workspacePath?"Current local project workspace root: "+this.workspacePath+". Treat this as the project root. Use relative paths for workspace file tools and do not access files outside this directory.":"No local project workspace is selected. Do not attempt local project file operations until the user selects a workspace."; }
@@ -174,6 +174,8 @@ export class CopilotDesktopAgent {
    schema:z.object({code:z.string().min(1).max(100000)}),
    handler:async({code}:{code:string})=>{
     const allowed=new Map(callableTools.map(tool=>[tool.name,tool]));
+    const abortController=new AbortController();
+    this.codeRuntimeAbortController=abortController;
     this.codeRuntime.setToolCallHandler(async(name,input)=>{
      const tool=allowed.get(name);
      if(!tool) throw new Error("Tool is not available in the current permission mode: "+name);
@@ -181,13 +183,17 @@ export class CopilotDesktopAgent {
      try{const value=await tool.handler(input);const output=typeof value==="string"?value:value.text;this.recordTrace("tool.result",{name,input,result:output,source:"code-mode"},"completed");return value;}
      catch(error){this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error),source:"code-mode"},"failed");throw error;}
     });
-    const result=await this.codeRuntime.executeGeneratedCode({
-     mode:"generated-code",code,workspaceRoot:this.workspacePath??undefined,
-     capabilities:["tools.call"],limits:{timeoutMs:30000,maxOutputBytes:256*1024,maxLogEntries:200}
-    });
-    this.codeRuntime.setToolCallHandler(null);
-    if(result.status!=="completed") throw new Error(result.error??"Code Mode execution failed.");
-    return JSON.stringify({result:result.result,logs:result.logs});
+    try{
+     const result=await this.codeRuntime.executeGeneratedCode({
+      mode:"generated-code",code,workspaceRoot:this.workspacePath??undefined,signal:abortController.signal,
+      capabilities:["tools.call"],limits:{timeoutMs:30000,maxOutputBytes:256*1024,maxLogEntries:200}
+     });
+     if(result.status!=="completed") throw new Error(result.error??"Code Mode execution failed.");
+     return JSON.stringify({result:result.result,logs:result.logs});
+    }finally{
+     this.codeRuntimeAbortController=null;
+     this.codeRuntime.setToolCallHandler(null);
+    }
    }
   });
   return tools;
@@ -248,7 +254,7 @@ export class CopilotDesktopAgent {
   finally{clearTimeout(timeout);this.codeBuddyQuery=null;this.codeBuddyAbortController=null;cleanup?.();}
  }
  async send(prompt:string,history?:AgentChatMessage[]):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt,history);else await this.sendCopilot(prompt,history);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
- async cancel():Promise<void>{if(this.settings.provider==="codebuddy"){this.codeBuddyAbortController?.abort();if(this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();}else if(this.active&&this.session)await this.session.abort();}
+ async cancel():Promise<void>{this.codeRuntimeAbortController?.abort();if(this.settings.provider==="codebuddy"){this.codeBuddyAbortController?.abort();if(this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();}else if(this.active&&this.session)await this.session.abort();}
  isBusy():boolean{return this.active;}
  async stop():Promise<void>{if(this.active){try{await this.cancel();}catch{/* the request is being torn down */}}this.codeRuntime.setToolCallHandler(null);await this.codeRuntime.dispose();const client=this.client;this.client=null;this.session=null;if(client){try{await client.stop();}catch{/* already stopped */}}}
 }
