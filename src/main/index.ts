@@ -948,7 +948,8 @@ function createMainWindow(): void {
     minWidth: 820,
     minHeight: 560,
     title: "Architect Agent Desktop",
-    backgroundColor: "#f5f6f8",
+    backgroundColor: "#f4f3f1",
+    ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 18, y: 14 } } : {}),
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,

@@ -33,6 +33,11 @@ button { color: inherit; }
   background: #fff;
 }
 
+/* macOS 使用 hiddenInset 标题栏，红绿灯悬浮在左上角；面板停靠在左侧或上方时避开该区域。 */
+.app-shell.is-mac[data-agent-position="left"] .agent-panel,
+.app-shell.is-mac[data-agent-position="top"] .agent-panel { padding-top: 46px; }
+.app-shell[data-agent-position="left"] .agent-panel { border-left: 0; border-right: 1px solid #e5e7eb; }
+
  .app-shell.agent-grouped { grid-template-columns: minmax(0, 1fr); }
 .workspace-dock-targets { position:absolute; inset:0; z-index:20; display:grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap:4px; padding:6px; background:rgba(30,42,60,.12); }
 .workspace-dock-targets button { border:1px dashed #4b79b9; border-radius:8px; color:#23456f; background:rgba(255,255,255,.92); font-weight:600; text-transform:capitalize; cursor:copy; }
@@ -60,24 +65,32 @@ button { color: inherit; }
   position: relative;
   z-index: 2;
   width: 100%;
-  background: #f5f6f8;
-  border-bottom: 1px solid #d9dde4;
+  background: #f4f3f1;
   user-select: none;
+  -webkit-app-region: drag;
 }
+
+.browser-chrome.is-mac .tab-strip { padding-left: 84px; }
+
+.browser-chrome button,
+.browser-chrome input,
+.browser-chrome form,
+.browser-chrome .tab,
+.browser-chrome .profile-mark { -webkit-app-region: no-drag; }
 
 .tab-strip {
   display: flex;
-  align-items: flex-end;
-  height: 39px;
-  padding: 5px 9px 0;
-  gap: 6px;
-  background: #e9ecf1;
+  align-items: center;
+  height: 42px;
+  padding: 0 10px;
+  gap: 2px;
+  background: transparent;
 }
 
 .tabs {
   display: flex;
-  align-items: flex-end;
-  gap: 4px;
+  align-items: center;
+  gap: 2px;
   min-width: 0;
   height: 100%;
   flex: 1;
@@ -93,20 +106,24 @@ button { color: inherit; }
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 220px;
-  max-width: 28vw;
-  min-width: 116px;
-  height: 33px;
-  padding: 0 8px 0 10px;
-  border-radius: 8px 8px 0 0;
-  color: #5a626f;
+  width: 210px;
+  max-width: 26vw;
+  min-width: 112px;
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border-radius: 7px;
+  color: #5d6470;
   background: transparent;
   cursor: default;
-  font-size: 12px;
+  font-size: 12.5px;
 }
 
-.tab:hover { background: #f0f2f5; }
-.tab.active { color: #222831; background: #fff; }
+.tab:hover { background: rgba(0, 0, 0, 0.045); }
+.tab.active {
+  color: #1f2328;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.05);
+}
 
 .tab-favicon {
   display: flex;
@@ -155,45 +172,48 @@ button { color: inherit; }
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 0;
   border-radius: 5px;
   background: transparent;
   color: #737c89;
   cursor: default;
-  font-size: 17px;
+  font-size: 15px;
   line-height: 1;
 }
 
 .tab-close:hover,
 .new-tab-button:hover {
-  background: #e2e6ec;
-  color: #242a33;
+  background: rgba(0, 0, 0, 0.07);
+  color: #1f2328;
 }
 
 .new-tab-button {
   width: 26px;
   height: 26px;
-  margin: 0 0 3px 0;
-  font-size: 20px;
+  margin-left: 2px;
+  border-radius: 6px;
+  color: #5d6470;
+  font-size: 19px;
 }
 
 .toolbar {
   display: flex;
   align-items: center;
-  height: 51px;
-  gap: 10px;
-  padding: 0 13px;
-  background: #fff;
+  height: 46px;
+  gap: 8px;
+  padding: 0 12px 8px;
+  background: transparent;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
 }
 
 .navigation-controls,
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   flex: 0 0 auto;
 }
 
@@ -202,29 +222,29 @@ button { color: inherit; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #475160;
+  color: #4d5460;
   cursor: default;
 }
 
 .toolbar-button:hover:not(:disabled) {
-  background: #eef1f5;
-  color: #202833;
+  background: rgba(0, 0, 0, 0.055);
+  color: #1f2328;
 }
 
-.toolbar-button:disabled { color: #b8bec8; }
+.toolbar-button:disabled { color: #c2c6cc; }
 
 .toolbar-button svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.7;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -233,63 +253,62 @@ button { color: inherit; }
   display: flex;
   align-items: center;
   min-width: 80px;
-  height: 34px;
+  height: 32px;
   flex: 1;
-  gap: 8px;
+  gap: 7px;
   padding: 0 10px;
-  border: 1px solid #e1e5eb;
-  border-radius: 8px;
-  background: #f2f4f7;
-  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 9px;
+  background: #fff;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .address-form:focus-within {
-  border-color: #a9c5ed;
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(53, 119, 214, 0.1);
+  border-color: rgba(37, 99, 235, 0.5);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 .address-security {
   flex: 0 0 auto;
-  color: #8993a1;
-  font-size: 15px;
+  color: #8a919c;
+  font-size: 14px;
   line-height: 1;
 }
 
-.address-security.secure { color: #38835f; }
+.address-security.secure { color: #3f7d5c; }
 
 .address-input {
   width: 100%;
   min-width: 0;
-  height: 30px;
+  height: 28px;
   padding: 0;
   outline: 0;
   border: 0;
   background: transparent;
-  color: #2d3541;
-  font-size: 12px;
+  color: #23262b;
+  font-size: 12.5px;
   user-select: text;
 }
 
-.address-input::placeholder { color: #929aa6; }
+.address-input::placeholder { color: #9aa0a8; }
 
 .address-clear {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border: 0;
   border-radius: 50%;
-  background: #e2e6ec;
+  background: #e8e6e2;
   color: #5f6875;
   cursor: default;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
 }
 
-.toolbar-actions { gap: 7px; }
+.toolbar-actions { gap: 6px; }
 
 .download-dot {
   position: absolute;
@@ -297,7 +316,7 @@ button { color: inherit; }
   right: 5px;
   width: 6px;
   height: 6px;
-  border: 1px solid #fff;
+  border: 1px solid #f4f3f1;
   border-radius: 50%;
   background: #3777d6;
 }
@@ -306,13 +325,13 @@ button { color: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: 1px solid #d7e2f1;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: 50%;
-  background: #eaf1fb;
-  color: #426a9f;
-  font-size: 12px;
+  background: #e9e7e2;
+  color: #5d6470;
+  font-size: 11px;
   font-weight: 600;
 }
 
@@ -394,8 +413,8 @@ button { color: inherit; }
 
 @media (max-width: 900px) {
   .home-button { display: none; }
-  .tab { width: 180px; }
-  .toolbar { gap: 5px; padding: 0 8px; }
+  .tab { width: 170px; }
+  .toolbar { gap: 5px; padding: 0 8px 8px; }
 }
  .agent-floating-root { display:flex; flex-direction:column; width:100%; height:100%; min-width:0; min-height:0; overflow:hidden; background:#fff; }
 .agent-panel-slot { display:flex; align-self:stretch; width:100%; height:100%; min-width:0; min-height:0; overflow:hidden; }

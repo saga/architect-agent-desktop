@@ -5,6 +5,7 @@ import AgentPanel from "./AgentPanel";
 import { Button } from "antd";
 
 const EMPTY_STATE: BrowserState = { tabs: [], activeTabId: null };
+const IS_MAC = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || navigator.userAgent);
 
 function displayTitle(tab: BrowserTabState): string {
   if (tab.title && tab.title.trim()) return tab.title.trim();
@@ -224,9 +225,9 @@ function App() {
   }
 
   return (
-    <div ref={appShellRef} className={"app-shell" + (agentOpen && !groupedWorkspace ? " agent-open" : "") + (groupedWorkspace ? " agent-grouped" : "")} style={shellStyle}>
+    <div ref={appShellRef} className={"app-shell" + (IS_MAC ? " is-mac" : "") + (agentOpen && !groupedWorkspace ? " agent-open" : "") + (groupedWorkspace ? " agent-grouped" : "")} data-agent-position={agentPosition} style={shellStyle}>
       <div className="browser-workspace" ref={browserWorkspaceRef} style={browserPlacement}>
-      <div className="browser-chrome" ref={chromeRef}>
+      <div className={"browser-chrome" + (IS_MAC ? " is-mac" : "")} ref={chromeRef}>
         <div className="tab-strip">
           <div className="tabs">
             {browserState.tabs.map((tab) => (
