@@ -334,7 +334,7 @@ function App() {
           </div>
         </div>
         {dockDragActive && <div className="workspace-dock-targets" onDragOver={(event) => event.preventDefault()}>
-          {(["left", "right", "top", "bottom"] as const).map((position) => <button key={position} type="button" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); setDockDragActive(false); setAgentPosition(position); if (groupedWorkspace) splitAgentFromBrowser(); saveWorkspaceLayout(true, agentWidth, position); }}>{position}</button>)}
+          {(["left", "right", "top", "bottom"] as const).map((position) => <button key={position} type="button" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.dataTransfer.getData("text/plain") !== "agent-panel") return; setDockDragActive(false); setAgentPosition(position); if (groupedWorkspace) splitAgentFromBrowser(); saveWorkspaceLayout(true, agentWidth, position); }}>{position}</button>)}
         </div>}
 
         {showFind && (
