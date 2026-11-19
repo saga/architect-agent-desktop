@@ -1,7 +1,7 @@
 import { CopilotClient, type CopilotSession } from "@github/copilot-sdk";
 
 export interface CopilotEvent {
-  type: "status" | "delta" | "error" | "done";
+  type: "status" | "delta" | "message" | "error" | "done";
   status?: "starting" | "ready" | "unauthenticated";
   text?: string;
 }
