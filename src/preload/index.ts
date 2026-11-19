@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentSettings, BrowserApi, BrowserDownloadEvent, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
+import type { AgentModelInfo, AgentProvider, AgentSettings, BrowserApi, BrowserDownloadEvent, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
 
 const api: BrowserApi = {
   getWorkspaceLayout: () => ipcRenderer.invoke("workspace:get-layout"),
@@ -37,6 +37,7 @@ const api: BrowserApi = {
   copilotStatus: () => ipcRenderer.invoke("copilot:status"),
   openAgentSettings: () => ipcRenderer.invoke("agent:open-settings"),
   agentGetSettings: () => ipcRenderer.invoke("agent:get-settings"),
+  agentInspectModels: (provider: AgentProvider): Promise<AgentModelInfo[]> => ipcRenderer.invoke("agent:inspect-models", provider),
   onAgentSettingsUpdated: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, settings: AgentSettings) => listener(settings);
     ipcRenderer.on("agent:settings-updated", handler);
