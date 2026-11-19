@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Tag, message, Modal, Input, Select, Tooltip } from "antd";
+import { Alert, Button, Tag, message, Input, Select, Tooltip } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import { Bubble, Sender } from "@ant-design/x";
 import type { AgentProvider, AgentSettings, CopilotEvent } from "../shared/types";
@@ -99,21 +99,32 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
     </div>
     <Sender value={input} onChange={setInput} onSubmit={(value) => { setInput(""); void send(value); }} onCancel={() => void window.browser.copilotCancel()} loading={loading} placeholder={"使用 " + (settings.provider === "copilot" ? "GitHub Copilot" : "CodeBuddy") + " 询问页面或操作当前网页…"} />
 
-    <Modal title="Agent 配置" open={settingsOpen} onCancel={() => setSettingsOpen(false)} onOk={() => void saveSettings()} confirmLoading={saving} okText="保存配置" cancelText="取消" width={620} destroyOnHidden>
-      <div className="agent-settings-form">
-        <label>默认 Provider</label>
-        <Select value={draft.provider} onChange={(value: AgentProvider) => setDraft((s) => ({ ...s, provider: value }))} options={[{ label: "GitHub Copilot CLI", value: "copilot" }, { label: "CodeBuddy CLI", value: "codebuddy" }]} />
-        <label>{draft.provider === "copilot" ? "Copilot 模型" : "CodeBuddy 模型"}</label>
-        <Input value={draft.provider === "copilot" ? draft.copilotModel : draft.codebuddyModel}
-          onChange={(event) => setDraft((s) => draft.provider === "copilot" ? { ...s, copilotModel: event.target.value } : { ...s, codebuddyModel: event.target.value })}
-          placeholder="留空表示使用 CLI 默认模型" maxLength={200} />
-        <div className="agent-settings-help">填写 CLI 支持的模型 ID；留空时由对应 CLI 选择默认模型。</div>
-        <label>Thinking Level</label>
-        <Select value={draft.thinkingLevel} onChange={(value: AgentSettings["thinkingLevel"]) => setDraft((s) => ({ ...s, thinkingLevel: value }))} options={[{ label: "Low · 更快，适合简单操作", value: "low" }, { label: "Medium · 平衡", value: "medium" }, { label: "High · 更强推理，响应可能更慢", value: "high" }]} />
-        <label>System Prompt</label>
-        <Input.TextArea value={draft.systemPrompt} onChange={(event) => setDraft((s) => ({ ...s, systemPrompt: event.target.value }))} rows={8} maxLength={12000} showCount placeholder="补充 Agent 的角色、回答风格、工作约束等。浏览器安全规则仍由应用强制执行。" />
-        <div className="agent-settings-help">自定义提示会作为额外系统指令传入模型；应用强制执行的浏览器安全规则优先级更高。它不能覆盖应用强制执行的浏览器安全限制。配置保存在本机，不会上传。</div>
+    {settingsOpen && <section className="agent-settings-overlay" role="dialog" aria-modal="true" aria-label="Agent 配置">
+      <header className="agent-settings-header">
+        <div><strong>Agent 配置</strong><div className="agent-settings-help">配置默认模型与 Agent 行为</div></div>
+        <Button type="text" size="small" onClick={() => setSettingsOpen(false)}>×</Button>
+      </header>
+      <div className="agent-settings-scroll">
+        <div className="agent-settings-form">
+          <label>默认 Provider</label>
+          <Select value={draft.provider} onChange={(value: AgentProvider) => setDraft((s) => ({ ...s, provider: value }))} options={[{ label: "GitHub Copilot CLI", value: "copilot" }, { label: "CodeBuddy CLI", value: "codebuddy" }]} />
+          <label>{draft.provider === "copilot" ? "Copilot 模型" : "CodeBuddy 模型"}</label>
+          <Input value={draft.provider === "copilot" ? draft.copilotModel : draft.codebuddyModel}
+            onChange={(event) => setDraft((s) => draft.provider === "copilot" ? { ...s, copilotModel: event.target.value } : { ...s, codebuddyModel: event.target.value })}
+            placeholder="留空表示使用 CLI 默认模型" maxLength={200} />
+          <div className="agent-settings-help">填写 CLI 支持的模型 ID；留空时由对应 CLI 选择默认模型。</div>
+          <label>Thinking Level</label>
+          <Select value={draft.thinkingLevel} onChange={(value: AgentSettings["thinkingLevel"]) => setDraft((s) => ({ ...s, thinkingLevel: value }))} options={[{ label: "Low · 更快，适合简单操作", value: "low" }, { label: "Medium · 平衡", value: "medium" }, { label: "High · 更强推理，响应可能更慢", value: "high" }]} />
+          <label>System Prompt</label>
+          <Input.TextArea value={draft.systemPrompt} onChange={(event) => setDraft((s) => ({ ...s, systemPrompt: event.target.value }))} rows={8} maxLength={12000} showCount placeholder="补充 Agent 的角色、回答风格、工作约束等。浏览器安全规则仍由应用强制执行。" />
+          <div className="agent-settings-help">自定义提示会作为额外系统指令传入模型；应用强制执行的浏览器安全规则优先级更高。配置保存在本机，不会上传。</div>
+        </div>
       </div>
-    </Modal>
+      <footer className="agent-settings-footer">
+        <Button onClick={() => setSettingsOpen(false)}>取消</Button>
+        <Button type="primary" loading={saving} disabled={loading} onClick={() => void saveSettings()}>保存配置</Button>
+      </footer>
+    </section>}
+dal>
   </aside>;
 }
