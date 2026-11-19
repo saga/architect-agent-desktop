@@ -18,7 +18,7 @@ import { z } from "zod";
 import { CopilotDesktopAgent } from "./copilot";
 import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
-import type { AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import type { AgentProvider, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { calculateLayout } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { findPanel, setPanelVisibility } from "./layout/layout-tree";
@@ -77,7 +77,7 @@ function loadWorkspaceDocument(): WorkspaceDocument {
 let workspaceDocument = loadWorkspaceDocument();
 const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", systemPrompt: "" };
 function loadAgentSettings(): AgentSettings {
-  try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" ? raw.thinkingLevel : "medium", copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? raw.systemPrompt.slice(0, 12000) : "" }; } catch { return { ...DEFAULT_SETTINGS }; }
+  try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" || raw.thinkingLevel === "xhigh" ? raw.thinkingLevel : "medium", contextWindow: typeof raw.contextWindow === "number" && Number.isSafeInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined, copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? raw.systemPrompt.slice(0, 12000) : "" }; } catch { return { ...DEFAULT_SETTINGS }; }
 }
 let agentSettings = loadAgentSettings();
 const copilotAgent = new CopilotDesktopAgent((payload) => {
@@ -1097,6 +1097,11 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     return await copilotAgent.status();
   });
+  ipcMain.handle("agent:inspect-models", async (event, provider: unknown) => {
+    assertTrustedSender(event);
+    if (provider !== "copilot" && provider !== "codebuddy") throw new Error("Unsupported Agent provider.");
+    return await copilotAgent.inspectModels(provider as AgentProvider);
+  });
   ipcMain.handle("agent:get-settings", (event) => {
     assertTrustedSender(event);
     return copilotAgent.getSettings();
@@ -1107,7 +1112,8 @@ function registerIpcHandlers(): void {
       provider: z.enum(["copilot", "codebuddy"]),
       copilotModel: z.string().max(200),
       codebuddyModel: z.string().max(200),
-      thinkingLevel: z.enum(["low", "medium", "high"]),
+      thinkingLevel: z.enum(["low", "medium", "high", "xhigh"]),
+      contextWindow: z.number().int().positive().optional(),
       systemPrompt: z.string().max(12000),
     }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Agent settings.");
