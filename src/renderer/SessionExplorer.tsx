@@ -59,6 +59,18 @@ function elapsed(start?: string, end?: string): string {
   return Number.isFinite(ms) && ms >= 0 ? (ms < 1000 ? ms + " ms" : (ms / 1000).toFixed(2) + " s") : "—";
 }
 
+function tokenUsage(event?: TraceEvent): { input?: number; output?: number; total?: number } {
+  const data = record(event?.data);
+  const result = record(data.result);
+  const usage = record(data.usage ?? result.usage);
+  const read = (...values: unknown[]) => values.find((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
+  return {
+    input: read(usage.input_tokens, usage.inputTokens, usage.prompt_tokens, usage.promptTokens),
+    output: read(usage.output_tokens, usage.outputTokens, usage.completion_tokens, usage.completionTokens),
+    total: read(usage.total_tokens, usage.totalTokens),
+  };
+}
+
 export default function SessionExplorer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [sessions, setSessions] = useState<TraceSession[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -144,8 +156,12 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
     const response = visibleEvents.find((event) => event.traceId === request.traceId && event.type === "provider.response" &&
       new Date(event.timestamp).getTime() >= new Date(request.timestamp).getTime());
     const data = record(request.data);
-    return { request, response, prompt: typeof data.prompt === "string" ? data.prompt : "", captureLevel: data.captureLevel };
+    return { request, response, prompt: typeof data.prompt === "string" ? data.prompt : "", captureLevel: data.captureLevel, usage: tokenUsage(response) };
   });
+  const usageCalls = modelCalls.filter((call) => call.usage.input !== undefined || call.usage.output !== undefined || call.usage.total !== undefined);
+  const inputTokens = modelCalls.reduce((sum, call) => sum + (call.usage.input ?? 0), 0);
+  const outputTokens = modelCalls.reduce((sum, call) => sum + (call.usage.output ?? 0), 0);
+  const totalTokens = modelCalls.reduce((sum, call) => sum + (call.usage.total ?? 0), 0);
   const contextEvents = visibleEvents.filter((event) => event.type.startsWith("context.") || event.type === "provider.request");
   const completedCalls = modelCalls.filter((call) => call.response).length;
 
@@ -202,9 +218,12 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
     <div className="session-explorer-stats">
       <Statistic title="模型请求" value={modelCalls.length} />
       <Statistic title="已完成" value={completedCalls} />
+      <Statistic title="输入 Tokens" value={usageCalls.length ? inputTokens : "—"} />
+      <Statistic title="输出 Tokens" value={usageCalls.length ? outputTokens : "—"} />
+      <Statistic title="总 Tokens" value={usageCalls.length ? totalTokens : "—"} />
       <Statistic title="未完成 / 缺少响应" value={modelCalls.length - completedCalls} />
     </div>
-    {modelCalls.length ? <List dataSource={modelCalls} renderItem={({ request, response, prompt, captureLevel }) => <List.Item>
+    {modelCalls.length ? <List dataSource={modelCalls} renderItem={({ request, response, prompt, captureLevel, usage }) => <List.Item>
       <div className="session-event">
         <div className="session-event-heading">
           <Text strong>{request.provider ?? "Provider"} · {request.model || "默认模型"}</Text>
@@ -213,6 +232,7 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
         </div>
         <Text type="secondary">{formatTime(request.timestamp)} · Trace {request.traceId}</Text>
         <Text type="secondary">输入采集级别：{String(captureLevel ?? "未标注")}</Text>
+        <Text type="secondary">Tokens：输入 {usage.input ?? "—"} · 输出 {usage.output ?? "—"} · 总计 {usage.total ?? "—"}</Text>
         {prompt && <details><summary>查看提交给 SDK 的上下文</summary><pre>{prompt}</pre></details>}
         {response && <details><summary>查看 SDK 响应</summary><pre>{JSON.stringify(response.data ?? {}, null, 2)}</pre></details>}
       </div>
