@@ -7,6 +7,7 @@ import {
   ipcMain,
   Menu,
   type MenuItemConstructorOptions,
+  screen,
   session,
   shell,
   WebContentsView,
@@ -16,9 +17,10 @@ import {
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CopilotDesktopAgent } from "./copilot";
+import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
-import { readFileSync, writeFileSync } from "node:fs";
-import type { AgentChatMessage, AgentProvider, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { calculateLayout } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { findPanel, setPanelVisibility } from "./layout/layout-tree";
@@ -36,6 +38,7 @@ const ASKABLE_PERMISSIONS = new Set(["media", "display-capture", "geolocation", 
 interface BrowserTab {
   id: string;
   view: WebContentsView;
+  cdp: BrowserCdp;
   title: string;
   url: string;
   favicon: string | null;
@@ -63,8 +66,11 @@ let contentTop = DEFAULT_CONTENT_TOP;
 let contentLeft = 0;
 let contentWidth: number | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
+const AGENT_SESSION_PATH = path.join(app.getPath("userData"), "agent-session.json");
 const WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
 const WORKSPACE_DOCUMENT_PATH = path.join(app.getPath("userData"), "workspace-document.json");
+const WINDOW_STATE_PATH = path.join(app.getPath("userData"), "window-state.json");
+const MAX_AGENT_SESSION_ITEMS = 200;
 function loadWorkspaceLayout(): WorkspaceLayoutState {
   try { return parseWorkspaceLayout(JSON.parse(readFileSync(WORKSPACE_LAYOUT_PATH, "utf8"))); }
   catch { return { ...DEFAULT_WORKSPACE_LAYOUT }; }
@@ -79,9 +85,41 @@ const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "",
 function loadAgentSettings(): AgentSettings {
   try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" || raw.thinkingLevel === "xhigh" ? raw.thinkingLevel : "medium", toolPermission: raw.toolPermission === "assisted" || raw.toolPermission === "allow-all" ? raw.toolPermission : "browser-only", contextWindow: typeof raw.contextWindow === "number" && Number.isSafeInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined, copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? (raw.systemPrompt.trim() ? raw.systemPrompt.slice(0, 12000) : DEFAULT_SETTINGS.systemPrompt) : DEFAULT_SETTINGS.systemPrompt }; } catch { return { ...DEFAULT_SETTINGS }; }
 }
+function parseAgentSessionItems(value: unknown): AgentSessionItem[] {
+  if (!Array.isArray(value)) return [];
+  const items: AgentSessionItem[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Partial<AgentSessionItem>;
+    if (!["user", "assistant", "tool", "error"].includes(item.kind ?? "")) continue;
+    if (typeof item.content !== "string") continue;
+    items.push({
+      id: typeof item.id === "string" && item.id ? item.id.slice(0, 100) : randomUUID(),
+      kind: item.kind as AgentSessionItem["kind"],
+      content: item.content.slice(0, 20000),
+      ...(typeof item.toolName === "string" ? { toolName: item.toolName.slice(0, 200) } : {}),
+      ...(item.toolState === "done" || item.toolState === "error" ? { toolState: item.toolState } : {}),
+      createdAt: typeof item.createdAt === "number" && Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
+    });
+  }
+  return items.slice(-MAX_AGENT_SESSION_ITEMS);
+}
+function loadAgentSession(): AgentSessionItem[] {
+  try {
+    const parsed = JSON.parse(readFileSync(AGENT_SESSION_PATH, "utf8")) as { items?: unknown };
+    return parseAgentSessionItems(parsed.items);
+  } catch {
+    return [];
+  }
+}
+function saveAgentSession(items: AgentSessionItem[]): void {
+  const trimmed = parseAgentSessionItems(items).slice(-MAX_AGENT_SESSION_ITEMS);
+  writeFileSync(AGENT_SESSION_PATH, JSON.stringify({ version: 1, updatedAt: Date.now(), items: trimmed }, null, 2), { encoding: "utf8", mode: 0o600 });
+}
 let agentSettings = loadAgentSettings();
 const copilotAgent = new CopilotDesktopAgent((payload) => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("copilot:event", payload);
+  if (agentPanelWindow && !agentPanelWindow.isDestroyed()) agentPanelWindow.webContents.send("copilot:event", payload);
 }, {
   async getCurrentPage() {
     const tab = activeTabId ? tabs.get(activeTabId) : null;
@@ -92,9 +130,29 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
       const bodyText = clean(document.body?.innerText).slice(0, 18000);
       const headings = [...document.querySelectorAll("h1,h2,h3")].filter(visible).slice(0, 40).map(e => clean(e.innerText));
       const links = [...document.querySelectorAll("a[href]")].filter(visible).slice(0, 60).map(a => ({ text: clean(a.innerText || a.getAttribute("aria-label")), href: a.href }));
-      const controls = [...document.querySelectorAll("button,input,textarea,select,[role=button]")].filter(visible).slice(0, 60).map((e,i) => ({ tag:e.tagName.toLowerCase(), type:e.type || "", text:clean(e.innerText || e.getAttribute("aria-label") || e.getAttribute("placeholder")), name:e.getAttribute("name"), id:e.id, selector:e.id ? "#" + CSS.escape(e.id) : e.getAttribute("name") ? e.tagName.toLowerCase() + "[name=" + JSON.stringify(e.getAttribute("name")) + "]" : e.tagName.toLowerCase() + ":nth-of-type(" + (Array.from(e.parentElement?.children || []).filter(x => x.tagName === e.tagName).indexOf(e)+1) + ")" }));
-      return JSON.stringify({ title:document.title, url:location.href, headings, text:bodyText, links, controls });
+      const controls = [...document.querySelectorAll("button,input,textarea,select,[role=button]")].filter(visible).slice(0, 60).map(e => ({ tag:e.tagName.toLowerCase(), type:e.type || "", text:clean(e.innerText || e.getAttribute("aria-label") || e.getAttribute("placeholder")), name:e.getAttribute("name"), id:e.id }));
+      return JSON.stringify({ title:document.title, url:location.href, note:"Use browser_snapshot for eN uids accepted by browser_click and browser_fill.", headings, text:bodyText, links, controls });
     })()`);
+  },
+  async snapshot() {
+    const tab = activeTabId ? tabs.get(activeTabId) : null;
+    if (!tab) throw new Error("No active tab.");
+    const result = await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.snapshot(tab.view.webContents), "snapshot");
+    const tree = result.tree.length > 120000 ? result.tree.slice(0, 120000) + "\n… (snapshot truncated)" : result.tree;
+    return "URL: " + result.url + "\nTitle: " + result.title + "\n\nAccessibility tree (use the eN uid with browser_click or browser_fill):\n" + tree;
+  },
+  async screenshot(fullPage) {
+    const tab = activeTabId ? tabs.get(activeTabId) : null;
+    if (!tab) throw new Error("No active tab.");
+    const image = await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.screenshot(tab.view.webContents, { fullPage }), "screenshot");
+    return { text: "Captured " + (fullPage ? "full-page " : "") + "screenshot of " + (tab.url || "the active tab") + ".", image };
+  },
+  async console(limit) {
+    const tab = activeTabId ? tabs.get(activeTabId) : null;
+    if (!tab) throw new Error("No active tab.");
+    const messages = await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.console(tab.view.webContents, limit), "console");
+    if (!messages.length) return "No console messages.";
+    return messages.map((entry, index) => `${index + 1}. [${entry.type}] ${entry.text.slice(0, 2000)}`).join("\n");
   },
   async listTabs() {
     return JSON.stringify({ activeTabId, tabs: currentState().tabs.map(t => ({ id:t.id, title:t.title, url:t.url, active:t.id===activeTabId, loading:t.isLoading })) });
@@ -113,30 +171,15 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     if (!tabs.has(tabId)) throw new Error("Unknown tab ID.");
     activateTab(tabId); return "Switched to tab " + tabId;
   },
-  async click(selector) {
+  async click(uid) {
     const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
-    return await tab.view.webContents.executeJavaScript(`(() => {
-      const el=document.querySelector(${JSON.stringify(selector)});
-      if (!el) throw new Error("Element not found: " + ${JSON.stringify(selector)});
-      const r=el.getBoundingClientRect(); if (r.width<=0 || r.height<=0) throw new Error("Element is not visible.");
-      const text=(el.innerText || el.getAttribute("aria-label") || "").trim();
-      const type=(el.getAttribute("type") || "").toLowerCase();
-      if (type==="submit" || el.tagName==="FORM" || (el.closest("form") && el.tagName==="BUTTON" && type!=="button") || /pay|purchase|buy now|add to cart|checkout|place order|delete|remove account|send message|transfer|confirm payment|unsubscribe|publish|post now/i.test(text)) throw new Error("Potentially consequential action blocked. Ask the user to perform it.");
-      el.click(); return "Clicked " + (text || el.tagName) + ".";
-    })()`);
+    await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.click(tab.view.webContents, uid), "click");
+    return "Clicked element " + uid + ". Call browser_snapshot again if you need updated uids.";
   },
-  async fill(selector, value) {
+  async fill(uid, value) {
     const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
-    return await tab.view.webContents.executeJavaScript(`(() => {
-      const el=document.querySelector(${JSON.stringify(selector)});
-      if (!el) throw new Error("Field not found.");
-      if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) throw new Error("Only input and textarea fields can be filled.");
-      if (el instanceof HTMLInputElement && ["password","hidden","submit","button","file"].includes(el.type)) throw new Error("This field type cannot be filled by the agent.");
-      const setter=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), "value")?.set;
-      setter?.call(el, ${JSON.stringify(value)});
-      el.dispatchEvent(new Event("input", { bubbles:true })); el.dispatchEvent(new Event("change", { bubbles:true }));
-      return "Filled field " + (el.getAttribute("aria-label") || el.name || el.id || el.tagName) + ". Form was not submitted.";
-    })()`);
+    await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.fill(tab.view.webContents, uid, value), "fill");
+    return "Filled element " + uid + ". Form was not submitted.";
   },
   async scroll(direction, amount) {
     const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
@@ -160,6 +203,13 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
       return true;
     })()`, true);
     return "Injected CSS into " + tab.url + ".";
+  },
+  async cdp(method, params) {
+    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    const result=await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.send(tab.view.webContents, method, params), method);
+    if (result === undefined || result === null) return "CDP " + method + " completed.";
+    const text=typeof result === "string" ? result : JSON.stringify(result);
+    return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
 }, agentSettings);
 let downloadSequence = 0;
@@ -363,12 +413,14 @@ function attachTabEvents(tab: BrowserTab): void {
 
   webContents.on("did-navigate", (_event, url) => {
     tab.url = url;
+    tab.cdp.resetUids();
     sendState();
   });
 
   webContents.on("did-navigate-in-page", (_event, url, isMainFrame) => {
     if (!isMainFrame) return;
     tab.url = url;
+    tab.cdp.resetUids();
     sendState();
   });
 
@@ -537,6 +589,7 @@ async function createTab(url = HOME_URL): Promise<string> {
   const tab: BrowserTab = {
     id,
     view,
+    cdp: new BrowserCdp(),
     title: "New tab",
     url: "about:blank",
     favicon: null,
@@ -575,6 +628,7 @@ function closeTab(id: string): void {
 
   tabs.delete(id);
   tabOrder.splice(index, 1);
+  tab.cdp.detach(tab.view.webContents);
   tab.view.webContents.close();
 
   if (activeTabId === id) {
@@ -778,10 +832,49 @@ function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+interface SavedWindowState { width: number; height: number; x?: number; y?: number; maximized?: boolean; }
+function loadWindowState(): SavedWindowState {
+  try {
+    const raw = JSON.parse(readFileSync(WINDOW_STATE_PATH, "utf8")) as Partial<SavedWindowState>;
+    const width = typeof raw.width === "number" && Number.isFinite(raw.width) ? Math.max(820, Math.min(8000, Math.round(raw.width))) : 1360;
+    const height = typeof raw.height === "number" && Number.isFinite(raw.height) ? Math.max(560, Math.min(8000, Math.round(raw.height))) : 900;
+    const x = typeof raw.x === "number" && Number.isFinite(raw.x) ? Math.round(raw.x) : undefined;
+    const y = typeof raw.y === "number" && Number.isFinite(raw.y) ? Math.round(raw.y) : undefined;
+    return { width, height, ...(x !== undefined && y !== undefined ? { x, y } : {}), maximized: raw.maximized === true };
+  } catch {
+    return { width: 1360, height: 900 };
+  }
+}
+function isWindowStateVisible(state: SavedWindowState): boolean {
+  if (state.x === undefined || state.y === undefined) return false;
+  return screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    return state.x! >= area.x - 40 && state.y! >= area.y - 40
+      && state.x! < area.x + area.width - 80 && state.y! < area.y + area.height - 80;
+  });
+}
+let windowStateTimer: ReturnType<typeof setTimeout> | undefined;
+function saveWindowState(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const maximized = mainWindow.isMaximized();
+  const bounds = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds();
+  try {
+    writeFileSync(WINDOW_STATE_PATH, JSON.stringify({ ...bounds, maximized }, null, 2), { encoding: "utf8", mode: 0o600 });
+  } catch {
+    // Window geometry is a convenience; ignore write failures.
+  }
+}
+function scheduleWindowStateSave(): void {
+  if (windowStateTimer) clearTimeout(windowStateTimer);
+  windowStateTimer = setTimeout(() => { windowStateTimer = undefined; saveWindowState(); }, 400);
+}
+
 function createMainWindow(): void {
+  const savedState = loadWindowState();
   mainWindow = new BrowserWindow({
-    width: 1360,
-    height: 900,
+    width: savedState.width,
+    height: savedState.height,
+    ...(isWindowStateVisible(savedState) ? { x: savedState.x, y: savedState.y } : {}),
     minWidth: 820,
     minHeight: 560,
     title: "Architect Agent Desktop",
@@ -794,7 +887,12 @@ function createMainWindow(): void {
     },
   });
 
-  mainWindow.on("resize", updateActiveBounds);
+  if (savedState.maximized) mainWindow.maximize();
+  mainWindow.on("resize", () => { updateActiveBounds(); scheduleWindowStateSave(); });
+  mainWindow.on("move", scheduleWindowStateSave);
+  mainWindow.on("maximize", scheduleWindowStateSave);
+  mainWindow.on("unmaximize", scheduleWindowStateSave);
+  mainWindow.on("close", saveWindowState);
   mainWindow.webContents.on("before-input-event", (event, input) => {
     handleBrowserShortcut(event, input);
   });
@@ -1031,6 +1129,14 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
   ipcMain.handle("browser:toggle-snapshot", async (event) => { assertTrustedSender(event); return await toggleSnapshot(); });
+  ipcMain.handle("app:open-external", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.string().url().max(2048).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid URL.");
+    const protocol = new URL(parsed.data).protocol;
+    if (!["http:", "https:", "mailto:"].includes(protocol)) throw new Error("Unsupported URL scheme.");
+    await shell.openExternal(parsed.data);
+  });
   ipcMain.handle("browser:get-state", (event) => {
     assertTrustedSender(event);
     return currentState();
@@ -1140,6 +1246,7 @@ function registerIpcHandlers(): void {
     agentSettings = parsed.data;
     writeFileSync(SETTINGS_PATH, JSON.stringify(agentSettings, null, 2), { encoding: "utf8", mode: 0o600 });
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("agent:settings-updated", agentSettings);
+    if (agentPanelWindow && !agentPanelWindow.isDestroyed()) agentPanelWindow.webContents.send("agent:settings-updated", agentSettings);
     return copilotAgent.getSettings();
   });
   ipcMain.handle("copilot:send", async (event, input: unknown) => {
@@ -1152,6 +1259,19 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     return copilotAgent.cancel();
   });
+  ipcMain.handle("agent:load-session", (event) => {
+    assertTrustedSender(event);
+    return loadAgentSession();
+  });
+  ipcMain.handle("agent:save-session", (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (!Array.isArray(input)) throw new Error("Invalid Agent session.");
+    saveAgentSession(parseAgentSessionItems(input));
+  });
+  ipcMain.handle("agent:clear-session", (event) => {
+    assertTrustedSender(event);
+    rmSync(AGENT_SESSION_PATH, { force: true });
+  });
 
   ipcMain.on("browser:set-content-top", (event, height: number) => {
     if (!isTrustedAppSender(event.sender)) return;
@@ -1163,22 +1283,41 @@ function registerIpcHandlers(): void {
 
 app.setAppUserModelId(APP_ID);
 
-app.whenReady().then(() => {
-  browserSession = session.fromPartition(BROWSER_PARTITION);
-  installPermissionHandlers();
-  registerIpcHandlers();
-  installApplicationMenu();
-  createMainWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (!app.isReady()) return;
+    if (!mainWindow || mainWindow.isDestroyed()) {
       createMainWindow();
+      return;
     }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
   });
-});
+}
+
+if (hasSingleInstanceLock) {
+  app.whenReady().then(() => {
+    browserSession = session.fromPartition(BROWSER_PARTITION);
+    installPermissionHandlers();
+    registerIpcHandlers();
+    installApplicationMenu();
+    createMainWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindow();
+      }
+    });
+  });
+}
 
 app.on("before-quit", () => {
   isQuitting = true;
+  saveWindowState();
   void copilotAgent.stop();
 });
 

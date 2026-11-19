@@ -1,11 +1,84 @@
-import { useEffect, useState } from "react";
-import { Alert, Button, Dropdown, Tag, message, Tooltip } from "antd";
-import { AppstoreOutlined, SettingOutlined } from "@ant-design/icons";
+import { useEffect, useRef, useState } from "react";
+import { Alert, Button, Dropdown, Popconfirm, Tag, message, Tooltip } from "antd";
+import { AppstoreOutlined, DeleteOutlined, SettingOutlined } from "@ant-design/icons";
 import { Bubble, Sender } from "@ant-design/x";
-import type { AgentSettings, CopilotEvent } from "../shared/types";
+import XMarkdown from "@ant-design/x-markdown";
+import type { AgentSessionItem, AgentSettings, CopilotEvent } from "../shared/types";
 
-type ChatItem = { key: string; role: "user" | "assistant"; content: string; loading?: boolean };
+type ChatItem = AgentSessionItem & { streaming?: boolean };
 const EMPTY_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", toolPermission: "browser-only", systemPrompt: "" };
+const SESSION_SAVE_DELAY_MS = 500;
+
+function toSessionItems(items: ChatItem[]): AgentSessionItem[] {
+  return items.map((item) => ({
+    id: item.id,
+    kind: item.kind,
+    content: item.content,
+    ...(item.toolName ? { toolName: item.toolName } : {}),
+    ...(item.toolState ? { toolState: item.toolState } : {}),
+    createdAt: item.createdAt,
+  }));
+}
+
+function ToolCard({ name, detail, state }: { name: string; detail: string; state: "done" | "error" }) {
+  const failed = state === "error";
+  return <div className={"agent-tool-card" + (failed ? " is-error" : "")}>
+    <div className="agent-tool-head">
+      <span className="agent-tool-icon" aria-hidden>{failed ? "!" : "✓"}</span>
+      <strong className="agent-tool-name">{name}</strong>
+      <span className="agent-tool-state">{failed ? "失败" : "完成"}</span>
+    </div>
+    {detail.trim() && <pre className="agent-tool-detail">{detail.trim()}</pre>}
+  </div>;
+}
+
+function MarkdownLink(props: any) {
+  const href = typeof props.href === "string" ? props.href : "";
+  return <a href={href} title={typeof props.title === "string" ? props.title : undefined}
+    onClick={(event) => {
+      if (!href) return;
+      event.preventDefault();
+      if (href.startsWith("#")) {
+        document.getElementById(href.slice(1))?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      void (typeof window.browser.openExternal === "function" ? window.browser.openExternal(href) : Promise.resolve()).catch(() => undefined);
+    }}>{props.children}</a>;
+}
+
+const markdownComponents = { a: MarkdownLink };
+
+const bubbleRoles = {
+  assistant: (data: any) => ({
+    placement: "start" as const,
+    variant: "outlined" as const,
+    shape: "corner" as const,
+    contentRender: (content: string) => <XMarkdown className="agent-markdown" content={content} components={markdownComponents} escapeRawHtml
+      streaming={data.extraInfo?.streaming ? { hasNextChunk: true, incremental: true, incompleteMarkdown: "complete" } : false} />,
+  }),
+  user: {
+    placement: "end" as const,
+    variant: "filled" as const,
+    shape: "corner" as const,
+    contentRender: (content: string) => <div className="agent-bubble-text">{content}</div>,
+  },
+  tool: (data: any) => ({
+    placement: "start" as const,
+    variant: "borderless" as const,
+    shape: "corner" as const,
+    contentRender: () => <ToolCard
+      name={String(data.extraInfo?.toolName ?? "Tool")}
+      detail={String(data.content ?? "")}
+      state={data.extraInfo?.toolState === "error" ? "error" : "done"}
+    />,
+  }),
+  error: {
+    placement: "start" as const,
+    variant: "borderless" as const,
+    shape: "corner" as const,
+    contentRender: (content: string) => <Alert className="agent-error-card" type="error" showIcon message="请求失败" description={content} />,
+  },
+};
 
 export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMaximize, onRestore }: { onClose: () => void; onDock: (position: "left" | "right" | "top" | "bottom") => void; onFloat?: () => void; onDragState?: (active: boolean) => void; onMaximize?: () => void; onRestore?: () => void }) {
   const [status, setStatus] = useState("checking");
@@ -15,6 +88,9 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<ChatItem[]>([]);
+  const [sessionReady, setSessionReady] = useState(false);
+  const latestItems = useRef<ChatItem[]>([]);
+  const sessionReadyRef = useRef(false);
 
   const refreshStatus = async () => {
     const result = await window.browser.copilotStatus();
@@ -23,35 +99,86 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   };
 
   useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: () => void = () => undefined;
+    void (async () => {
+      try {
+        if (typeof window.browser.agentLoadSession === "function") {
+          const saved = await window.browser.agentLoadSession();
+          if (!cancelled && saved.length) setItems(saved);
+        }
+      } catch {
+        // A missing or unreadable session file starts an empty conversation.
+      }
+      if (cancelled) return;
+      setSessionReady(true);
+      const off = window.browser.onCopilotEvent((event: CopilotEvent) => {
+        if (event.type === "status" && event.status) setStatus(event.status);
+        if (event.type === "delta" && event.text) setItems((current) => {
+          const next = [...current];
+          const last = next[next.length - 1];
+          if (last?.kind === "assistant" && last.streaming) {
+            next[next.length - 1] = { ...last, content: last.content + event.text };
+          } else {
+            next.push({ id: crypto.randomUUID(), kind: "assistant", content: event.text ?? "", createdAt: Date.now(), streaming: true });
+          }
+          return next;
+        });
+        if (event.type === "message" && event.text) setItems((current) => {
+          const next = [...current];
+          const last = next[next.length - 1];
+          if (last?.kind === "assistant") {
+            next[next.length - 1] = { ...last, content: event.text ?? last.content, streaming: false };
+          } else {
+            next.push({ id: crypto.randomUUID(), kind: "assistant", content: event.text ?? "", createdAt: Date.now() });
+          }
+          return next;
+        });
+        if (event.type === "tool") setItems((current) => [...current, {
+          id: crypto.randomUUID(),
+          kind: "tool",
+          content: event.toolDetail ?? "",
+          toolName: event.toolName ?? "Tool",
+          toolState: event.toolState === "error" ? "error" : "done",
+          createdAt: Date.now(),
+        }]);
+        if (event.type === "done") {
+          setLoading(false);
+          setStatus("ready");
+          setItems((current) => current.map((item) => item.streaming ? { ...item, streaming: false } : item));
+        }
+        if (event.type === "error") {
+          setLoading(false);
+          setStatus("error");
+          setItems((current) => [
+            ...current.map((item) => item.streaming ? { ...item, streaming: false } : item),
+            { id: crypto.randomUUID(), kind: "error", content: event.text ?? "Request failed.", createdAt: Date.now() },
+          ]);
+        }
+      });
+      if (cancelled) { off(); return; }
+      unsubscribe = off;
+    })();
+    const unsubscribeSettings = window.browser.onAgentSettingsUpdated((saved) => { setSettings(saved); void refreshStatus(); });
     void Promise.all([window.browser.agentGetSettings(), window.browser.copilotStatus()])
       .then(([saved, result]) => { setSettings(saved); setStatus(result.status); setStatusMessage(result.message ?? ""); })
       .catch(() => setStatus("error"));
-    const unsubscribeSettings = window.browser.onAgentSettingsUpdated((saved) => { setSettings(saved); void refreshStatus(); });
-    const unsubscribe = window.browser.onCopilotEvent((event: CopilotEvent) => {
-      if (event.type === "status" && event.status) setStatus(event.status);
-      if (event.type === "delta" && event.text) setItems((current) => {
-        const next = [...current]; const last = next[next.length - 1];
-        if (last?.role === "assistant" && last.loading) last.content += event.text;
-        else next.push({ key: crypto.randomUUID(), role: "assistant", content: event.text ?? "", loading: true });
-        return next;
-      });
-      if (event.type === "message" && event.text) setItems((current) => {
-        const next = [...current]; const last = next[next.length - 1];
-        if (last?.role === "assistant") { last.content = event.text ?? last.content; last.loading = false; }
-        else next.push({ key: crypto.randomUUID(), role: "assistant", content: event.text ?? "" });
-        return next;
-      });
-      if (event.type === "tool" && event.text) setItems((current) => [...current, { key: crypto.randomUUID(), role: "assistant", content: "工具执行：" + event.text }]);
-      if (event.type === "done") {
-        setLoading(false); setStatus("ready");
-        setItems((current) => current.map((item) => item.loading ? { ...item, loading: false } : item));
-      }
-      if (event.type === "error") {
-        setLoading(false); setStatus("error");
-        setItems((current) => [...current, { key: crypto.randomUUID(), role: "assistant", content: event.text ?? "Request failed." }]);
-      }
-    });
-    return () => { unsubscribeSettings(); unsubscribe(); };
+    return () => { cancelled = true; unsubscribe(); unsubscribeSettings(); };
+  }, []);
+
+  useEffect(() => {
+    if (!sessionReady || typeof window.browser.agentSaveSession !== "function") return;
+    const timer = setTimeout(() => {
+      void window.browser.agentSaveSession(toSessionItems(items)).catch(() => undefined);
+    }, SESSION_SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [items, sessionReady]);
+
+  useEffect(() => { latestItems.current = items; }, [items]);
+  useEffect(() => { sessionReadyRef.current = sessionReady; }, [sessionReady]);
+  useEffect(() => () => {
+    if (!sessionReadyRef.current || typeof window.browser.agentSaveSession !== "function") return;
+    void window.browser.agentSaveSession(toSessionItems(latestItems.current)).catch(() => undefined);
   }, []);
 
   const openSettings = async () => {
@@ -59,14 +186,23 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
   };
 
+  const clearSession = async () => {
+    try {
+      if (typeof window.browser.agentClearSession === "function") await window.browser.agentClearSession();
+      setItems([]);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const send = async (value: string) => {
     const prompt = value.trim();
     if (!prompt || loading) return;
     const history = items
-      .filter((item) => !item.loading && item.content.trim())
+      .filter((item) => (item.kind === "user" || item.kind === "assistant") && !item.streaming && item.content.trim())
       .slice(-12)
-      .map((item) => ({ role: item.role, content: item.content.trim().slice(0, 6000) }));
-    setItems((current) => [...current, { key: crypto.randomUUID(), role: "user", content: prompt }]);
+      .map((item) => ({ role: item.kind as "user" | "assistant", content: item.content.trim().slice(0, 6000) }));
+    setItems((current) => [...current, { id: crypto.randomUUID(), kind: "user", content: prompt, createdAt: Date.now() }]);
     setLoading(true);
     try { await window.browser.copilotSend(prompt, history); }
     catch (error) { setLoading(false); message.error(error instanceof Error ? error.message : String(error)); }
@@ -82,10 +218,6 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     { key: "top", label: "靠上停靠" },
     { key: "bottom", label: "靠下停靠" },
   ];
-  const bubbleRoles = {
-    assistant: { placement: "start" as const, variant: "outlined" as const, shape: "corner" as const, contentRender: (content: string) => <div className="agent-bubble-text">{content}</div> },
-    user: { placement: "end" as const, variant: "filled" as const, shape: "corner" as const, contentRender: (content: string) => <div className="agent-bubble-text">{content}</div> },
-  };
 
   return <aside className="agent-panel">
     <header className="agent-panel-header">
@@ -100,6 +232,9 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       </div>
       <div className="agent-panel-toolbar">
         <Tag className="agent-status-tag" color={status === "ready" ? "success" : "default"}>{status}</Tag>
+        <Popconfirm title="清空当前会话？" description="本地保存的 Agent 对话记录会被删除。" okText="清空" cancelText="取消" onConfirm={() => void clearSession()}>
+          <Tooltip title="清空会话"><Button type="text" size="small" aria-label="清空会话" icon={<DeleteOutlined />} /></Tooltip>
+        </Popconfirm>
         <Tooltip title="选择停靠位置">
           <Dropdown trigger={["click"]} menu={{ items: dockItems, onClick: ({ key }) => onDock(key as "left" | "right" | "top" | "bottom") }} placement="bottomRight">
             <Button type="text" size="small" aria-label="选择停靠位置" icon={<AppstoreOutlined />} />
@@ -117,10 +252,11 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     {settings.provider === "codebuddy" && status !== "ready" && <Alert type="info" showIcon message="CodeBuddy 使用本机 CLI 登录态" description={<div>在系统终端运行 <code>codebuddy</code>，按 CLI 提示完成登录，并确认账号有可用模型权限。首次请求会实际验证认证和模型可用性。</div>} />}
     <div className="agent-messages">
       <Bubble.List role={bubbleRoles} autoScroll items={items.map((item) => ({
-        key: item.key,
-        role: item.role === "assistant" ? "assistant" : "user",
+        key: item.id,
+        role: item.kind === "tool" ? "tool" : item.kind === "error" ? "error" : item.kind,
         content: item.content,
-        loading: item.loading && !item.content,
+        extraInfo: { toolName: item.toolName, toolState: item.toolState, streaming: item.streaming === true },
+        loading: item.streaming && !item.content,
       }))} />
     </div>
     <div className="agent-composer">

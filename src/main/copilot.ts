@@ -49,8 +49,25 @@ function readCodeBuddyCatalog(): ModelRecord[] {
  merge(base,path.join(home,".codebuddy","models.json")); merge(base,path.join(codeBuddyWorkspace(),".codebuddy","models.json")); return base;
 }
 
-export interface BrowserAgentTools { getCurrentPage(): Promise<string>; listTabs(): Promise<string>; navigate(url:string):Promise<string>; openTab(url:string):Promise<string>; switchTab(tabId:string):Promise<string>; click(selector:string):Promise<string>; fill(selector:string,value:string):Promise<string>; scroll(direction:"up"|"down",amount:number):Promise<string>; executeJavaScript(code:string):Promise<string>; injectCss(css:string):Promise<string>; }
-export interface CopilotEvent { type:"status"|"delta"|"message"|"error"|"done"|"tool"; status?:"starting"|"ready"|"unauthenticated"; text?:string; }
+export interface BrowserToolImage { mimeType: "image/jpeg" | "image/png"; data: string; }
+export type BrowserToolOutput = string | { text: string; image?: BrowserToolImage };
+export interface BrowserAgentTools {
+ getCurrentPage(): Promise<string>;
+ snapshot(): Promise<string>;
+ screenshot(fullPage?: boolean): Promise<BrowserToolOutput>;
+ console(limit?: number): Promise<string>;
+ listTabs(): Promise<string>;
+ navigate(url:string):Promise<string>;
+ openTab(url:string):Promise<string>;
+ switchTab(tabId:string):Promise<string>;
+ click(uid:string):Promise<string>;
+ fill(uid:string,value:string):Promise<string>;
+ scroll(direction:"up"|"down",amount:number):Promise<string>;
+ executeJavaScript(code:string):Promise<string>;
+ injectCss(css:string):Promise<string>;
+ cdp(method:string,params?:unknown):Promise<string>;
+}
+export interface CopilotEvent { type:"status"|"delta"|"message"|"error"|"done"|"tool"; status?:"starting"|"ready"|"unauthenticated"; text?:string; toolName?:string; toolDetail?:string; toolState?:"done"|"error"; }
 function codeBuddyWorkspace(): string {
  const dir = path.join(app.getPath("userData"), "codebuddy-workspace");
  mkdirSync(dir, { recursive: true });
@@ -63,12 +80,12 @@ const BASE_INSTRUCTIONS = [
 ].join("\n");
 const BROWSER_ONLY_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser.",
-"The ONLY tools available are the browser tools: browser_get_current_page, browser_list_tabs, browser_navigate, browser_open_tab, browser_switch_tab, browser_click, browser_fill, browser_scroll.",
+"The ONLY tools available are the browser tools: browser_get_current_page, browser_snapshot, browser_screenshot, browser_console, browser_list_tabs, browser_navigate, browser_open_tab, browser_switch_tab, browser_click, browser_fill, browser_scroll.",
 "You have NO local file, shell, network, JavaScript-evaluation or CSS-injection tool. Never pretend to run JavaScript, inject CSS, edit files or execute commands.",
-"When the user asks about the current page, call browser_get_current_page first instead of guessing.",
+"When the user asks about the current page, call browser_get_current_page first instead of guessing. Before clicking or filling, call browser_snapshot and use the eN uid for that element.",
 "When asked to interact with the browser, use the browser tools above and report what actually changed.",
 "If a request cannot be done with these tools (for example changing page background color, injecting CSS/JS, editing page source, or filling password fields), say clearly that it is unsupported and give the user manual steps instead.",
-"You may navigate, open/switch tabs, read page content, scroll, click ordinary non-submit UI controls, and fill non-password fields without submitting forms."
+"You may navigate, open/switch tabs, read page content, take screenshots, read console output, scroll, click ordinary non-submit UI controls, and fill non-password fields without submitting forms. Use browser_snapshot to get stable eN uids before click/fill."
 ].join("\n");
 const ASSISTED_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser with assisted permissions.",
@@ -79,8 +96,8 @@ const ASSISTED_INSTRUCTIONS = [
 const ALLOW_ALL_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser with Allow all permissions.",
 "All local tools are enabled by the user. You may use shell, file and network tools when they help complete the request.",
-"Browser tools remain the preferred way to inspect and operate the current page: browser_get_current_page, browser_list_tabs, browser_navigate, browser_open_tab, browser_switch_tab, browser_click, browser_fill, browser_scroll.",
-"Allow all also enables browser_execute_javascript and browser_inject_css. Use browser_inject_css for page styling requests such as changing the background color, and browser_execute_javascript for page behavior. Verify the result with browser_get_current_page when practical.",
+"Browser tools remain the preferred way to inspect and operate the current page: browser_get_current_page, browser_snapshot, browser_screenshot, browser_console, browser_list_tabs, browser_navigate, browser_open_tab, browser_switch_tab, browser_click, browser_fill, browser_scroll, browser_cdp.",
+"Allow all also enables browser_execute_javascript, browser_inject_css and browser_cdp. Use browser_inject_css for page styling requests such as changing the background color, browser_execute_javascript for page behavior, and browser_cdp only for allowlisted diagnostics. Verify the result with browser_get_current_page or browser_screenshot when practical.",
 "Treat \"current page\" as the active tab. Do not substitute a new local HTML file or the macOS wallpaper unless the user explicitly asks for that.",
 "When editing files, running commands or injecting page code, report exactly what you did."
 ].join("\n");
@@ -111,27 +128,39 @@ export class CopilotDesktopAgent {
 
  getSettings():AgentSettings{return {...this.settings};}
  async status():Promise<{status:string;message?:string;provider:AgentProvider}>{if(this.settings.provider==="codebuddy")return{status:"not_checked",message:"CodeBuddy authentication is checked on the first request.",provider:this.settings.provider};try{await this.ensureCopilotSession();return{status:"ready",provider:this.settings.provider};}catch(error){const message=error instanceof Error?error.message:String(error);const authFailure=/unauthenticated|not authenticated|authentication|login required|unauthorized|token expired/i.test(message);return{status:authFailure?"unauthenticated":"error",message,provider:this.settings.provider};}}
- private async handlers(){const b=this.browser;const report=(name:string,detail:string)=>{this.publish({type:"tool",text:name+": "+(name==="Read current page"?"Page content read":detail.slice(0,180))});return detail;};const tools:Array<{name:string;description:string;schema:any;handler:(input:any)=>Promise<string>}>=[
- {name:"browser_get_current_page",description:"Read active tab title, URL, visible text, headings, links and controls.",schema:z.object({}),handler:async()=>report("Read current page",await b.getCurrentPage())},
- {name:"browser_list_tabs",description:"List open browser tabs and identify the active tab.",schema:z.object({}),handler:async()=>report("List tabs",await b.listTabs())},
- {name:"browser_navigate",description:"Navigate active tab to an http(s) URL.",schema:z.object({url:z.string().url().max(2048)}),handler:async({url}:{url:string})=>report("Navigate",await b.navigate(url))},
- {name:"browser_open_tab",description:"Open a URL in a new browser tab.",schema:z.object({url:z.string().url().max(2048)}),handler:async({url}:{url:string})=>report("Open tab",await b.openTab(url))},
- {name:"browser_switch_tab",description:"Switch active tab using an ID returned by browser_list_tabs.",schema:z.object({tabId:z.string().min(1).max(100)}),handler:async({tabId}:{tabId:string})=>report("Switch tab",await b.switchTab(tabId))},
- {name:"browser_click",description:"Click visible non-submit page elements only. Never use for purchases, payments, messages, deletion, security changes or form submission.",schema:z.object({selector:z.string().min(1).max(500)}),handler:async({selector}:{selector:string})=>report("Click element",await b.click(selector))},
- {name:"browser_fill",description:"Fill visible non-password text field or textarea. Does not submit form.",schema:z.object({selector:z.string().min(1).max(500),value:z.string().max(10000)}),handler:async({selector,value}:{selector:string;value:string})=>report("Fill field",await b.fill(selector,value))},
- {name:"browser_scroll",description:"Scroll active page up or down.",schema:z.object({direction:z.enum(["up","down"]),amount:z.number().int().min(100).max(2000).default(650)}),handler:async({direction,amount}:{direction:"up"|"down";amount:number})=>report("Scroll page",await b.scroll(direction,amount))}
- ];
- if(this.settings.toolPermission==="allow-all")tools.push(
-  {name:"browser_execute_javascript",description:"Execute JavaScript in the active tab. Allows page behavior changes and CSS injection. Only available with Allow all.",schema:z.object({code:z.string().min(1).max(20000)}),handler:async({code}:{code:string})=>report("Execute JavaScript",await b.executeJavaScript(code))},
-  {name:"browser_inject_css",description:"Inject CSS into the active tab to change page styling, for example the background color. Only available with Allow all.",schema:z.object({css:z.string().min(1).max(20000)}),handler:async({css}:{css:string})=>report("Inject CSS",await b.injectCss(css))}
- );
- return tools;}
- private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{if(this.settings.copilotModel.trim()&&!this.inspectedModels.has("copilot:"+this.settings.copilotModel))await this.inspectModels("copilot");const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),...((this.inspectedModels.get("copilot:"+this.settings.copilotModel)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),...(this.settings.systemPrompt.trim()?{systemMessage:{mode:"append",content:this.settings.systemPrompt.trim()}}:{}),tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler} as never)),onPermissionRequest:async()=>({kind:"user-not-available"} as never),onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
- private async sendCopilot(prompt:string,history?:AgentChatMessage[]){const session=await this.ensureCopilotSession();const off=session.on("assistant.message_delta",event=>{const delta=(event as unknown as{data?:{deltaContent?:string}}).data?.deltaContent;if(delta)this.publish({type:"delta",text:delta});});try{const result=await session.sendAndWait({prompt:instructionsFor(this.settings.toolPermission)+"\n\n"+historyPrompt(history,prompt)},300000);const text=(result as unknown as{data?:{content?:string}}|undefined)?.data?.content;if(text)this.publish({type:"message",text});}finally{off();}}
+ private async handlers(){
+  const b=this.browser;
+  const publishTool=(name:string,detail:string,state:"done"|"error"="done")=>{this.publish({type:"tool",toolName:name,toolDetail:detail.slice(0,600),toolState:state});};
+  const report=async(name:string,run:()=>Promise<BrowserToolOutput>):Promise<BrowserToolOutput>=>{
+   try{const result=await run();publishTool(name,typeof result==="string"?result:result.text);return result;}
+   catch(error){publishTool(name,error instanceof Error?error.message:String(error),"error");throw error;}
+  };
+  const tools:Array<{name:string;description:string;schema:any;handler:(input:any)=>Promise<BrowserToolOutput>}>=[
+   {name:"browser_get_current_page",description:"Read active tab title, URL, visible text, headings, links and controls.",schema:z.object({}),handler:()=>report("Read current page",()=>b.getCurrentPage())},
+   {name:"browser_snapshot",description:"Capture the accessibility tree of the active tab. Every visible node has a stable eN uid that browser_click and browser_fill accept. Call this before clicking or filling.",schema:z.object({}),handler:()=>report("Snapshot page",()=>b.snapshot())},
+   {name:"browser_screenshot",description:"Capture the active tab as a JPEG screenshot and return the image to the model.",schema:z.object({fullPage:z.boolean().optional().default(false)}),handler:({fullPage}:{fullPage?:boolean})=>report("Screenshot",()=>b.screenshot(fullPage===true))},
+   {name:"browser_console",description:"Read recent console messages from the active tab, newest last.",schema:z.object({limit:z.number().int().min(1).max(100).optional().default(50)}),handler:({limit}:{limit?:number})=>report("Read console",()=>b.console(limit))},
+   {name:"browser_list_tabs",description:"List open browser tabs and identify the active tab.",schema:z.object({}),handler:()=>report("List tabs",()=>b.listTabs())},
+   {name:"browser_navigate",description:"Navigate active tab to an http(s) URL.",schema:z.object({url:z.string().url().max(2048)}),handler:({url}:{url:string})=>report("Navigate",()=>b.navigate(url))},
+   {name:"browser_open_tab",description:"Open a URL in a new browser tab.",schema:z.object({url:z.string().url().max(2048)}),handler:({url}:{url:string})=>report("Open tab",()=>b.openTab(url))},
+   {name:"browser_switch_tab",description:"Switch active tab using an ID returned by browser_list_tabs.",schema:z.object({tabId:z.string().min(1).max(100)}),handler:({tabId}:{tabId:string})=>report("Switch tab",()=>b.switchTab(tabId))},
+   {name:"browser_click",description:"Click a visible non-submit page element by its eN uid from browser_snapshot. Never use for purchases, payments, messages, deletion, security changes or form submission.",schema:z.object({uid:z.string().regex(/^e\d+$/).max(20)}),handler:({uid}:{uid:string})=>report("Click element",()=>b.click(uid))},
+   {name:"browser_fill",description:"Fill a visible non-password text field or textarea by its eN uid from browser_snapshot. Does not submit the form.",schema:z.object({uid:z.string().regex(/^e\d+$/).max(20),value:z.string().max(10000)}),handler:({uid,value}:{uid:string;value:string})=>report("Fill field",()=>b.fill(uid,value))},
+   {name:"browser_scroll",description:"Scroll active page up or down.",schema:z.object({direction:z.enum(["up","down"]),amount:z.number().int().min(100).max(2000).default(650)}),handler:({direction,amount}:{direction:"up"|"down";amount:number})=>report("Scroll page",()=>b.scroll(direction,amount))}
+  ];
+  if(this.settings.toolPermission==="allow-all")tools.push(
+   {name:"browser_execute_javascript",description:"Execute JavaScript in the active tab. Allows page behavior changes and CSS injection. Only available with Allow all.",schema:z.object({code:z.string().min(1).max(20000)}),handler:({code}:{code:string})=>report("Execute JavaScript",()=>b.executeJavaScript(code))},
+   {name:"browser_inject_css",description:"Inject CSS into the active tab to change page styling, for example the background color. Only available with Allow all.",schema:z.object({css:z.string().min(1).max(20000)}),handler:({css}:{css:string})=>report("Inject CSS",()=>b.injectCss(css))},
+   {name:"browser_cdp",description:"Send an allowlisted Chrome DevTools Protocol command to the active tab for diagnostics. Only available with Allow all. Prefer browser_snapshot, browser_click and browser_fill for normal interaction.",schema:z.object({method:z.string().min(1).max(200),params:z.record(z.string(),z.unknown()).optional()}),handler:({method,params}:{method:string;params?:Record<string,unknown>})=>report("CDP "+method,()=>b.cdp(method,params))}
+  );
+  return tools;
+ }
+ private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{if(this.settings.copilotModel.trim()&&!this.inspectedModels.has("copilot:"+this.settings.copilotModel))await this.inspectModels("copilot");const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),...((this.inspectedModels.get("copilot:"+this.settings.copilotModel)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),...(this.settings.systemPrompt.trim()?{systemMessage:{mode:"append",content:this.settings.systemPrompt.trim()}}:{}),tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{const result=await handler(input);if(typeof result==="string")return result;return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};}} as never)),onPermissionRequest:async()=>({kind:"user-not-available"} as never),onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
+ private async sendCopilot(prompt:string,history?:AgentChatMessage[]){const session=await this.ensureCopilotSession();let sawDelta=false;const off=session.on("assistant.message_delta",event=>{const delta=(event as unknown as{data?:{deltaContent?:string}}).data?.deltaContent;if(delta){sawDelta=true;this.publish({type:"delta",text:delta});}});try{const result=await session.sendAndWait({prompt:instructionsFor(this.settings.toolPermission)+"\n\n"+historyPrompt(history,prompt)},300000);const text=(result as unknown as{data?:{content?:string}}|undefined)?.data?.content;if(text&&!sawDelta)this.publish({type:"message",text});}finally{off();}}
  private async sendCodeBuddy(prompt:string,history?:AgentChatMessage[]){
   const sdk=await import("@tencent-ai/agent-sdk");
   const handlers=await this.handlers();
-  const tools=handlers.map(({name,description,schema,handler})=>sdk.tool(name,description,schema.shape,async(input:any)=>({content:[{type:"text" as const,text:await (handler as (value:any)=>Promise<string>)(input)}]})));
+   const tools=handlers.map(({name,description,schema,handler})=>sdk.tool(name,description,schema.shape,async(input:any)=>{const result=await handler(input);if(typeof result==="string")return{content:[{type:"text" as const,text:result}]};const content:Array<{type:"text";text:string}|{type:"image";data:string;mimeType:string}>=[{type:"text",text:result.text}];if(result.image)content.push({type:"image",data:result.image.data,mimeType:result.image.mimeType});return{content};}));
   const server=sdk.createSdkMcpServer({name:"browser",tools});
   const allowed=handlers.map(({name})=>"mcp__browser__"+name);
   const builtinToolNames=["Agent","Read","Write","Edit","Bash","PowerShell","Glob","Grep","EnterPlanMode","ExitPlanMode","TaskCreate","TaskGet","TaskUpdate","TaskList","WebFetch","WebSearch","TaskStop","TaskOutput","AskUserQuestion","AskUserForStructuredInput","StructuredOutput","ToolSearch","DeferExecuteTool","SendMessage","SendUserMessage","TeamCreate","TeamDelete","NotebookEdit","LSP","ImageGen","ViewImage","LibraryUpload","VideoGen","AudioTranscribe","Artifact","ArtifactControl","EnterWorktree","LeaveWorktree","CronCreate","CronDelete","CronList","DelegateTool","WeChatReply","WeComReply","PushNotification","ReportFindings","ComputerUse","ListMcpResources","ReadMcpResource","WaitForMcpServers","Workflow","Monitor","REPL","A2AGetAgentCard","A2ASendMessage","A2AGetTask","A2ACancelTask","Skill","SkillManage","Component","Mods"];
@@ -169,9 +198,9 @@ export class CopilotDesktopAgent {
   const abortController=new AbortController();
   this.codeBuddyAbortController=abortController;
   const query=sdk.query({prompt:historyPrompt(history,prompt),options:{...queryOptions,abortController}});
-  this.codeBuddyQuery=query;let answer="";
+  this.codeBuddyQuery=query;let answer="";let sawDelta=false;
   const timeout=setTimeout(()=>{void this.cancel();},300000);
-  try{for await(const item of query){const m=item as{type?:string;message?:{content?:Array<{type?:string;text?:string}>};subtype?:string;error?:unknown};if(m.type==="assistant"&&Array.isArray(m.message?.content)){for(const part of m.message.content)if(part.type==="text"&&part.text){answer+=part.text;this.publish({type:"delta",text:part.text});}}if(m.type==="result"&&m.subtype&&m.subtype!=="success")throw new Error("CodeBuddy 执行失败："+String(m.error||m.subtype));}if(answer.trim())this.publish({type:"message",text:answer.trim()});else throw new Error("CodeBuddy 已结束但没有返回文本，请确认 CodeBuddy 登录状态和模型权限。");}
+  try{for await(const item of query){const m=item as{type?:string;message?:{content?:Array<{type?:string;text?:string}>};subtype?:string;error?:unknown};if(m.type==="assistant"&&Array.isArray(m.message?.content)){for(const part of m.message.content)if(part.type==="text"&&part.text){answer+=part.text;sawDelta=true;this.publish({type:"delta",text:part.text});}}if(m.type==="result"&&m.subtype&&m.subtype!=="success")throw new Error("CodeBuddy 执行失败："+String(m.error||m.subtype));}if(answer.trim()){if(!sawDelta)this.publish({type:"message",text:answer.trim()});}else throw new Error("CodeBuddy 已结束但没有返回文本，请确认 CodeBuddy 登录状态和模型权限。");}
   finally{clearTimeout(timeout);this.codeBuddyQuery=null;this.codeBuddyAbortController=null;cleanup?.();}
  }
  async send(prompt:string,history?:AgentChatMessage[]):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt,history);else await this.sendCopilot(prompt,history);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}

@@ -58,7 +58,16 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt.",
 };
 
-export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done" | "tool"; status?: string; text?: string; }
+export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done" | "tool"; status?: string; text?: string; toolName?: string; toolDetail?: string; toolState?: "done" | "error"; }
+
+export interface AgentSessionItem {
+  id: string;
+  kind: "user" | "assistant" | "tool" | "error";
+  content: string;
+  toolName?: string;
+  toolState?: "done" | "error";
+  createdAt: number;
+}
 
 export interface WorkspaceLayoutState { version: 1; agentPanelWidth: number; agentPanelVisible: boolean; agentPanelPosition: "left" | "right" | "top" | "bottom"; }
 export interface WorkspaceDocument { version: 2; root: import("./workspace-document").WorkspaceDocument["root"]; tabGroups: import("./workspace-document").WorkspaceTabGroup[]; floating: import("./workspace-document").FloatingPanelRoot[]; activePanelId: string; }
@@ -71,6 +80,7 @@ export interface BrowserApi {
   floatAgentPanel(): Promise<void>;
   redockAgentPanel(position?: "left" | "right" | "top" | "bottom"): Promise<void>;
   toggleSnapshot(): Promise<boolean>;
+  openExternal(url: string): Promise<void>;
   onSnapshotState(listener: (active: boolean) => void): () => void;
   onWorkspaceLayoutUpdated(listener: (layout: WorkspaceLayoutState) => void): () => void;
   getState(): Promise<BrowserState>;
@@ -92,6 +102,9 @@ export interface BrowserApi {
   agentSaveSettings(settings: AgentSettings): Promise<AgentSettings>;
   copilotSend(prompt: string, history?: AgentChatMessage[]): Promise<void>;
   copilotCancel(): Promise<void>;
+  agentLoadSession(): Promise<AgentSessionItem[]>;
+  agentSaveSession(items: AgentSessionItem[]): Promise<void>;
+  agentClearSession(): Promise<void>;
   onCopilotEvent(listener: (event: CopilotEvent) => void): () => void;
   findInPage(id: string, text: string): Promise<void>;
   stopFindInPage(id: string): Promise<void>;

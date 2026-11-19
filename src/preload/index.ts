@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentModelInfo, AgentProvider, AgentSettings, BrowserApi, BrowserDownloadEvent, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
+import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, BrowserApi, BrowserDownloadEvent, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
 
 const api: BrowserApi = {
   getWorkspaceLayout: () => ipcRenderer.invoke("workspace:get-layout"),
@@ -9,6 +9,7 @@ const api: BrowserApi = {
   floatAgentPanel: () => ipcRenderer.invoke("workspace:float-agent"),
   redockAgentPanel: (position) => ipcRenderer.invoke("workspace:redock-agent", position),
   toggleSnapshot: () => ipcRenderer.invoke("browser:toggle-snapshot"),
+  openExternal: (url: string) => ipcRenderer.invoke("app:open-external", url),
   onSnapshotState: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, active: boolean) => listener(active);
     ipcRenderer.on("browser:snapshot-state", handler);
@@ -46,6 +47,9 @@ const api: BrowserApi = {
   agentSaveSettings: (settings: AgentSettings) => ipcRenderer.invoke("agent:save-settings", settings),
   copilotSend: (prompt, history) => ipcRenderer.invoke("copilot:send", { prompt, history }),
   copilotCancel: () => ipcRenderer.invoke("copilot:cancel"),
+  agentLoadSession: () => ipcRenderer.invoke("agent:load-session"),
+  agentSaveSession: (items: AgentSessionItem[]) => ipcRenderer.invoke("agent:save-session", items),
+  agentClearSession: () => ipcRenderer.invoke("agent:clear-session"),
   onCopilotEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: CopilotEvent) => listener(payload);
     ipcRenderer.on("copilot:event", handler);
