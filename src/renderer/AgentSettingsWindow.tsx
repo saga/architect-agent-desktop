@@ -16,7 +16,7 @@ export default function AgentSettingsWindow() {
   const [inspectError, setInspectError] = useState("");
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
-  const [pluginBusy, setPluginBusy] = useState(false);
+  const [pluginBusy, setPluginBusy] = useState(false);\n  const [agentDataDirectory, setAgentDataDirectory] = useState("");\n  const [changingDataDirectory, setChangingDataDirectory] = useState(false);
 
   const selectedId = settings.provider === "copilot" ? settings.copilotModel : settings.codebuddyModel;
   const selectedModel = useMemo(() => models.find(model => model.id === selectedId), [models, selectedId]);
@@ -46,7 +46,7 @@ export default function AgentSettingsWindow() {
   }, []);
 
   useEffect(() => {
-    void refreshPlugins();
+    void refreshPlugins();\n    void window.browser.agentDataGetDirectory().then(setAgentDataDirectory).catch((error: unknown) => message.error(error instanceof Error ? error.message : String(error)));
     void window.browser.agentGetSettings()
       .then(async value => { setSettings(value); await inspect(value.provider); })
       .catch((error: unknown) => message.error(error instanceof Error ? error.message : String(error)))
@@ -100,7 +100,7 @@ export default function AgentSettingsWindow() {
     } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
   };
 
-  const save = async () => {
+  const chooseAgentDataDirectory = async () => {\n    setChangingDataDirectory(true);\n    try { setAgentDataDirectory(await window.browser.agentDataSelectDirectory()); message.success("Agent Data 目录已切换。新事件将写入新目录，旧目录中的记录不会移动。"); }\n    catch (error) { message.error(error instanceof Error ? error.message : String(error)); }\n    finally { setChangingDataDirectory(false); }\n  };\n\n  const save = async () => {
     setSaving(true);
     try { await window.browser.agentSaveSettings(settings); window.close(); }
     catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
