@@ -84,6 +84,8 @@ export class UtilityProcessAgentRuntime {
     const context: RuntimeCapabilityContext = { workspaceRoot: request.workspaceRoot, capabilities };
     const logs: RuntimeExecutionResult["logs"] = [];
     let outputBytes = 0;
+    let toolCalls = 0;
+    let inFlightCalls = 0;
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let abortHandler: (() => void) | undefined;
@@ -120,6 +122,12 @@ export class UtilityProcessAgentRuntime {
           return;
         }
         if (message.type === "capability.request" && typeof message.requestId === "string" && typeof message.capability === "string") {
+          if (toolCalls >= 100 || inFlightCalls >= 8) {
+            child?.postMessage({ type: "capability.response", executionId: id, requestId: message.requestId, ok: false, error: "Tool Broker limit reached (100 calls total, 8 concurrent)." });
+            return;
+          }
+          toolCalls += 1;
+          inFlightCalls += 1;
           void (async () => {
             try {
               const capability = message.capability as RuntimeCapability;
@@ -233,6 +241,8 @@ export class UtilityProcessAgentRuntime {
                 ok: false,
                 error: error instanceof Error ? error.message : String(error),
               });
+            } finally {
+              inFlightCalls = Math.max(0, inFlightCalls - 1);
             }
           })();
           return;
