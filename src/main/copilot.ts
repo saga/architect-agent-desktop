@@ -215,7 +215,9 @@ export class CopilotDesktopAgent {
   };
   const abortController=new AbortController();
   this.codeBuddyAbortController=abortController;
-  const codeBuddyPrompt=historyPrompt(history,prompt);\n  this.recordTrace("provider.request",{prompt:codeBuddyPrompt,options:{model:selectedModel,effort,cwd,settingSources,permission},captureLevel:"sdk-query-input",providerPayloadComplete:false},"started");\n  const query=sdk.query({prompt:codeBuddyPrompt,options:{...queryOptions,abortController}});
+  const codeBuddyPrompt=historyPrompt(history,prompt);
+  this.recordTrace("provider.request",{prompt:codeBuddyPrompt,options:{model:selectedModel,effort,cwd,settingSources,permission},captureLevel:"sdk-query-input",providerPayloadComplete:false},"started");
+  const query=sdk.query({prompt:codeBuddyPrompt,options:{...queryOptions,abortController}});
   this.codeBuddyQuery=query;let answer="";let sawDelta=false;
   const timeout=setTimeout(()=>{void this.cancel();},300000);
   try{for await(const item of query){const m=item as{type?:string;message?:{content?:Array<{type?:string;text?:string}>};subtype?:string;error?:unknown};this.recordTrace("provider.codebuddy.event",item,m.type==="result"?(m.subtype==="success"?"completed":"failed"):undefined);if(m.type==="assistant"&&Array.isArray(m.message?.content)){for(const part of m.message.content)if(part.type==="text"&&part.text){answer+=part.text;sawDelta=true;this.publish({type:"delta",text:part.text});}}if(m.type==="result"&&m.subtype&&m.subtype!=="success")throw new Error("CodeBuddy 执行失败："+String(m.error||m.subtype));}if(answer.trim()){this.recordTrace("provider.response",{text:answer.trim(),captureLevel:"sdk-stream-aggregate"},"completed");if(!sawDelta)this.publish({type:"message",text:answer.trim()});}else throw new Error("CodeBuddy 已结束但没有返回文本，请确认 CodeBuddy 登录状态和模型权限。");}
