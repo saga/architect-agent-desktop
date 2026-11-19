@@ -41,7 +41,7 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
   const input = value as Record<string, unknown>;
   if (input.version !== 2 || !input.root || typeof input.root !== "object") {
     // Version 1 only stored Agent width/visibility. Migrate it into the v2 tree.
-    const legacy = input as { agentPanelWidth?: unknown; agentPanelVisible?: unknown };
+    const legacy = input as { agentPanelWidth?: unknown; agentPanelVisible?: unknown; agentPanelPosition?: unknown };
     const width = Math.round(Math.max(280, Math.min(720, finite(legacy.agentPanelWidth, 390))));
     const visible = legacy.agentPanelVisible !== false;
     const position = legacy.agentPanelPosition === "left" || legacy.agentPanelPosition === "top" || legacy.agentPanelPosition === "bottom" ? legacy.agentPanelPosition : "right";
