@@ -46,6 +46,7 @@ let attachedView: WebContentsView | null = null;
 let contentTop = DEFAULT_CONTENT_TOP;
 let contentLeft = 0;
 let contentRight = 0;
+let contentWidth: number | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
 const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", systemPrompt: "" };
 function loadAgentSettings(): AgentSettings {
@@ -186,7 +187,7 @@ function updateActiveBounds(): void {
   attachedView.setBounds({
     x: Math.max(0, Math.min(contentLeft, width)),
     y: top,
-    width: Math.max(0, width - Math.max(0, Math.min(contentLeft, width)) - Math.max(0, Math.min(contentRight, width))),
+    width: Math.max(0, Math.min(contentWidth ?? (width - contentLeft - contentRight), width - Math.max(0, Math.min(contentLeft, width)))),
     height: Math.max(0, height - top),
   });
 }
@@ -618,6 +619,8 @@ function installApplicationMenu(): void {
         } },
         { label: "Find in Page", accelerator: "CmdOrCtrl+F", click: () => mainWindow?.webContents.send("browser:find-requested") },
         { type: "separator" },
+        { label: "Toggle Agent Panel", accelerator: "CmdOrCtrl+Shift+A", click: () => mainWindow?.webContents.send("agent:toggle-panel") },
+        { type: "separator" },
         { role: "togglefullscreen" },
       ],
     },
@@ -767,11 +770,11 @@ function registerIpcHandlers(): void {
 
   ipcMain.on("browser:set-content-bounds", (event, bounds: unknown) => {
     if (!isTrustedAppSender(event.sender)) return;
-    const parsed = z.object({ top: z.number().finite().min(0).max(300), left: z.number().finite().min(0).max(900), right: z.number().finite().min(0).max(900) }).safeParse(bounds);
+    const parsed = z.object({ top: z.number().finite().min(0).max(300), left: z.number().finite().min(0).max(900), width: z.number().finite().min(0).max(3000) }).safeParse(bounds);
     if (!parsed.success) return;
     contentTop = Math.round(parsed.data.top);
     contentLeft = Math.round(parsed.data.left);
-    contentRight = Math.round(parsed.data.right);
+    contentWidth = Math.round(parsed.data.width);
     updateActiveBounds();
   });
 
