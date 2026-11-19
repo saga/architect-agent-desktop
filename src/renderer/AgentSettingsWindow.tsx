@@ -17,6 +17,8 @@ export default function AgentSettingsWindow() {
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
   const [pluginBusy, setPluginBusy] = useState(false);
+  const [agentDataDirectory, setAgentDataDirectory] = useState("");
+  const [changingDataDirectory, setChangingDataDirectory] = useState(false);
 
   const selectedId = settings.provider === "copilot" ? settings.copilotModel : settings.codebuddyModel;
   const selectedModel = useMemo(() => models.find(model => model.id === selectedId), [models, selectedId]);
@@ -47,6 +49,7 @@ export default function AgentSettingsWindow() {
 
   useEffect(() => {
     void refreshPlugins();
+    void window.browser.agentDataGetDirectory().then(setAgentDataDirectory).catch((error: unknown) => message.error(error instanceof Error ? error.message : String(error)));
     void window.browser.agentGetSettings()
       .then(async value => { setSettings(value); await inspect(value.provider); })
       .catch((error: unknown) => message.error(error instanceof Error ? error.message : String(error)))
@@ -98,6 +101,13 @@ export default function AgentSettingsWindow() {
       setPlugins(await window.browser.pluginRemove(plugin.id));
       message.success("已删除插件：" + plugin.name);
     } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+  };
+
+  const chooseAgentDataDirectory = async () => {
+    setChangingDataDirectory(true);
+    try { setAgentDataDirectory(await window.browser.agentDataSelectDirectory()); message.success("Agent Data 目录已切换。新事件将写入新目录，旧目录中的记录不会移动。"); }
+    catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+    finally { setChangingDataDirectory(false); }
   };
 
   const save = async () => {
@@ -175,6 +185,17 @@ export default function AgentSettingsWindow() {
           <div className="settings-field-help">自定义提示作为额外系统指令传入模型。应用强制执行的浏览器安全规则优先级更高。</div>
         </Form.Item>
       </Form>
+      <Divider />
+      <section className="plugin-manager">
+        <div className="plugin-manager-heading">
+          <div>
+            <h2>Agent Data</h2>
+            <p>保存 Session 快照、模型运行事件和工具调用记录。默认位于应用数据目录下的 agent-data，可切换到其他本地目录。</p>
+            <div className="settings-field-help">{agentDataDirectory || "正在读取目录…"}</div>
+          </div>
+          <Button loading={changingDataDirectory} onClick={() => void chooseAgentDataDirectory()}>更改数据目录</Button>
+        </div>
+      </section>
       <Divider />
       <section className="plugin-manager">
         <div className="plugin-manager-heading">

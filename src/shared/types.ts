@@ -75,6 +75,8 @@ export interface WorkspaceDocument { version: 2; root: import("./workspace-docum
 
 export interface PluginSummary { manifestVersion: 1; id: string; name: string; version: string; description?: string; skills: string[]; tools: string[]; workflows: string[]; views: string[]; enabled: boolean; }
 
+export interface AgentTraceQuery { sessionId?: string; traceId?: string; type?: string; limit?: number; }
+
 export interface BrowserApi {
   getWorkspaceProject(): Promise<WorkspaceProject>;
   selectWorkspace(): Promise<WorkspaceProject | null>;
@@ -103,6 +105,10 @@ export interface BrowserApi {
   onToggleAgent(listener: () => void): () => void;
   copilotStatus(): Promise<{ status: string; message?: string; provider: AgentProvider }>;
   openAgentSettings(): Promise<void>;
+  agentDataGetDirectory(): Promise<string>;
+  agentDataSelectDirectory(): Promise<string>;
+  agentTraceListSessions(): Promise<Array<Record<string, unknown>>>;
+  agentTraceQuery(query?: AgentTraceQuery): Promise<Array<Record<string, unknown>>>;
   pluginList(): Promise<PluginSummary[]>;
   pluginImport(): Promise<PluginSummary | null>;
   pluginSetEnabled(id: string, enabled: boolean): Promise<PluginSummary[]>;
