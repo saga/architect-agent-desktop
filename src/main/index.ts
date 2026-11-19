@@ -763,7 +763,8 @@ function registerIpcHandlers(): void {
     const parsed = z.object({ top: z.number().finite().min(0).max(300), left: z.number().finite().min(0).max(900), right: z.number().finite().min(0).max(900) }).safeParse(bounds);
     if (!parsed.success) return;
     contentTop = Math.round(parsed.data.top);
-    contentLeft = Math.round(parsed.data.left);\n    contentRight = Math.round(parsed.data.right);
+    contentLeft = Math.round(parsed.data.left);
+    contentRight = Math.round(parsed.data.right);
     updateActiveBounds();
   });
 
