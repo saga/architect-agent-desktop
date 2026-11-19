@@ -1,33 +1,34 @@
-# Workspace Profiles
+# 工作配置设计
 
-**Status:** Proposed  
-**Related:** [Plugin Architecture](./PLUGIN-ARCHITECTURE.md)
+**状态：** 提议中  
+**相关文档：** [插件架构设计](./PLUGIN-ARCHITECTURE.md)
 
-## 1. Purpose
+## 1. 目的
 
-A Profile describes a working environment for a team or an individual. It selects installed plugins and supplies defaults; it is not a separate application build and does not contain executable code.
+工作配置（Profile）用于描述团队或个人的工作环境。它负责选择已安装插件并提供默认配置，不是独立的应用构建版本，也不包含可执行代码。
 
-Examples include a Research Team profile with research skills and panels, or an Engineering profile with repository tools and code-review workflows.
+例如，研究团队配置可以启用研究类 Skills 和面板；工程团队配置可以启用代码仓库工具和代码审查工作流。
 
-## 2. Initial profile model
+## 2. 第一版配置模型
 
-Keep the first version to three sources:
+第一版只保留三种配置来源：
 
-1. **Built-in defaults** shipped with the application.
-2. **One active Team Profile** imported as a JSON file.
-3. **Local user overrides** for personal preferences and layout.
+1. **应用内置默认值**：随应用发布。
+2. **一个当前生效的团队工作配置**：通过 JSON 文件导入。
+3. **用户本地覆盖项**：保存个人偏好和布局。
 
-Temporary session changes may exist in memory, but are not persisted unless the user explicitly saves them.
+会话期间可以存在临时调整，但除非用户明确保存，否则不持久化。
 
-Do not add organization baselines, nested profile inheritance or a general-purpose multi-layer composition engine yet.
+暂不增加组织级基线、嵌套配置继承或通用的多层配置合并引擎。
 
-A profile contains:
-- Schema version, ID, name and description.
-- IDs of plugins to enable.
-- Non-secret plugin configuration.
-- Optional reference to a saved workspace layout.
+工作配置包含：
 
-Example:
+- Schema 版本、ID、名称和描述。
+- 要启用的插件 ID。
+- 不包含密钥的插件配置。
+- 可选的已保存工作区布局引用。
+
+示例：
 
 ```json
 {
@@ -44,46 +45,48 @@ Example:
 }
 ```
 
-The schema should stay small and evolve only when actual profile use cases require more fields.
+Schema 应保持精简，只有实际配置场景提出需求时才增加字段。
 
-## 3. Resolution rules
+## 3. 配置解析规则
 
-Use predictable, shallow rules rather than a generic merge framework:
+使用简单、可预测的规则，不建设通用合并框架：
 
-- The active Team Profile selects the enabled plugin set.
-- Local user preferences override only fields explicitly designated as user-configurable, such as theme, panel size and personal shortcuts.
-- A user cannot override host security rules, grant tool permissions or place secrets in a profile.
-- Plugin configuration is replaced as a unit unless a specific field has a demonstrated need for merging.
-- Unknown plugin IDs or unsupported schema versions are reported; they are not silently substituted.
+- 当前团队工作配置决定启用哪些插件。
+- 用户本地偏好只覆盖明确允许个人调整的字段，例如主题、面板尺寸和个人快捷键。
+- 用户不能覆盖宿主应用的安全规则、授予工具权限，也不能通过工作配置保存密钥。
+- 插件配置默认整体替换；只有某个字段确实需要合并时，才为该字段增加明确规则。
+- 对未知插件 ID 或不支持的 Schema 版本进行提示，不静默替换。
 
-The application should show which profile is active and identify missing or incompatible plugins. It does not need a per-field provenance inspector in the first version.
+应用应展示当前生效的工作配置，并指出缺失或不兼容的插件。第一版不需要逐字段配置来源追踪界面。
 
-## 4. Import and export
+## 4. 导入与导出
 
-Import:
-1. Parse and validate the JSON.
-2. Show the profile name and missing/unsupported plugins.
-3. Let the user choose whether to activate it.
-4. Keep the current working profile if validation or activation fails.
+导入流程：
 
-Export:
-- Include profile metadata, plugin IDs, non-secret configuration and the selected layout.
-- Exclude credentials, tokens, private keys, local absolute paths and transient session state.
-- Do not export permission grants or approval decisions.
+1. 解析并校验 JSON。
+2. 显示配置名称，以及缺失或不支持的插件。
+3. 由用户决定是否启用该配置。
+4. 如果校验或启用失败，保留当前工作配置。
 
-Importing a profile never installs executable code or grants permissions.
+导出内容：
 
-## 5. Layout
+- 配置元数据、插件 ID、非敏感配置和所选布局。
+- 排除凭据、令牌、私钥、本地绝对路径和临时会话状态。
+- 不导出权限授予或审批决定。
 
-A profile may select a layout saved by the existing Layout Engine. Layout data remains owned and validated by that engine; profiles should reference it rather than define another layout schema.
+导入工作配置不会安装可执行代码，也不会授予任何权限。
 
-Personal layout changes are stored locally and do not modify the imported Team Profile unless the user explicitly exports an updated profile.
+## 5. 布局
 
-## 6. Initial acceptance criteria
+工作配置可以引用现有 Layout Engine 保存的布局。布局数据仍由 Layout Engine 负责定义、校验和持久化；工作配置只引用布局，不再定义一套平行的布局结构。
 
-- Import and activate a Team Profile from a JSON file.
-- Export a profile without secrets or machine-local state.
-- Keep local preferences separate from the shared profile.
-- Report missing plugins and unsupported profile versions.
-- Reject attempts to configure permissions or secrets through a profile.
-- Failed profile activation leaves the previous workspace usable.
+个人布局调整保存在本地，不会修改导入的团队工作配置，除非用户明确导出更新后的配置。
+
+## 6. 第一版验收标准
+
+- 可以从 JSON 文件导入并启用团队工作配置。
+- 可以导出不包含密钥或机器本地状态的工作配置。
+- 用户本地偏好与共享团队配置相互独立。
+- 能够报告缺失插件和不支持的配置版本。
+- 拒绝通过工作配置设置权限或密钥。
+- 工作配置启用失败时，之前的工作区仍然可用。

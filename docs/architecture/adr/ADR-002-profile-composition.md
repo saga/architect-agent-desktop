@@ -1,23 +1,23 @@
-# ADR-002: Simple Team Profiles with Local Overrides
+# ADR-002：简化的团队工作配置与本地覆盖
 
-**Status:** Proposed  
-**Date:** 2026-11-19
+**状态：** 提议中  
+**日期：** 2026-11-19
 
-## Context
+## 背景
 
-Different teams need different workspace defaults, while individuals need to retain personal preferences. A layered inheritance and generic merge system would add complexity without a current need for centralized administration.
+不同团队需要不同的工作区默认配置，同时个人也需要保留自己的偏好。当前没有集中管理需求，若引入多层继承和通用合并系统，只会增加不必要的复杂度。
 
-## Decision
+## 决策
 
-Use a simple Profile JSON document to select installed plugins, provide non-secret plugin configuration and optionally reference a saved Layout Engine layout.
+使用简单的 Profile JSON 文档选择已安装插件、提供非敏感的插件配置，并可选地引用 Layout Engine 已保存的布局。
 
-The initial precedence is limited to built-in defaults, one active Team Profile and local user overrides. Session-only changes are temporary. No organization layer, nested inheritance or remote synchronization is required.
+初始配置优先级仅包含应用内置默认值、一个当前生效的团队工作配置和用户本地覆盖项。仅存在于会话中的临时调整不自动持久化。不需要组织级配置层、嵌套继承或远程同步。
 
-The Layout Engine remains the owner of layout schema and persistence. Profiles reference layouts rather than defining a parallel representation.
+Layout Engine 仍是布局 Schema 和持久化的唯一所有者。工作配置只引用布局，不另行定义一套布局表示。
 
-## Consequences
+## 影响
 
-- Team workspaces can be shared as files and version-controlled externally.
-- Profile resolution remains deterministic and easy to explain.
-- Security permissions, approval decisions, credentials and secrets are never profile configuration.
-- More complex inheritance or merge semantics require evidence from real usage before being added.
+- 团队工作区可以通过文件共享，也可以交由外部版本控制。
+- 配置解析规则简单、确定且容易解释。
+- 权限、审批决定、凭据和密钥永远不能作为工作配置内容。
+- 只有真实使用证明有必要时，才考虑增加更复杂的继承或合并语义。

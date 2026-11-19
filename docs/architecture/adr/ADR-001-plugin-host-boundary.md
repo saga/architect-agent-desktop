@@ -1,23 +1,23 @@
-# ADR-001: Declarative Plugin Packages Owned by the Host
+# ADR-001：由宿主应用管理声明式插件包
 
-**Status:** Proposed  
-**Date:** 2026-11-19
+**状态：** 提议中  
+**日期：** 2026-11-19
 
-## Context
+## 背景
 
-Teams need different combinations of skills, tools, workflows and workspace views. Hard-coded team modes or separate application builds would make these differences expensive to maintain. A general-purpose executable plugin runtime would add substantial security and lifecycle complexity before it is needed.
+不同团队需要组合使用不同的 Skills、Tools、Workflows 和工作区视图。通过硬编码团队模式或维护多个应用构建版本来实现，会增加长期维护成本。通用的可执行插件运行时则会在当前没有明确需求时，引入较大的安全和生命周期复杂度。
 
-## Decision
+## 决策
 
-Use local, declarative plugin packages. A package contains a small manifest and optional resource files, and may contribute skills, references to host-supported tools, workflow definitions and host-supported view declarations.
+采用本地声明式插件包。插件包包含精简清单和可选资源文件，可以提供 Skills、宿主应用现有工具的引用、工作流定义，以及宿主应用已支持的视图声明。
 
-The Host owns package import, validation, registration, enable/disable and removal. Plugins do not run arbitrary code, patch host internals or control Electron objects.
+插件包的导入、校验、登记、启用/停用和删除均由宿主应用负责。插件不运行任意代码，不修改宿主应用内部实现，也不能控制 Electron 对象。
 
-Tool references resolve to existing host tools. All execution and permission checks remain in the application's existing host-controlled path; the plugin system does not introduce a second tool runtime or authorization framework.
+Tool 引用只能指向宿主应用已有工具。所有执行和权限检查仍由应用现有的宿主控制路径负责；插件系统不另建一套工具运行时或授权框架。
 
-## Consequences
+## 影响
 
-- Teams can share capability bundles without separate application builds.
-- The initial implementation is limited to manifest validation and local package management.
-- Arbitrary executable plugins, dependency resolution, event hooks and marketplace infrastructure are explicitly out of scope until justified by a concrete requirement.
-- Existing features are migrated only when doing so provides a practical benefit.
+- 团队可以共享能力组合，不必维护独立的应用构建版本。
+- 初始实现范围仅包括清单校验和本地插件包管理。
+- 在具体需求证明其必要性之前，任意可执行插件、依赖解析、事件钩子和插件市场基础设施均不在范围内。
+- 只有在能够带来实际收益时，才将现有功能迁移为插件。
