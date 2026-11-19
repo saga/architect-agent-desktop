@@ -1,41 +1,41 @@
-# Plugin Architecture
+# 插件架构设计
 
-**Status:** Proposed  
-**Scope:** Local, single-user desktop application; architecture only
+**状态：** 提议中  
+**适用范围：** 本地单用户桌面应用；仅定义架构
 
-## 1. Goal
+## 1. 目标
 
-Support different team and individual workflows without creating separate application builds or adding team-specific branches to the core application.
+支持不同团队和个人采用不同的工作方式，而不需要为每个团队维护独立的应用构建版本，也不需要在核心应用中加入大量团队专属分支。
 
-Keep the design deliberately small:
+设计应保持简单：
 
-- The **Host** owns Electron lifecycle, trusted IPC, storage, layout and execution boundaries.
-- A **Plugin** is an installable bundle of declarative capabilities and configuration.
-- A **Profile** selects plugins and supplies team defaults.
-- The existing host services execute operations and enforce permissions.
+- **宿主应用（Host）**负责 Electron 生命周期、可信 IPC、存储、布局和执行边界。
+- **插件（Plugin）**是可安装的声明式能力包及其配置。
+- **工作配置（Profile）**选择启用哪些插件，并提供团队默认配置。
+- 具体操作仍由应用现有的宿主服务执行，并由宿主服务落实权限检查。
 
-This is a local extension mechanism, not a general-purpose plugin platform or marketplace.
+这是本地扩展机制，不是通用插件平台或插件市场。
 
-## 2. What is a plugin?
+## 2. 什么是插件
 
-For the first version, a plugin is a directory or archive containing a manifest and optional resource files. It may contribute only these four things:
+第一版插件采用目录或压缩包形式，包含一个清单文件（Manifest）和可选资源文件。插件只允许提供以下四类内容：
 
-| Contribution | Meaning | Example |
+| 提供内容 | 含义 | 示例 |
 |---|---|---|
-| Skill | Instructions, domain knowledge and working conventions | Research memo standards |
-| Tool reference | An identifier for a tool already implemented by the host | Search local documents |
-| Workflow | A reusable task template or sequence | Prepare a research brief |
-| View declaration | A request to show a host-provided panel or view | Source comparison panel |
+| Skill（技能） | 指令、领域知识和工作约定 | 研究报告规范 |
+| Tool 引用 | 对宿主应用已实现工具的标识引用 | 搜索本地文档 |
+| Workflow（工作流） | 可复用的任务模板或步骤定义 | 生成研究简报 |
+| View 声明 | 请求展示宿主应用已支持的面板或视图 | 来源对比面板 |
 
-An Agent is composed by the host from its instructions, selected skills and available tools; it is not a separate plugin runtime. Context belongs in skills or referenced resources. Provider/model configuration remains an application or user setting. Integrations are configured through supported host tools.
+Agent 由宿主应用根据指令、已选 Skills 和可用 Tools 组合而成，不作为独立的插件运行时。Context 应放在 Skill 或其引用的资源中。Provider 和模型配置属于应用或用户设置。外部系统集成通过宿主应用支持的工具进行配置。
 
-A plugin may contain any combination of the four contributions. It does not ship arbitrary executable JavaScript in the first version.
+一个插件可以包含上述四类内容中的任意组合。第一版不允许插件携带任意可执行 JavaScript。
 
-## 3. Package and manifest
+## 3. 插件包与清单
 
-Use a versioned directory or ZIP. No marketplace, remote catalog, dependency solver or package manager is needed initially.
+插件使用带版本信息的目录或 ZIP 文件。初期不需要插件市场、远程目录、依赖求解器或独立包管理器。
 
-Example:
+清单示例：
 
 ```json
 {
@@ -50,72 +50,73 @@ Example:
 }
 ```
 
-The host validates the manifest, paths and supported contribution types on import. Tool references must resolve to tools known by the application; a plugin cannot introduce an arbitrary executable handler or grant itself access to host APIs.
+导入时由宿主应用校验清单、文件路径和所声明的内容类型。Tool 引用必须指向应用已知的工具；插件不能自行提供可执行处理器，也不能自行获得宿主 API 的访问权限。
 
-Keep the manifest small. Add fields only when a real use case requires them. Do not add dependency graphs, activation-event systems, per-field merge policies or a generic extension SDK in advance.
+清单应保持精简。只有真实需求出现时才增加字段，不要提前引入依赖关系图、激活事件系统、逐字段合并策略或通用扩展 SDK。
 
-## 4. Host responsibilities
+## 4. 宿主应用职责
 
-The host provides one small Plugin Registry that records installed packages, validates manifests and exposes their declared contributions to the active profile.
+宿主应用提供一个轻量的插件注册表（Plugin Registry），用于记录已安装插件、校验清单，并向当前工作配置提供插件声明的内容。
 
-The basic lifecycle is:
+基本生命周期只有四步：
 
-1. Import package.
-2. Validate and register its manifest.
-3. Enable or disable it.
-4. Remove it.
+1. 导入插件包。
+2. 校验并登记清单。
+3. 启用或停用插件。
+4. 删除插件。
 
-Activation is driven by the active profile. There is no separate plugin event bus or multi-stage runtime lifecycle in the first version.
+插件是否生效由当前工作配置决定。第一版不需要独立的插件事件总线或多阶段运行时生命周期。
 
-Tools continue to execute through the application's existing host-controlled tool path. That path validates inputs and applies the relevant permission/confirmation checks before execution. The plugin registry is for discovery and composition; it is not a second tool runtime or a second authorization system.
+工具仍通过应用现有的宿主控制执行路径运行。执行前由该路径校验输入，并执行相应的权限或确认检查。插件注册表只负责发现和组合插件内容，不是第二套工具运行时，也不是第二套授权系统。
 
-Plugin files are data, not trusted code. The host must prevent path traversal on import, validate referenced files, and keep remote browser content outside the plugin trust boundary. Any future support for executable third-party extensions requires a separate design and explicit isolation model.
+插件文件属于数据，不属于可信代码。宿主应用必须在导入时防止路径穿越，校验被引用的文件，并确保远程网页内容不进入插件信任边界。未来若要支持可执行的第三方扩展，必须另行设计明确的隔离机制。
 
-## 5. Profiles and workspace
+## 5. 工作配置与工作区
 
-A profile selects installed plugins, provides non-secret plugin configuration and optionally selects a saved layout.
+工作配置负责选择已安装插件、提供非敏感的插件配置，并可选地指定一个已保存的布局。
 
-The initial model is intentionally limited:
+第一版只保留以下几种配置来源：
 
-- One built-in default profile.
-- Import/export of Team Profiles as JSON.
-- Local user overrides for personal preferences and layout.
-- Temporary session changes are not written back automatically.
+- 应用内置默认配置。
+- 通过 JSON 文件导入或导出的团队工作配置。
+- 用户本地覆盖项，用于个人偏好和布局。
 
-Do not implement organization baselines, profile inheritance chains, remote synchronization or a generic configuration-composition engine until real usage demonstrates the need. Security permissions and secret values are never profile data.
+会话期间的临时调整不会自动写回配置。
 
-See [Profile Composition](./PROFILE-COMPOSITION.md).
+在真实使用证明有必要之前，不实现组织级基线、配置继承链、远程同步或通用配置合并引擎。权限和密钥不能放入工作配置。
 
-## 6. UI and Layout Engine
+详见[工作配置设计](./PROFILE-COMPOSITION.md)。
 
-A plugin may declare a view that the host already knows how to render. The host decides whether it is available and where it appears.
+## 6. UI 与 Layout Engine
 
-The existing Layout Engine remains the single owner of workspace geometry, docking, split ratios, tab groups, floating Agent window state and layout persistence. Plugin declarations do not get direct access to Electron `WebContentsView`, bounds or arbitrary renderer state.
+插件可以声明使用宿主应用已经支持的视图，但视图是否可用以及显示位置均由宿主应用决定。
 
-Do not create a second plugin-specific layout system. Do not make every existing application feature a plugin; migrate a feature only when it provides a concrete reuse or configuration benefit.
+现有 Layout Engine 仍是工作区几何、停靠、分栏比例、标签组、浮动 Agent 窗口状态和布局持久化的唯一所有者。插件声明不能直接访问 Electron 的 `WebContentsView`、Bounds 或任意 Renderer 状态。
 
-## 7. Security and diagnostics
+不要另建一套插件专用布局系统。也不要把应用中的每个现有功能都改造成插件；只有在确实能提升复用性或配置灵活性时，才考虑迁移。
 
-- A plugin cannot execute arbitrary code or access Node.js/Electron APIs.
-- A plugin's tool references do not grant permissions.
-- Every tool invocation remains subject to the host's existing validation and authorization path.
-- Import validates archive paths and rejects unsupported or malformed content.
-- Diagnostics should report import/validation errors and tool failures with plugin attribution. Do not build a separate telemetry pipeline.
+## 7. 安全与诊断
 
-## 8. Incremental delivery
+- 插件不能执行任意代码，也不能访问 Node.js 或 Electron API。
+- 插件对工具的引用不代表获得工具权限。
+- 每次工具调用仍必须经过宿主应用现有的输入校验和授权路径。
+- 导入时校验压缩包路径，并拒绝不支持或格式错误的内容。
+- 诊断信息应能报告导入、校验和工具执行错误，并标明相关插件；不另建遥测流水线。
 
-1. **Package format:** manifest validation and local import/export.
-2. **Profile:** select installed plugins and apply team defaults.
-3. **Host integration:** expose selected skills, tool references, workflows and supported views to the existing Agent/workspace.
-4. **Adoption:** convert existing features only where it reduces team-specific code or improves reuse.
+## 8. 分阶段交付
 
-Do not implement arbitrary executable plugins, marketplace distribution, dependency resolution, event hooks or remote administration as part of this work.
+1. **插件包格式：** 实现清单校验和本地导入、导出。
+2. **工作配置：** 支持选择已安装插件，并应用团队默认配置。
+3. **宿主集成：** 将选中的 Skills、Tool 引用、Workflows 和受支持的 Views 提供给现有 Agent 与工作区。
+4. **逐步迁移：** 仅在能够减少团队专属代码或提升复用性时迁移现有功能。
 
-## 9. Acceptance criteria
+本项工作不包含任意可执行插件、插件市场、依赖解析、事件钩子或远程管理。
 
-- A user can import, enable, disable and remove a valid plugin package.
-- A Team Profile can select installed plugins and be shared without secrets or machine-local state.
-- Missing or invalid plugin contributions are reported without preventing unrelated features from working.
-- Tool execution still goes through the host's existing validation and permission checks.
-- Plugin content cannot directly access Electron APIs or native view bounds.
-- Existing browser, Agent and Layout Engine behavior remains unchanged unless a feature is deliberately migrated.
+## 9. 验收标准
+
+- 用户可以导入、启用、停用和删除有效的插件包。
+- 团队工作配置可以选择已安装插件，并可在不包含密钥或机器本地状态的前提下共享。
+- 缺失或无效的插件内容能够被报告，且不会导致无关功能不可用。
+- 工具执行仍经过宿主应用现有的输入校验和权限检查。
+- 插件内容无法直接访问 Electron API 或原生视图 Bounds。
+- 除非某项功能被明确迁移，否则现有浏览器、Agent 和 Layout Engine 行为保持不变。
