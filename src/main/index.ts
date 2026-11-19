@@ -18,7 +18,7 @@ import { z } from "zod";
 import { CopilotDesktopAgent } from "./copilot";
 import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
-import type { AgentProvider, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import type { AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 
 const APP_ID = "com.saga.architectagentdesktop";
 const HOME_URL = "https://www.google.com/";
