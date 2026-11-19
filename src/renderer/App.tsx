@@ -256,6 +256,7 @@ function App() {
           </div>
         )}
       </div>
+      {agentOpen && <AgentPanel onClose={() => setAgentOpen(false)} />}
     </div>
   );
 }
