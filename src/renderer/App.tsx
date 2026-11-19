@@ -105,7 +105,7 @@ function App() {
     updateBounds();
 
     return () => observer.disconnect();
-  }, [agentOpen, agentWidth]);
+  }, [agentOpen, agentWidth, agentPosition]);
 
   useEffect(() => {
     if (showFind) {
