@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -201,7 +202,7 @@ function attachTabEvents(tab: BrowserTab): void {
       });
       items.push({
         label: "Copy link address",
-        click: () => { webContents.copyURL(params.linkURL); },
+        click: () => { clipboard.writeText(params.linkURL); },
       });
       items.push({ type: "separator" });
     }
