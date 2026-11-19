@@ -216,7 +216,7 @@ function updateActiveBounds(): void {
   const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
   const browserBounds = layout.bounds.browser;
   if (!browserBounds) {
-    attachedView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    if (activeTabId) nativeViewStack.setBounds("browser:" + activeTabId, { x: 0, y: 0, width: 0, height: 0 });
     return;
   }
   nativeViewStack.setBounds("browser:" + activeTabId, {
