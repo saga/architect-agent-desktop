@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Form, Input, Select, Spin, message } from "antd";
+import { Button, Form, Input, Select, Spin, message } from "antd";
 import type { AgentSettings } from "../shared/types";
 
 const DEFAULT_SETTINGS: AgentSettings = {
