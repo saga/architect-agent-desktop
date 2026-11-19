@@ -1461,6 +1461,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("copilot:cancel", async (event) => {
     assertTrustedSender(event);
+    recordAgentTrace("turn.cancel.requested", { workspacePath: workspaceProject.path }, "requested");
     return copilotAgent.cancel();
   });
   ipcMain.handle("agent:load-session", (event) => {
