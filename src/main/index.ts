@@ -56,6 +56,7 @@ let activeTabId: string | null = null;
 let attachedView: WebContentsView | null = null;
 let snapshotView: WebContentsView | null = null;
 let snapshotActive = false;
+let snapshotCapturing = false;
 let currentBrowserBounds: { x: number; y: number; width: number; height: number } | null = null;
 let contentTop = DEFAULT_CONTENT_TOP;
 let contentLeft = 0;
@@ -256,17 +257,20 @@ function hideSnapshot(): void {
 }
 
 async function toggleSnapshot(): Promise<boolean> {
+  if (snapshotCapturing) return snapshotActive;
   if (snapshotActive) {
     hideSnapshot();
     return false;
   }
   const tab = activeTabId ? tabs.get(activeTabId) : null;
   if (!tab || !mainWindow || mainWindow.isDestroyed()) return false;
-  const tabId = tab.id;
-  const pageUrl = tab.view.webContents.getURL();
-  const captured = await tab.view.webContents.capturePage();
-  if (activeTabId !== tabId || tabs.get(tabId) !== tab || tab.view.webContents.isLoading() || tab.view.webContents.getURL() !== pageUrl) return false;
-  const dataUrl = captured.toDataURL();
+  snapshotCapturing = true;
+  try {
+    const tabId = tab.id;
+    const pageUrl = tab.view.webContents.getURL();
+    const captured = await tab.view.webContents.capturePage();
+    if (activeTabId !== tabId || tabs.get(tabId) !== tab || tab.view.webContents.isLoading() || tab.view.webContents.getURL() !== pageUrl) return false;
+    const dataUrl = captured.toDataURL();
   const view = new WebContentsView({
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
@@ -280,9 +284,12 @@ async function toggleSnapshot(): Promise<boolean> {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("browser:snapshot-state", true);
     if (currentBrowserBounds) nativeViewStack.setBounds("snapshot", currentBrowserBounds);
     return true;
-  } catch (error) {
-    hideSnapshot();
-    throw error;
+    } catch (error) {
+      hideSnapshot();
+      throw error;
+    }
+  } finally {
+    snapshotCapturing = false;
   }
 }
 
