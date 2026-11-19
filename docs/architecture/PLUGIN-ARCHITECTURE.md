@@ -37,7 +37,6 @@ This document describes a target architecture, not a claim that these mechanisms
 - Building a public plugin marketplace in the first iteration.
 - Introducing a server-side multi-tenant plugin control plane.
 - Treating plugin code as trusted merely because it is installed.
-- Changing the current Agent SDK or Agent Framework integration as part of this proposal.
 - Defining a universal extension standard for other desktop products.
 
 ## 3. Design principles
