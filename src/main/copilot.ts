@@ -39,7 +39,8 @@ export class CopilotDesktopAgent {
   private browserTools() {
     const browser = this.browser;
     const report = (name: string, detail: string) => {
-      this.publish({ type: "tool", text: name + ": " + detail });
+      const summary = name === "Read current page" ? "Page content read" : detail.slice(0, 180);
+      this.publish({ type: "tool", text: name + ": " + summary });
       return detail;
     };
     return [
