@@ -201,7 +201,17 @@ function updateActiveBounds(): void {
     width: Math.max(0, Math.min(contentWidth ?? (width - left), width - left)),
     height: Math.max(0, height - top),
   };
-  const splitterSize = workspaceLayout.agentPanelVisible ? 6 : 0;\n  const agentWidth = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;\n  const availableWidth = Math.max(0, viewport.width - splitterSize);\n  const browserWidth = Math.max(0, availableWidth - agentWidth);\n  const layoutTree: LayoutNode = {\n    type: "split", id: "workspace-root", axis: "horizontal",\n    ratio: availableWidth > 0 ? browserWidth / availableWidth : 1, splitterSize,\n    first: { type: "panel", id: "browser", minWidth: 320, minHeight: 240 },\n    second: { type: "panel", id: "agent", minWidth: 280, minHeight: 240, visible: workspaceLayout.agentPanelVisible },\n  };\n  const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
+  const splitterSize = workspaceLayout.agentPanelVisible ? 6 : 0;
+  const agentWidth = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;
+  const availableWidth = Math.max(0, viewport.width - splitterSize);
+  const browserWidth = Math.max(0, availableWidth - agentWidth);
+  const layoutTree: LayoutNode = {
+    type: "split", id: "workspace-root", axis: "horizontal",
+    ratio: availableWidth > 0 ? browserWidth / availableWidth : 1, splitterSize,
+    first: { type: "panel", id: "browser", minWidth: 320, minHeight: 240 },
+    second: { type: "panel", id: "agent", minWidth: 280, minHeight: 240, visible: workspaceLayout.agentPanelVisible },
+  };
+  const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
   const browserBounds = layout.bounds.browser;
   if (!browserBounds) {
     attachedView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
@@ -774,7 +784,16 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
   }
 }
 
-function registerIpcHandlers(): void {\n  ipcMain.handle("workspace:get-layout", (event) => { assertTrustedSender(event); return { ...workspaceLayout }; });\n  ipcMain.handle("workspace:save-layout", (event, input: unknown) => {\n    assertTrustedSender(event);\n    const parsed = z.object({ version: z.literal(1), agentPanelWidth: z.number().finite().min(280).max(720), agentPanelVisible: z.boolean() }).safeParse(input);\n    if (!parsed.success) throw new Error("Invalid workspace layout.");\n    workspaceLayout = parseWorkspaceLayout(parsed.data);\n    writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });\n    return { ...workspaceLayout };\n  });
+function registerIpcHandlers(): void {
+  ipcMain.handle("workspace:get-layout", (event) => { assertTrustedSender(event); return { ...workspaceLayout }; });
+  ipcMain.handle("workspace:save-layout", (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.object({ version: z.literal(1), agentPanelWidth: z.number().finite().min(280).max(720), agentPanelVisible: z.boolean() }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid workspace layout.");
+    workspaceLayout = parseWorkspaceLayout(parsed.data);
+    writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
+    return { ...workspaceLayout };
+  });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
   ipcMain.handle("browser:get-state", (event) => {
     assertTrustedSender(event);
