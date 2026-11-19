@@ -117,7 +117,28 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
     if (!term) return chronological;
     return chronological.filter((event) => (event.type + " " + eventTitle(event) + " " + eventPreview(event)).toLowerCase().includes(term));
   }, [chronological, search]);
-  const toolEvents = visibleEvents.filter((event) => event.type.startsWith("tool."));
+  const toolRuns = useMemo(() => {
+    const pending = new Map<string, Array<{ call: TraceEvent; finish?: TraceEvent }>>();
+    const runs: Array<{ call: TraceEvent; finish?: TraceEvent }> = [];
+    for (const event of visibleEvents) {
+      if (!event.type.startsWith("tool.")) continue;
+      const name = eventTitle(event);
+      const key = event.traceId + ":" + name;
+      if (event.type === "tool.call") {
+        const run = { call: event };
+        runs.push(run);
+        const queue = pending.get(key) ?? [];
+        queue.push(run);
+        pending.set(key, queue);
+      } else if (event.type === "tool.result" || event.type === "tool.failed") {
+        const queue = pending.get(key);
+        const run = queue?.shift();
+        if (run) run.finish = event;
+        else runs.push({ call: event, finish: event });
+      }
+    }
+    return runs;
+  }, [visibleEvents]);
   const modelRequests = visibleEvents.filter((event) => event.type === "provider.request");
   const modelCalls = modelRequests.map((request) => {
     const response = visibleEvents.find((event) => event.traceId === request.traceId && event.type === "provider.response" &&
@@ -161,15 +182,18 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
   </div>;
 
   const tools = <div className="session-explorer-list">
-    {loadingEvents ? <Spin /> : toolEvents.length ? <List dataSource={toolEvents} renderItem={(event) => <List.Item>
+    {loadingEvents ? <Spin /> : toolRuns.length ? <List dataSource={toolRuns} renderItem={({ call, finish }) => <List.Item>
       <div className="session-event">
         <div className="session-event-heading">
-          <Text strong>{eventTitle(event)}</Text>
-          <Tag color={event.type === "tool.failed" ? "red" : event.type === "tool.result" ? "green" : "blue"}>{event.type}</Tag>
-          <Text type="secondary">{formatTime(event.timestamp)}</Text>
+          <Text strong>{eventTitle(call)}</Text>
+          <Tag color={finish?.type === "tool.failed" ? "red" : finish?.type === "tool.result" ? "green" : "blue"}>
+            {finish?.type === "tool.failed" ? "失败" : finish?.type === "tool.result" ? "完成" : "执行中"}
+          </Tag>
+          <Text type="secondary">{elapsed(call.timestamp, finish?.timestamp)}</Text>
         </div>
-        <Text type="secondary">Trace {event.traceId}</Text>
-        <details><summary>参数 / 结果 / 错误</summary><pre>{JSON.stringify(event.data ?? {}, null, 2)}</pre></details>
+        <Text type="secondary">{formatTime(call.timestamp)} · Trace {call.traceId}</Text>
+        <details><summary>查看调用参数</summary><pre>{JSON.stringify(call.data ?? {}, null, 2)}</pre></details>
+        {finish && finish !== call && <details><summary>查看执行结果</summary><pre>{JSON.stringify(finish.data ?? {}, null, 2)}</pre></details>}
       </div>
     </List.Item>} /> : <Empty description="当前 Session 没有工具调用记录" />}
   </div>;
