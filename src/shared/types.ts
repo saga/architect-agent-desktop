@@ -42,10 +42,13 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
 export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done" | "tool"; status?: string; text?: string; }
 
 export interface WorkspaceLayoutState { version: 1; agentPanelWidth: number; agentPanelVisible: boolean; }
+export interface WorkspaceDocument { version: 2; root: import("./workspace-document").WorkspaceDocument["root"]; tabGroups: import("./workspace-document").WorkspaceTabGroup[]; floating: import("./workspace-document").FloatingPanelRoot[]; activePanelId: string; }
 
 export interface BrowserApi {
   getWorkspaceLayout(): Promise<WorkspaceLayoutState>;
   saveWorkspaceLayout(layout: WorkspaceLayoutState): Promise<WorkspaceLayoutState>;
+  getWorkspaceDocument(): Promise<WorkspaceDocument>;
+  saveWorkspaceDocument(document: WorkspaceDocument): Promise<WorkspaceDocument>;
   getState(): Promise<BrowserState>;
   createTab(url?: string): Promise<string>;
   activateTab(id: string): Promise<void>;
