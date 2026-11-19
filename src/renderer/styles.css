@@ -416,3 +416,6 @@ button { color: inherit; }
   .agent-panel { width: 310px; padding: 10px; }
 }
 \n.agent-provider-switch { display:flex; flex-direction:column; gap:6px; flex:0 0 auto; }\n.agent-provider-switch>span { color:#7b8492; font-size:11px; }\n
+.agent-settings-form { display:flex; flex-direction:column; gap:8px; padding-top:8px; }
+.agent-settings-form>label { margin-top:8px; color:#343b46; font-size:12px; font-weight:600; }
+.agent-settings-help { margin-top:-3px; color:#858e9b; font-size:11px; line-height:1.55; }
