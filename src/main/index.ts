@@ -22,7 +22,8 @@ import type { AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState
 import { calculateLayout, type LayoutNode } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
-import type { WorkspaceLayoutState } from "../shared/types";
+import type { WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
+import { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument } from "../shared/workspace-document";
 
 const APP_ID = "com.saga.architectagentdesktop";
 const HOME_URL = "https://www.google.com/";
@@ -55,11 +56,17 @@ let contentLeft = 0;
 let contentWidth: number | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
 const WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
+const WORKSPACE_DOCUMENT_PATH = path.join(app.getPath("userData"), "workspace-document.json");
 function loadWorkspaceLayout(): WorkspaceLayoutState {
   try { return parseWorkspaceLayout(JSON.parse(readFileSync(WORKSPACE_LAYOUT_PATH, "utf8"))); }
   catch { return { ...DEFAULT_WORKSPACE_LAYOUT }; }
 }
 let workspaceLayout = loadWorkspaceLayout();
+function loadWorkspaceDocument(): WorkspaceDocument {
+  try { return parseWorkspaceDocument(JSON.parse(readFileSync(WORKSPACE_DOCUMENT_PATH, "utf8"))); }
+  catch { return parseWorkspaceDocument(DEFAULT_WORKSPACE_DOCUMENT); }
+}
+let workspaceDocument = loadWorkspaceDocument();
 const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", systemPrompt: "" };
 function loadAgentSettings(): AgentSettings {
   try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" ? raw.thinkingLevel : "medium", copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? raw.systemPrompt.slice(0, 12000) : "" }; } catch { return { ...DEFAULT_SETTINGS }; }
@@ -784,12 +791,28 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 
 function registerIpcHandlers(): void {
   ipcMain.handle("workspace:get-layout", (event) => { assertTrustedSender(event); return { ...workspaceLayout }; });
+  ipcMain.handle("workspace:get-document", (event) => { assertTrustedSender(event); return workspaceDocument; });
+  ipcMain.handle("workspace:save-document", (event, input: unknown) => {
+    assertTrustedSender(event);
+    try { workspaceDocument = parseWorkspaceDocument(input); }
+    catch (error) { throw new Error(error instanceof Error ? error.message : "Invalid workspace document."); }
+    writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+    return workspaceDocument;
+  });
   ipcMain.handle("workspace:save-layout", (event, input: unknown) => {
     assertTrustedSender(event);
     const parsed = z.object({ version: z.literal(1), agentPanelWidth: z.number().finite().min(280).max(720), agentPanelVisible: z.boolean() }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid workspace layout.");
     workspaceLayout = parseWorkspaceLayout(parsed.data);
     writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
+    const root = workspaceDocument.root;
+    if (root.type === "split" && root.axis === "horizontal") {
+      const available = Math.max(1, (contentWidth ?? mainWindow?.getContentSize()[0] ?? 1200) - (workspaceLayout.agentPanelVisible ? 6 : 0));
+      root.ratio = workspaceLayout.agentPanelVisible ? Math.max(0.05, Math.min(0.95, 1 - workspaceLayout.agentPanelWidth / available)) : 1;
+      root.second = { ...root.second, visible: workspaceLayout.agentPanelVisible };
+      workspaceDocument = { ...workspaceDocument, root };
+      writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+    }
     return { ...workspaceLayout };
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
