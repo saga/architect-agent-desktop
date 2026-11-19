@@ -69,6 +69,14 @@ Unsigned builds may trigger the operating system's normal security warnings. Pro
 
 Remote pages run with nodeIntegration: false, contextIsolation: true and sandbox: true. The renderer is not allowed to send arbitrary IPC messages; only the methods in the preload API are exposed.
 
+## Plugins
+
+Open **Agent 与插件配置** from the application settings, then import a plugin directory. The repository includes a working example at `examples/plugins/research-assistant`.
+
+A plugin directory contains `manifest.json` plus the resource files referenced by that manifest. The first version supports Skills (`.md`), Workflow templates (`.md` or `.json`), references to host-provided tools, and JSON declarations for the existing Browser or Agent views. Arbitrary JavaScript is never loaded or executed.
+
+Imported plugins are stored locally under the application's user-data directory. Enable/disable state is local to this installation. Export writes a copy of the plugin directory to a folder you choose.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
