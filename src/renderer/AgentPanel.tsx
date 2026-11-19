@@ -3,7 +3,7 @@ import { Alert, Button, Dropdown, Popconfirm, Tag, message, Tooltip } from "antd
 import { AppstoreOutlined, DeleteOutlined, SettingOutlined } from "@ant-design/icons";
 import { Bubble, Sender } from "@ant-design/x";
 import XMarkdown from "@ant-design/x-markdown";
-import type { AgentSessionItem, AgentSettings, CopilotEvent } from "../shared/types";
+import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } from "../shared/types";
 
 type ChatItem = AgentSessionItem & { streaming?: boolean };
 const EMPTY_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", toolPermission: "browser-only", systemPrompt: "" };
@@ -84,6 +84,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const [status, setStatus] = useState("checking");
   const [statusMessage, setStatusMessage] = useState("");
   const [settings, setSettings] = useState<AgentSettings>(EMPTY_SETTINGS);
+  const [workspaceProject, setWorkspaceProject] = useState<WorkspaceProject>({ path: null, name: null });
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -101,6 +102,11 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   useEffect(() => {
     let cancelled = false;
     let unsubscribe: () => void = () => undefined;
+    void window.browser.getWorkspaceProject().then((workspace) => { if (!cancelled) setWorkspaceProject(workspace); }).catch(() => undefined);
+    const unsubscribeProject = window.browser.onWorkspaceProjectUpdated((workspace) => {
+      setWorkspaceProject(workspace);
+      void window.browser.agentLoadSession().then((saved) => { if (!cancelled) setItems(saved); }).catch(() => undefined);
+    });
     void (async () => {
       try {
         if (typeof window.browser.agentLoadSession === "function") {
@@ -163,7 +169,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     void Promise.all([window.browser.agentGetSettings(), window.browser.copilotStatus()])
       .then(([saved, result]) => { setSettings(saved); setStatus(result.status); setStatusMessage(result.message ?? ""); })
       .catch(() => setStatus("error"));
-    return () => { cancelled = true; unsubscribe(); unsubscribeSettings(); };
+    return () => { cancelled = true; unsubscribe(); unsubscribeProject(); unsubscribeSettings(); };
   }, []);
 
   useEffect(() => {
@@ -229,6 +235,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       >
         <strong className="agent-panel-title">Browser Agent</strong>
         <div className="agent-subtitle" title={subtitle}>{subtitle}</div>
+        <div className="agent-workspace" title={workspaceProject.path || "尚未选择本地项目目录"}>{workspaceProject.name ? "工作区：" + workspaceProject.name : "未选择工作区"}</div>
       </div>
       <div className="agent-panel-toolbar">
         <Tag className="agent-status-tag" color={status === "ready" ? "success" : "default"}>{status}</Tag>
