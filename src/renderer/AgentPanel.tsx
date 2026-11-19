@@ -125,6 +125,6 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
         <Button type="primary" loading={saving} disabled={loading} onClick={() => void saveSettings()}>保存配置</Button>
       </footer>
     </section>}
-dal>
+
   </aside>;
 }
