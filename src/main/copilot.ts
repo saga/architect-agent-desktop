@@ -180,7 +180,7 @@ export class CopilotDesktopAgent {
      const tool=allowed.get(name);
      if(!tool) throw new Error("Tool is not available in the current permission mode: "+name);
      this.recordTrace("tool.call",{name,input,source:"code-mode"},"running");
-     try{const value=await tool.handler(input);const output=typeof value==="string"?value:value.text;this.recordTrace("tool.result",{name,input,result:output,source:"code-mode"},"completed");return value;}
+     const parsed=tool.schema.safeParse(input);if(!parsed.success) throw new Error("Invalid tool input: "+parsed.error.message);try{const value=await tool.handler(parsed.data);const output=typeof value==="string"?value:value.text;this.recordTrace("tool.result",{name,input,result:output,source:"code-mode"},"completed");return value;}
      catch(error){this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error),source:"code-mode"},"failed");throw error;}
     });
     try{
