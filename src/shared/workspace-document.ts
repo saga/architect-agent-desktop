@@ -99,6 +99,11 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
   return { version: 2, root, tabGroups, floating, activePanelId };
 }
 
+function setPanelVisible(root: LayoutNode, panelId: string, visible: boolean): LayoutNode {
+  if (root.type === "panel") return root.id === panelId ? { ...root, visible } : root;
+  return { ...root, first: setPanelVisible(root.first, panelId, visible), second: setPanelVisible(root.second, panelId, visible) };
+}
+
 export function createFloatingPanel(
   document: WorkspaceDocument,
   panelId: string,
@@ -107,12 +112,14 @@ export function createFloatingPanel(
   if (document.floating.some((item) => item.panelId === panelId)) return document;
   return {
     ...document,
+    root: setPanelVisible(document.root, panelId, false),
+    activePanelId: document.activePanelId === panelId ? "browser" : document.activePanelId,
     floating: [...document.floating, { id: "floating-" + panelId, panelId, bounds }],
   };
 }
 
 export function redockFloatingPanel(document: WorkspaceDocument, panelId: string): WorkspaceDocument {
-  return { ...document, floating: document.floating.filter((item) => item.panelId !== panelId) };
+  return { ...document, root: setPanelVisible(document.root, panelId, true), floating: document.floating.filter((item) => item.panelId !== panelId), activePanelId: panelId };
 }
 
 export function activateWorkspaceTab(document: WorkspaceDocument, groupId: string, panelId: string): WorkspaceDocument {
