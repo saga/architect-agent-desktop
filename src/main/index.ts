@@ -17,6 +17,7 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CopilotDesktopAgent } from "./copilot";
+import { AgentTraceStore } from "./agent-trace-store";
 import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
 import { readFileSync, realpathSync, rmSync, statSync } from "node:fs";
@@ -72,6 +73,32 @@ let contentLeft = 0;
 let contentWidth: number | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
 const AGENT_SESSION_ROOT = path.join(app.getPath("userData"), "agent-sessions");
+const AGENT_DATA_SETTINGS_PATH = path.join(app.getPath("userData"), "agent-data.json");
+function loadAgentDataDirectory(): string {
+  try {
+    const raw = JSON.parse(readFileSync(AGENT_DATA_SETTINGS_PATH, "utf8")) as { directory?: unknown };
+    if (typeof raw.directory === "string" && raw.directory.trim()) return path.resolve(raw.directory);
+  } catch { /* use the application default */ }
+  return path.join(app.getPath("userData"), "agent-data");
+}
+const agentTraceStore = new AgentTraceStore(loadAgentDataDirectory());
+let activeAgentTraceId: string | null = null;
+function currentTraceSessionId(): string {
+  return createHash("sha256").update(workspaceProject.path ?? "__default_workspace__").digest("hex").slice(0, 32);
+}
+function recordAgentTrace(type: string, data: unknown, status?: string): void {
+  const sessionId = currentTraceSessionId();
+  agentTraceStore.record({
+    sessionId,
+    traceId: activeAgentTraceId ?? randomUUID(),
+    workspacePath: workspaceProject.path,
+    provider: agentSettings.provider,
+    model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel,
+    type,
+    status,
+    data,
+  });
+}
 const LEGACY_AGENT_SESSION_PATH = path.join(app.getPath("userData"), "agent-session.json");
 const WORKSPACE_PROJECT_PATH = path.join(app.getPath("userData"), "workspace-project.json");
 const WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
@@ -1277,6 +1304,17 @@ function registerIpcHandlers(): void {
     return destination;
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
+  ipcMain.handle("agent-data:get-directory", (event) => { assertTrustedSender(event); return agentTraceStore.getDirectory(); });
+  ipcMain.handle("agent-data:select-directory", async (event) => {
+    assertTrustedSender(event);
+    const { canceled, filePaths } = await dialog.showOpenDialog({ title: "选择 Agent Data 目录", properties: ["openDirectory", "createDirectory"] });
+    if (canceled || !filePaths[0]) return agentTraceStore.getDirectory();
+    const directory = path.resolve(filePaths[0]);
+    agentTraceStore.setDirectory(directory);
+    writeJsonAtomic(AGENT_DATA_SETTINGS_PATH, { directory });
+    recordAgentTrace("agent-data.directory-changed", { directory }, "completed");
+    return directory;
+  });
   ipcMain.handle("browser:toggle-snapshot", async (event) => { assertTrustedSender(event); return await toggleSnapshot(); });
   ipcMain.handle("app:open-external", async (event, input: unknown) => {
     assertTrustedSender(event);
@@ -1402,7 +1440,7 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     const parsed = z.object({ prompt: z.string().trim().min(1).max(30000), history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(12000) })).max(20).optional() }).safeParse(input);
     if (!parsed.success) throw new Error("Message must contain 1–30,000 characters.");
-    return copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined);
+    const traceId = randomUUID();\n    activeAgentTraceId = traceId;\n    recordAgentTrace("turn.started", { prompt: parsed.data.prompt, history: parsed.data.history ?? [] }, "running");\n    try {\n      await copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined);\n      recordAgentTrace("turn.completed", { outcome: "completed" }, "completed");\n    } catch (error) {\n      recordAgentTrace("turn.failed", { error: error instanceof Error ? error.message : String(error) }, "failed");\n      throw error;\n    } finally { activeAgentTraceId = null; }
   });
   ipcMain.handle("copilot:cancel", async (event) => {
     assertTrustedSender(event);
@@ -1410,16 +1448,16 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:load-session", (event) => {
     assertTrustedSender(event);
-    return loadAgentSession();
+    const items = loadAgentSession();\n    recordAgentTrace("session.loaded", { itemCount: items.length }, "completed");\n    return items;
   });
   ipcMain.handle("agent:save-session", (event, input: unknown) => {
     assertTrustedSender(event);
     if (!Array.isArray(input)) throw new Error("Invalid Agent session.");
-    saveAgentSession(parseAgentSessionItems(input));
+    const items = parseAgentSessionItems(input);\n    saveAgentSession(items);\n    recordAgentTrace("session.saved", { itemCount: items.length }, "completed");
   });
   ipcMain.handle("agent:clear-session", (event) => {
     assertTrustedSender(event);
-    rmSync(currentAgentSessionPath(), { force: true });
+    recordAgentTrace("session.cleared", { workspacePath: workspaceProject.path }, "completed");\n    rmSync(currentAgentSessionPath(), { force: true });
     if (!workspaceProject.path) rmSync(LEGACY_AGENT_SESSION_PATH, { force: true });
   });
 
@@ -1537,7 +1575,7 @@ app.on("before-quit", (event) => {
 });
 
 app.on("will-quit", () => {
-  disposeLoginShellEnvironment();
+  agentTraceStore.close();\n  disposeLoginShellEnvironment();
 });
 
 app.on("window-all-closed", () => {
