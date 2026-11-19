@@ -889,10 +889,19 @@ function registerIpcHandlers(): void {
     workspaceLayout = parseWorkspaceLayout(parsed.data);
     writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
     const root = workspaceDocument.root;
-    if (root.type === "split" && root.axis === "horizontal") {
-      const available = Math.max(1, (contentWidth ?? mainWindow?.getContentSize()[0] ?? 1200) - (workspaceLayout.agentPanelVisible ? 6 : 0));
-      root.ratio = workspaceLayout.agentPanelVisible ? Math.max(0.05, Math.min(0.95, 1 - workspaceLayout.agentPanelWidth / available)) : 1;
-      root.second = { ...root.second, visible: workspaceLayout.agentPanelVisible };
+    if (root.type === "split" && ((root.first.type === "panel" && root.second.type === "panel") || root.axis === "horizontal" || root.axis === "vertical")) {
+      const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
+      const [windowWidth, windowHeight] = mainWindow?.getContentSize() ?? [1200, 800];
+      const available = Math.max(1, (isHorizontal ? (contentWidth ?? windowWidth) : windowHeight) - (workspaceLayout.agentPanelVisible ? 6 : 0));
+      const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
+      const agentSize = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;
+      const browserSize = Math.max(0, available - agentSize);
+      root.axis = isHorizontal ? "horizontal" : "vertical";
+      root.ratio = available > 0 ? (agentFirst ? agentSize : browserSize) / available : 0.5;
+      const browserNode = root.first.id === "browser" || root.second.id === "browser" ? (root.first.id === "browser" ? root.first : root.second) : { type: "panel" as const, id: "browser", minWidth: 320, minHeight: 240 };
+      const agentNode = root.first.id === "agent" || root.second.id === "agent" ? (root.first.id === "agent" ? root.first : root.second) : { type: "panel" as const, id: "agent", minWidth: 280, minHeight: 240 };
+      root.first = agentFirst ? { ...agentNode, visible: workspaceLayout.agentPanelVisible } : browserNode;
+      root.second = agentFirst ? browserNode : { ...agentNode, visible: workspaceLayout.agentPanelVisible };
       workspaceDocument = { ...workspaceDocument, root };
       writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
     }
