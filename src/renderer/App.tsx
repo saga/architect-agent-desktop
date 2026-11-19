@@ -31,7 +31,7 @@ function App() {
   const [workspaceDocument, setWorkspaceDocument] = useState<WorkspaceDocument>(DEFAULT_WORKSPACE_DOCUMENT);
   const [chromeHeight, setChromeHeight] = useState(91);
   const [dockDragActive, setDockDragActive] = useState(false);
-  const splitterDrag = useRef<{ startX: number; startWidth: number } | null>(null);
+  const splitterDrag = useRef<{ startCoordinate: number; startWidth: number; width: number } | null>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
   const browserWorkspaceRef = useRef<HTMLDivElement>(null);
   const appShellRef = useRef<HTMLDivElement>(null);
@@ -131,7 +131,7 @@ function App() {
     updateBounds();
 
     return () => observer.disconnect();
-  }, [agentOpen, agentWidth, agentPosition, groupedWorkspace, activeWorkspacePanel]);
+  }, [agentOpen, agentPosition, groupedWorkspace, activeWorkspacePanel]);
 
   useEffect(() => {
     if (showFind) {
@@ -194,18 +194,22 @@ function App() {
   };
   const onSplitterPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
-    splitterDrag.current = { startX: agentPosition === "left" || agentPosition === "right" ? event.clientX : event.clientY, startWidth: agentWidth };
+    const coordinate = agentPosition === "left" || agentPosition === "right" ? event.clientX : event.clientY;
+    splitterDrag.current = { startCoordinate: coordinate, startWidth: agentWidth, width: agentWidth };
   };
   const onSplitterPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!splitterDrag.current) return;
+    const drag = splitterDrag.current;
+    if (!drag) return;
     const coordinate = agentPosition === "left" || agentPosition === "right" ? event.clientX : event.clientY;
-    const delta = agentPosition === "left" || agentPosition === "top" ? coordinate - splitterDrag.current.startX : splitterDrag.current.startX - coordinate;
-    setAgentWidth(Math.max(280, Math.min(720, splitterDrag.current.startWidth + delta)));
+    const delta = agentPosition === "left" || agentPosition === "top" ? coordinate - drag.startCoordinate : drag.startCoordinate - coordinate;
+    const next = Math.max(280, Math.min(720, drag.startWidth + delta));
+    if (next !== drag.width) { drag.width = next; setAgentWidth(next); }
   };
   const onSplitterPointerUp = () => {
-    if (!splitterDrag.current) return;
+    const drag = splitterDrag.current;
+    if (!drag) return;
     splitterDrag.current = null;
-    saveWorkspaceLayout(agentOpen, agentWidth);
+    saveWorkspaceLayout(agentOpen, drag.width);
   };
 
   const horizontalDock = agentPosition === "left" || agentPosition === "right";

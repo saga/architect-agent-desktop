@@ -31,6 +31,8 @@ export interface AgentModelInfo {
   effortOptions?: string[];
   contextWindowOptions?: Array<{ value: number; label: string }>;
   maxInputTokens?: number;
+  /** 产品目录里的 credits 费率，如 "x0.03 credits" → 0.03；0 表示免费。 */
+  credits?: number;
 }
 export type AgentThinkingLevel = "low" | "medium" | "high" | "xhigh";
 export interface AgentSettings {

@@ -13,6 +13,14 @@ function positiveTokens(value: unknown): number | undefined {
  const n = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value.trim()) ? Number(value) : NaN;
  return Number.isSafeInteger(n) && n > 0 ? n : undefined;
 }
+/** 目录里的 credits 形如 "x0.03 credits" / "x0.00 credits"（0 = 免费）。 */
+function parseCredits(value: unknown): number | undefined {
+ const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+ const match = /^x?\s*(-?\d+(?:\.\d+)?)/i.exec(text);
+ if (!match) return undefined;
+ const n = Number(match[1]);
+ return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
 function normalizeModelInfo(provider: AgentProvider, raw: unknown): AgentModelInfo | undefined {
  const item = asRecord(raw);
  const id = typeof item.id === "string" ? item.id.trim() : typeof item.model === "string" ? item.model.trim() : "";
@@ -30,7 +38,7 @@ function normalizeModelInfo(provider: AgentProvider, raw: unknown): AgentModelIn
  return { provider, id, name: typeof item.name === "string" && item.name.trim() ? item.name : id,
   ...(typeof item.description === "string" ? {description:item.description} : {}),
   ...(efforts.length ? {effortOptions:efforts} : {}), ...(contextWindowOptions ? {contextWindowOptions} : {}),
-  ...(maxInputTokens ? {maxInputTokens} : {}) };
+  ...(maxInputTokens ? {maxInputTokens} : {}), ...(parseCredits(item.credits) !== undefined ? {credits:parseCredits(item.credits)} : {}) };
 }
 function decodeCodeBuddyCatalog(text: string): ModelRecord[] {
  try { let parsed: unknown = JSON.parse(text); if (typeof parsed === "string") parsed = JSON.parse(gunzipSync(Buffer.from(parsed,"base64")).toString("utf8"));
@@ -54,9 +62,22 @@ function codeBuddyWorkspace(): string {
  mkdirSync(dir, { recursive: true });
  return dir;
 }
-function codeBuddyExecutable(): string | undefined {
- const candidates = [process.env.CODEBUDDY_CODE_PATH, ...String(process.env.PATH || "").split(path.delimiter).map((dir) => path.join(dir, process.platform === "win32" ? "codebuddy.exe" : "codebuddy")), ...(process.platform === "darwin" ? ["/opt/homebrew/bin/codebuddy", "/usr/local/bin/codebuddy"] : [])].filter((item): item is string => Boolean(item));
- return candidates.find((item) => existsSync(item));
+const HOST_SESSION_ENV_KEYS = [
+ "CODEBUDDY_SERVICE_PROXY_URL",
+ "CODEBUDDY_HOST",
+ "CODEBUDDY_SESSION_ID",
+ "CODEBUDDY_CONVERSATION_REQUEST_ID",
+ "CODEBUDDY_ROOT_REQUEST_ID",
+ "WORKBUDDY_CONFIG_DIR",
+ "ACC_PRODUCT_CONFIG_PATH"
+] as const;
+function isManagedSession(): boolean {
+ return Boolean(process.env.CODEBUDDY_SESSION_ID || process.env.WORKBUDDY_CONFIG_DIR);
+}
+function detachedCliOptions(): { env: Record<string, string | undefined>; extraArgs: Record<string, string> } {
+ const env: Record<string, string | undefined> = {};
+ for (const key of HOST_SESSION_ENV_KEYS) env[key] = undefined;
+ return { env, extraArgs: { port: "0" } };
 }
 const INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser.",
@@ -121,12 +142,12 @@ export class CopilotDesktopAgent {
    }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
    cwd=temp;settingSources=["project"];cleanup=()=>rmSync(temp,{recursive:true,force:true});
   }
-  const query=sdk.query({prompt:"User request: "+prompt,options:{...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:{type:"adaptive"},systemPrompt:{append:[this.settings.systemPrompt.trim(),INSTRUCTIONS].filter(Boolean).join("\n\n")},cwd,...(codeBuddyExecutable()?{pathToCodebuddyCode:codeBuddyExecutable()}:{}),settingSources,persistSession:false,permissionMode:"default",maxTurns:12,mcpServers:{browser:server},allowedTools:allowed}});
+  const query=sdk.query({prompt:"User request: "+prompt,options:{...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:{type:"adaptive"},systemPrompt:{append:[this.settings.systemPrompt.trim(),INSTRUCTIONS].filter(Boolean).join("\n\n")},cwd,...(isManagedSession()?detachedCliOptions():{}),settingSources,persistSession:false,permissionMode:"default",maxTurns:12,mcpServers:{browser:server},allowedTools:allowed}});
   this.codeBuddyQuery=query;let answer="";
   try{for await(const item of query){const m=item as{type?:string;message?:{content?:Array<{type?:string;text?:string}>};subtype?:string;error?:unknown};if(m.type==="assistant"&&Array.isArray(m.message?.content)){for(const part of m.message.content)if(part.type==="text"&&part.text){answer+=part.text;this.publish({type:"delta",text:part.text});}}if(m.type==="result"&&m.subtype&&m.subtype!=="success")throw new Error("CodeBuddy 执行失败："+String(m.error||m.subtype));}if(answer.trim())this.publish({type:"message",text:answer.trim()});else throw new Error("CodeBuddy 已结束但没有返回文本，请确认 CodeBuddy 登录状态和模型权限。");}
   finally{this.codeBuddyQuery=null;cleanup?.();}
  }
- async send(prompt:string):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt);else await this.sendCopilot(prompt);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"\n\n请检查 CodeBuddy 是否已完成账号授权，以及本机模型目录是否可读取。":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
+ async send(prompt:string):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt);else await this.sendCopilot(prompt);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
  async cancel():Promise<void>{if(this.settings.provider==="codebuddy"&&this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();else if(this.active&&this.session)await this.session.abort();}
  async stop():Promise<void>{const client=this.client;this.client=null;this.session=null;if(client)await client.stop();}
 }

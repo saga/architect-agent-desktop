@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Tag, message, Tooltip } from "antd";
-import { SettingOutlined } from "@ant-design/icons";
+import { Alert, Button, Dropdown, Tag, message, Tooltip } from "antd";
+import { AppstoreOutlined, SettingOutlined } from "@ant-design/icons";
 import { Bubble, Sender } from "@ant-design/x";
 import type { AgentSettings, CopilotEvent } from "../shared/types";
 
@@ -71,31 +71,61 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const providerName = settings.provider === "copilot" ? "GitHub Copilot CLI" : "CodeBuddy CLI";
   const modelName = settings.provider === "copilot" ? settings.copilotModel : settings.codebuddyModel;
 
+  const subtitle = [providerName, modelName || "使用 CLI 默认模型", `${settings.thinkingLevel} thinking`].join(" · ");
+  const dockItems = [
+    { key: "left", label: "靠左停靠" },
+    { key: "right", label: "靠右停靠" },
+    { key: "top", label: "靠上停靠" },
+    { key: "bottom", label: "靠下停靠" },
+  ];
+  const bubbleRoles = {
+    assistant: { placement: "start" as const, variant: "outlined" as const, shape: "corner" as const, contentRender: (content: string) => <div className="agent-bubble-text">{content}</div> },
+    user: { placement: "end" as const, variant: "filled" as const, shape: "corner" as const, contentRender: (content: string) => <div className="agent-bubble-text">{content}</div> },
+  };
+
   return <aside className="agent-panel">
-    <header className="agent-panel-header" draggable onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", "agent-panel"); onDragState?.(true); }} onDragEnd={() => onDragState?.(false)}>
-      <div><strong>Browser Agent</strong><div className="agent-subtitle">{providerName} · {modelName || "使用 CLI 默认模型"} · {settings.thinkingLevel} thinking</div></div>
-      <div className="agent-dock-actions" aria-label="Dock Agent panel">
-        <Tooltip title="Dock left"><Button size="small" type="text" aria-label="Dock left" onClick={() => onDock("left")}>⇤</Button></Tooltip>
-        <Tooltip title="Dock right"><Button size="small" type="text" aria-label="Dock right" onClick={() => onDock("right")}>⇥</Button></Tooltip>
-        <Tooltip title="Dock top"><Button size="small" type="text" aria-label="Dock top" onClick={() => onDock("top")}>⇡</Button></Tooltip>
-        <Tooltip title="Dock bottom"><Button size="small" type="text" aria-label="Dock bottom" onClick={() => onDock("bottom")}>⇣</Button></Tooltip>
+    <header className="agent-panel-header">
+      <div
+        className="agent-panel-heading"
+        draggable
+        onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", "agent-panel"); onDragState?.(true); }}
+        onDragEnd={() => onDragState?.(false)}
+      >
+        <strong className="agent-panel-title">Browser Agent</strong>
+        <div className="agent-subtitle" title={subtitle}>{subtitle}</div>
       </div>
-      <Tag color={status === "ready" ? "success" : "default"}>{status}</Tag>
-      {onMaximize && <Tooltip title="最大化到工作区"><Button type="text" size="small" onClick={onMaximize}>□</Button></Tooltip>}
-      {onRestore && <Tooltip title="恢复分栏布局"><Button type="text" size="small" onClick={onRestore}>▣</Button></Tooltip>}
-      {onFloat && <Tooltip title="浮动为独立窗口"><Button type="text" size="small" onClick={onFloat}>↗</Button></Tooltip>}
-      <Tooltip title="Agent 配置"><Button type="text" size="small" icon={<SettingOutlined />} onClick={() => void openSettings()} /></Tooltip>
-      <Button type="text" size="small" onClick={onClose}>×</Button>
+      <div className="agent-panel-toolbar">
+        <Tag className="agent-status-tag" color={status === "ready" ? "success" : "default"}>{status}</Tag>
+        <Tooltip title="选择停靠位置">
+          <Dropdown trigger={["click"]} menu={{ items: dockItems, onClick: ({ key }) => onDock(key as "left" | "right" | "top" | "bottom") }} placement="bottomRight">
+            <Button type="text" size="small" aria-label="选择停靠位置" icon={<AppstoreOutlined />} />
+          </Dropdown>
+        </Tooltip>
+        {onMaximize && <Tooltip title="最大化到工作区"><Button type="text" size="small" onClick={onMaximize}>□</Button></Tooltip>}
+        {onRestore && <Tooltip title="恢复分栏布局"><Button type="text" size="small" onClick={onRestore}>▣</Button></Tooltip>}
+        {onFloat && <Tooltip title="浮动为独立窗口"><Button type="text" size="small" onClick={onFloat}>↗</Button></Tooltip>}
+        <Tooltip title="Agent 配置"><Button type="text" size="small" icon={<SettingOutlined />} onClick={() => void openSettings()} /></Tooltip>
+        <Tooltip title="关闭面板"><Button type="text" size="small" onClick={onClose}>×</Button></Tooltip>
+      </div>
     </header>
     {status === "error" && settings.provider === "copilot" && <Alert type="error" showIcon message="GitHub Copilot Agent 初始化失败" description={<div>{statusMessage}<p>这通常是 SDK 配置或运行时问题，不代表 CLI 一定未登录。请检查应用版本和运行日志。</p></div>} />}
     {status === "unauthenticated" && settings.provider === "copilot" && <Alert type="warning" showIcon message="尚未完成 GitHub Copilot CLI 登录" description={<div>{statusMessage && <p>{statusMessage}</p>}本应用调用本机 Copilot CLI 凭据，不会自动复用 VS Code 扩展登录状态。<ol><li>打开 macOS「终端」应用。</li><li>运行 <code>copilot login</code>。如果提示找不到命令，先运行 <code>brew install --cask copilot-cli</code> 安装。</li><li>选择 GitHub.com，再选择浏览器登录。</li><li>在浏览器中登录正确的 GitHub 账号，并授权 GitHub Copilot CLI。</li><li>看到终端提示登录成功后，回到本应用发送消息。</li></ol>也可以运行 <code>copilot</code> 进入交互界面后输入 <code>/login</code>；使用 <code>/user</code> 检查账号。</div>} />}
     {settings.provider === "codebuddy" && status !== "ready" && <Alert type="info" showIcon message="CodeBuddy 使用本机 CLI 登录态" description={<div>在系统终端运行 <code>codebuddy</code>，按 CLI 提示完成登录，并确认账号有可用模型权限。首次请求会实际验证认证和模型可用性。</div>} />}
     <div className="agent-messages">
-      <Bubble.List items={items.map((item) => ({ key: item.key, role: item.role, content: item.content, loading: item.loading && !item.content }))} />
+      <Bubble.List role={bubbleRoles} autoScroll items={items.map((item) => ({
+        key: item.key,
+        role: item.role === "assistant" ? "assistant" : "user",
+        content: item.content,
+        loading: item.loading && !item.content,
+      }))} />
     </div>
-    <Sender value={input} onChange={setInput} onSubmit={(value) => { setInput(""); void send(value); }} onCancel={() => void window.browser.copilotCancel()} loading={loading} placeholder={"使用 " + (settings.provider === "copilot" ? "GitHub Copilot" : "CodeBuddy") + " 询问页面或操作当前网页…"} />
-
-
-
+    <div className="agent-composer">
+      <Sender rootClassName="agent-sender" value={input} onChange={setInput}
+        onSubmit={(value) => { setInput(""); void send(value); }}
+        onCancel={() => void window.browser.copilotCancel()}
+        loading={loading} autoSize={{ minRows: 1, maxRows: 6 }}
+        placeholder={"使用 " + (settings.provider === "copilot" ? "GitHub Copilot" : "CodeBuddy") + " 询问页面或操作当前网页…"} />
+      <div className="agent-composer-hint">Enter 发送 · Shift + Enter 换行</div>
+    </div>
   </aside>;
 }

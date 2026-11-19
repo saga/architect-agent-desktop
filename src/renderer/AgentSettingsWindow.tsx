@@ -87,7 +87,11 @@ export default function AgentSettingsWindow() {
             onChange={changeModel}
             options={[
               ...(selectedId && !models.some(model => model.id === selectedId) ? [{ label: selectedId + "（已保存，当前目录未发现）", value: selectedId }] : []),
-              ...models.map(model => ({ label: model.name === model.id ? model.id : model.name + " · " + model.id, value: model.id })),
+              ...models.map(model => {
+                const rate = model.credits === undefined ? "" : model.credits === 0 ? " · 免费" : " · x" + model.credits + " credits";
+                const label = (model.name === model.id ? model.id : model.name + " · " + model.id) + rate;
+                return { label, value: model.id };
+              }),
             ]} />
           <div className="settings-field-help">
             <Button type="link" size="small" loading={inspecting} onClick={() => void inspect(settings.provider)}>重新 Inspect 模型</Button>
