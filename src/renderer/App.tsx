@@ -73,10 +73,20 @@ function App() {
     const unsubscribeDownload = window.browser.onDownload(setLatestDownload);
     const unsubscribeSnapshot = window.browser.onSnapshotState(setSnapshotMode);
     const unsubscribeAgentToggle = window.browser.onToggleAgent(() => {
-      void window.browser.getWorkspaceLayout().then((layout) => {
+      void window.browser.getWorkspaceDocument().then(async (document) => {
+        const group = document.tabGroups.find((item) => item.panelIds.includes("browser") && item.panelIds.includes("agent"));
+        if (group) {
+          const target = document.activePanelId === "agent" ? "browser" : "agent";
+          const next = activateWorkspaceTab(document, group.id, target);
+          const visible = setWorkspacePanelVisibility(setWorkspacePanelVisibility(next, "browser", target === "browser"), "agent", target === "agent");
+          const saved = await window.browser.saveWorkspaceDocument(visible);
+          setWorkspaceDocument(saved);
+          return;
+        }
+        const layout = await window.browser.getWorkspaceLayout();
         if (!layout.agentPanelVisible) { void window.browser.redockAgentPanel(); return; }
         setAgentOpen(false);
-        void window.browser.saveWorkspaceLayout({ ...layout, agentPanelVisible: false });
+        await window.browser.saveWorkspaceLayout({ ...layout, agentPanelVisible: false });
       }).catch((error: unknown) => console.error("Unable to toggle Agent panel", error));
     });
 
