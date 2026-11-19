@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentSettings, BrowserApi, BrowserDownloadEvent, BrowserState, CopilotEvent } from "../shared/types";
+import type { AgentSettings, BrowserApi, BrowserDownloadEvent, BrowserState, CopilotEvent, WorkspaceLayoutState } from "../shared/types";
 
 const api: BrowserApi = {
+  getWorkspaceLayout: () => ipcRenderer.invoke("workspace:get-layout"),
+  saveWorkspaceLayout: (layout: WorkspaceLayoutState) => ipcRenderer.invoke("workspace:save-layout", layout),
   getState: () => ipcRenderer.invoke("browser:get-state"),
   createTab: (url) => ipcRenderer.invoke("browser:create-tab", url),
   activateTab: (id) => ipcRenderer.invoke("browser:activate-tab", id),
