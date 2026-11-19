@@ -223,6 +223,26 @@ function updateActiveBounds(): void {
   if (panelGroup) {
     layoutTree = setPanelVisibility(layoutTree, "browser", workspaceDocument.activePanelId === "browser");
     layoutTree = setPanelVisibility(layoutTree, "agent", workspaceDocument.activePanelId === "agent");
+  } else {
+    layoutTree = setPanelVisibility(layoutTree, "agent", workspaceLayout.agentPanelVisible);
+    if (layoutTree.type === "split" && layoutTree.first.type === "panel" && layoutTree.second.type === "panel"
+      && [layoutTree.first.id, layoutTree.second.id].includes("browser") && [layoutTree.first.id, layoutTree.second.id].includes("agent")) {
+      const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
+      const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
+      const available = Math.max(1, (isHorizontal ? viewport.width : viewport.height) - (workspaceLayout.agentPanelVisible ? 6 : 0));
+      const agentSize = workspaceLayout.agentPanelVisible ? Math.min(workspaceLayout.agentPanelWidth, available - 320) : 0;
+      const browserSize = Math.max(0, available - agentSize);
+      const browserNode = layoutTree.first.id === "browser" ? layoutTree.first : layoutTree.second;
+      const agentNode = layoutTree.first.id === "agent" ? layoutTree.first : layoutTree.second;
+      layoutTree = {
+        ...layoutTree,
+        axis: isHorizontal ? "horizontal" : "vertical",
+        splitterSize: workspaceLayout.agentPanelVisible ? 6 : 0,
+        ratio: workspaceLayout.agentPanelVisible ? Math.max(0.05, Math.min(0.95, (agentFirst ? agentSize : browserSize) / available)) : 0.5,
+        first: agentFirst ? agentNode : browserNode,
+        second: agentFirst ? browserNode : agentNode,
+      };
+    }
   }
   const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
   const browserBounds = layout.bounds.browser;
