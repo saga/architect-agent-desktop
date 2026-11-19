@@ -111,7 +111,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
         <Select value={draft.thinkingLevel} onChange={(value: AgentSettings["thinkingLevel"]) => setDraft((s) => ({ ...s, thinkingLevel: value }))} options={[{ label: "Low · 更快，适合简单操作", value: "low" }, { label: "Medium · 平衡", value: "medium" }, { label: "High · 更强推理，响应可能更慢", value: "high" }]} />
         <label>System Prompt</label>
         <Input.TextArea value={draft.systemPrompt} onChange={(event) => setDraft((s) => ({ ...s, systemPrompt: event.target.value }))} rows={8} maxLength={12000} showCount placeholder="补充 Agent 的角色、回答风格、工作约束等。浏览器安全规则仍由应用强制执行。" />
-        <div className="agent-settings-help">自定义提示会追加到内置浏览器 Agent 指令之后。它不能覆盖应用强制执行的浏览器安全限制。配置保存在本机，不会上传。</div>
+        <div className="agent-settings-help">自定义提示会作为额外系统指令传入模型；应用强制执行的浏览器安全规则优先级更高。它不能覆盖应用强制执行的浏览器安全限制。配置保存在本机，不会上传。</div>
       </div>
     </Modal>
   </aside>;
