@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, BrowserApi, BrowserDownloadEvent, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
+import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, BrowserApi, BrowserDownloadEvent, PluginSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
 
 const api: BrowserApi = {
   getWorkspaceLayout: () => ipcRenderer.invoke("workspace:get-layout"),
@@ -37,6 +37,11 @@ const api: BrowserApi = {
   },
   copilotStatus: () => ipcRenderer.invoke("copilot:status"),
   openAgentSettings: () => ipcRenderer.invoke("agent:open-settings"),
+  pluginList: (): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:list"),
+  pluginImport: (): Promise<PluginSummary | null> => ipcRenderer.invoke("plugin:import"),
+  pluginSetEnabled: (id: string, enabled: boolean): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:set-enabled", { id, enabled }),
+  pluginRemove: (id: string): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:remove", id),
+  pluginExport: (id: string): Promise<string | null> => ipcRenderer.invoke("plugin:export", id),
   agentGetSettings: () => ipcRenderer.invoke("agent:get-settings"),
   agentInspectModels: (provider: AgentProvider): Promise<AgentModelInfo[]> => ipcRenderer.invoke("agent:inspect-models", provider),
   onAgentSettingsUpdated: (listener) => {
