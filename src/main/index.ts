@@ -305,6 +305,7 @@ function attachTabEvents(tab: BrowserTab): void {
   const webContents = tab.view.webContents;
 
   webContents.on("did-start-loading", () => {
+    if (activeTabId === tab.id) hideSnapshot();
     tab.isLoading = true;
     sendState();
   });
@@ -787,7 +788,7 @@ function publishWorkspaceLayout(): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("workspace:layout-updated", { ...workspaceLayout });
 }
 
-function redockAgentPanel(): void {
+function redockAgentPanel(position?: "left" | "right" | "top" | "bottom"): void {
   workspaceDocument = redockFloatingPanel(workspaceDocument, "agent");
   writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
   if (agentPanelWindow && !agentPanelWindow.isDestroyed()) {
@@ -795,8 +796,25 @@ function redockAgentPanel(): void {
     agentPanelWindow.close();
   }
   agentPanelWindow = null;
-  workspaceLayout = { ...workspaceLayout, agentPanelVisible: true };
+  workspaceLayout = { ...workspaceLayout, agentPanelVisible: true, ...(position ? { agentPanelPosition: position } : {}) };
   writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
+  const root = workspaceDocument.root;
+  if (root.type === "split" && root.first.type === "panel" && root.second.type === "panel") {
+    const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
+    const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
+    const [windowWidth, windowHeight] = mainWindow?.getContentSize() ?? [1200, 800];
+    const available = Math.max(1, (isHorizontal ? (contentWidth ?? windowWidth) : windowHeight) - 6);
+    const agentSize = workspaceLayout.agentPanelWidth;
+    const browserSize = Math.max(0, available - agentSize);
+    const browserNode = root.first.id === "browser" ? root.first : root.second;
+    const agentNode = root.first.id === "agent" ? root.first : root.second;
+    root.axis = isHorizontal ? "horizontal" : "vertical";
+    root.ratio = Math.max(0.05, Math.min(0.95, (agentFirst ? agentSize : browserSize) / available));
+    root.first = agentFirst ? { ...agentNode, visible: true } : browserNode;
+    root.second = agentFirst ? browserNode : { ...agentNode, visible: true };
+    workspaceDocument = { ...workspaceDocument, root };
+    writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+  }
   publishWorkspaceLayout();
   updateActiveBounds();
 }
@@ -920,7 +938,7 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 function registerIpcHandlers(): void {
   ipcMain.handle("workspace:get-layout", (event) => { assertTrustedSender(event); return { ...workspaceLayout }; });
   ipcMain.handle("workspace:float-agent", (event) => { assertTrustedSender(event); floatAgentPanel(); });
-  ipcMain.handle("workspace:redock-agent", (event) => { assertTrustedSender(event); redockAgentPanel(); });
+  ipcMain.handle("workspace:redock-agent", (event, position?: unknown) => { assertTrustedSender(event); if (position !== undefined && position !== "left" && position !== "right" && position !== "top" && position !== "bottom") throw new Error("Invalid dock position."); redockAgentPanel(position as "left" | "right" | "top" | "bottom" | undefined); });
   ipcMain.handle("workspace:get-document", (event) => { assertTrustedSender(event); return workspaceDocument; });
   ipcMain.handle("workspace:save-document", (event, input: unknown) => {
     assertTrustedSender(event);
