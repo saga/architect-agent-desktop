@@ -1,7 +1,19 @@
-import { CopilotClient, type CopilotSession } from "@github/copilot-sdk";
+import { CopilotClient, defineTool, type CopilotSession } from "@github/copilot-sdk";
+import { z } from "zod";
+
+export interface BrowserAgentTools {
+  getCurrentPage(): Promise<string>;
+  listTabs(): Promise<string>;
+  navigate(url: string): Promise<string>;
+  openTab(url: string): Promise<string>;
+  switchTab(tabId: string): Promise<string>;
+  click(selector: string): Promise<string>;
+  fill(selector: string, value: string): Promise<string>;
+  scroll(direction: "up" | "down", amount: number): Promise<string>;
+}
 
 export interface CopilotEvent {
-  type: "status" | "delta" | "message" | "error" | "done";
+  type: "status" | "delta" | "message" | "error" | "done" | "tool";
   status?: "starting" | "ready" | "unauthenticated";
   text?: string;
 }
@@ -12,12 +24,66 @@ export class CopilotDesktopAgent {
   private starting: Promise<void> | null = null;
   private active = false;
   private publish: (event: CopilotEvent) => void;
+  private browser: BrowserAgentTools;
 
-  constructor(publish: (event: CopilotEvent) => void) { this.publish = publish; }
+  constructor(publish: (event: CopilotEvent) => void, browser: BrowserAgentTools) {
+    this.publish = publish;
+    this.browser = browser;
+  }
 
   async status(): Promise<{ status: string; message?: string }> {
     try { await this.ensureSession(); return { status: "ready" }; }
     catch (error) { return { status: "unauthenticated", message: error instanceof Error ? error.message : String(error) }; }
+  }
+
+  private browserTools() {
+    const browser = this.browser;
+    const report = (name: string, detail: string) => {
+      this.publish({ type: "tool", text: name + ": " + detail });
+      return detail;
+    };
+    return [
+      defineTool("browser_get_current_page", {
+        description: "Read the active browser tab's title, URL, visible text, headings, links and interactive controls. Use this before answering questions about the page.",
+        parameters: z.object({}),
+        handler: async () => report("Read current page", await browser.getCurrentPage()),
+      }),
+      defineTool("browser_list_tabs", {
+        description: "List all open browser tabs and identify the active tab.",
+        parameters: z.object({}),
+        handler: async () => report("List tabs", await browser.listTabs()),
+      }),
+      defineTool("browser_navigate", {
+        description: "Navigate the active browser tab to an http(s) URL.",
+        parameters: z.object({ url: z.string().url().max(2048) }),
+        handler: async ({ url }) => report("Navigate", await browser.navigate(url)),
+      }),
+      defineTool("browser_open_tab", {
+        description: "Open a URL in a new browser tab.",
+        parameters: z.object({ url: z.string().url().max(2048) }),
+        handler: async ({ url }) => report("Open tab", await browser.openTab(url)),
+      }),
+      defineTool("browser_switch_tab", {
+        description: "Switch the active browser tab using an ID returned by browser_list_tabs.",
+        parameters: z.object({ tabId: z.string().min(1).max(100) }),
+        handler: async ({ tabId }) => report("Switch tab", await browser.switchTab(tabId)),
+      }),
+      defineTool("browser_click", {
+        description: "Click a visible non-submit page element using a CSS selector. Never use this for purchases, payments, sending messages, deleting data, account/security changes, or form submission; explain the action and ask the user to do those themselves.",
+        parameters: z.object({ selector: z.string().min(1).max(500) }),
+        handler: async ({ selector }) => report("Click element", await browser.click(selector)),
+      }),
+      defineTool("browser_fill", {
+        description: "Fill a visible non-password text field or textarea. This does not submit the form.",
+        parameters: z.object({ selector: z.string().min(1).max(500), value: z.string().max(10000) }),
+        handler: async ({ selector, value }) => report("Fill field", await browser.fill(selector, value)),
+      }),
+      defineTool("browser_scroll", {
+        description: "Scroll the active page up or down.",
+        parameters: z.object({ direction: z.enum(["up", "down"]), amount: z.number().int().min(100).max(2000).default(650) }),
+        handler: async ({ direction, amount }) => report("Scroll page", await browser.scroll(direction, amount)),
+      }),
+    ];
   }
 
   private async ensureSession(): Promise<CopilotSession> {
@@ -29,6 +95,7 @@ export class CopilotDesktopAgent {
         await client.start();
         this.session = await client.createSession({
           streaming: true,
+          tools: { definitions: this.browserTools() },
           onPermissionRequest: async () => ({ kind: "user-not-available" } as never),
           onMcpAuthRequest: async () => ({ kind: "cancelled" } as never),
         });
