@@ -155,7 +155,7 @@ test("native view stack manages visibility, layers, bounds and disposal", () => 
   const makeView = () => ({
     bounds: null,
     closed: false,
-    webContents: { isDestroyed: () => false, close() { this.closed = true; } },
+    webContents: { isDestroyed: () => false, close() { this.closed = true; }, focus() { this.focused = true; } },
     setBounds(bounds) { this.bounds = bounds; },
   });
   const manager = new NativeViewStackManager(() => fakeWindow);
@@ -168,6 +168,9 @@ test("native view stack manages visibility, layers, bounds and disposal", () => 
   manager.show("browser:1");
   assert.deepEqual(children, [browser]);
   manager.show("browser:2");
+  manager.focus("browser:2");
+  assert.equal(manager.getFocusedViewId(), "browser:2");
+  assert.equal(nextBrowser.webContents.focused, true);
   assert.deepEqual(children, [nextBrowser]);
   manager.show("snapshot");
   assert.deepEqual(children, [nextBrowser, overlay]);
@@ -177,5 +180,6 @@ test("native view stack manages visibility, layers, bounds and disposal", () => 
   assert.deepEqual(children, [nextBrowser]);
   manager.unregister("browser:2", true);
   assert.equal(nextBrowser.webContents.closed, true);
+  assert.equal(manager.getFocusedViewId(), null);
   assert.deepEqual(children, []);
 });
