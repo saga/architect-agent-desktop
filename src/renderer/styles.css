@@ -419,3 +419,37 @@ button { color: inherit; }
 .agent-settings-form { display:flex; flex-direction:column; gap:8px; padding-top:8px; }
 .agent-settings-form>label { margin-top:8px; color:#343b46; font-size:12px; font-weight:600; }
 .agent-settings-help { margin-top:-3px; color:#858e9b; font-size:11px; line-height:1.55; }
+
+/* Settings stay inside the Agent pane: Electron WebContentsView always paints
+   above renderer DOM, so a viewport-centered AntD Modal can be obscured. */
+.agent-settings-overlay {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+  background: #fff;
+  border-left: 1px solid #e5e7eb;
+}
+.agent-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #edf0f4;
+}
+.agent-settings-scroll { min-height: 0; flex: 1; overflow: auto; }
+.agent-settings-footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #edf0f4;
+}
+.agent-settings-form { padding-top: 8px; }
