@@ -944,6 +944,7 @@ function registerIpcHandlers(): void {
     try { workspaceDocument = parseWorkspaceDocument(input); }
     catch (error) { throw new Error(error instanceof Error ? error.message : "Invalid workspace document."); }
     writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+    updateActiveBounds();
     return workspaceDocument;
   });
   ipcMain.handle("workspace:save-layout", (event, input: unknown) => {
