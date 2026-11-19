@@ -24,6 +24,7 @@ function App() {
   const [latestDownload, setLatestDownload] = useState<BrowserDownloadEvent | null>(null);
   const [agentOpen, setAgentOpen] = useState(true);
   const [agentWidth, setAgentWidth] = useState(390);
+  const [agentPosition, setAgentPosition] = useState<"left" | "right" | "top" | "bottom">("right");
   const splitterDrag = useRef<{ startX: number; startWidth: number } | null>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
   const browserWorkspaceRef = useRef<HTMLDivElement>(null);
@@ -40,6 +41,7 @@ function App() {
     void window.browser.getWorkspaceLayout().then((layout) => {
       setAgentWidth(layout.agentPanelWidth);
       setAgentOpen(layout.agentPanelVisible);
+      setAgentPosition(layout.agentPanelPosition ?? "right");
     }).catch((error: unknown) => console.error("Unable to load workspace layout", error));
     const unsubscribeState = window.browser.onState(setBrowserState);
     const unsubscribeFocus = window.browser.onFocusAddress(() => {
@@ -130,16 +132,18 @@ function App() {
 
   const isSecure = activeTab?.url.startsWith("https://") ?? false;
 
-  const saveWorkspaceLayout = (visible = agentOpen, width = agentWidth) => {
-    void window.browser.saveWorkspaceLayout({ version: 1, agentPanelWidth: width, agentPanelVisible: visible }).catch((error: unknown) => console.error("Unable to save workspace layout", error));
+  const saveWorkspaceLayout = (visible = agentOpen, width = agentWidth, position = agentPosition) => {
+    void window.browser.saveWorkspaceLayout({ version: 1, agentPanelWidth: width, agentPanelVisible: visible, agentPanelPosition: position }).catch((error: unknown) => console.error("Unable to save workspace layout", error));
   };
   const onSplitterPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
-    splitterDrag.current = { startX: event.clientX, startWidth: agentWidth };
+    splitterDrag.current = { startX: agentPosition === "left" || agentPosition === "right" ? event.clientX : event.clientY, startWidth: agentWidth };
   };
   const onSplitterPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!splitterDrag.current) return;
-    setAgentWidth(Math.max(280, Math.min(720, splitterDrag.current.startWidth + splitterDrag.current.startX - event.clientX)));
+    const coordinate = agentPosition === "left" || agentPosition === "right" ? event.clientX : event.clientY;
+    const delta = agentPosition === "left" || agentPosition === "top" ? coordinate - splitterDrag.current.startX : splitterDrag.current.startX - coordinate;
+    setAgentWidth(Math.max(280, Math.min(720, splitterDrag.current.startWidth + delta)));
   };
   const onSplitterPointerUp = () => {
     if (!splitterDrag.current) return;
@@ -147,9 +151,18 @@ function App() {
     saveWorkspaceLayout(agentOpen, agentWidth);
   };
 
+  const horizontalDock = agentPosition === "left" || agentPosition === "right";
+  const agentFirst = agentPosition === "left" || agentPosition === "top";
+  const shellStyle = agentOpen ? horizontalDock
+    ? { gridTemplateColumns: agentFirst ? `${agentWidth}px 6px minmax(0, 1fr)` : `minmax(0, 1fr) 6px ${agentWidth}px` }
+    : { gridTemplateRows: agentFirst ? `${agentWidth}px 6px minmax(0, 1fr)` : `minmax(0, 1fr) 6px ${agentWidth}px` }
+    : { gridTemplateColumns: "minmax(0, 1fr)" };
+  const browserPlacement = agentOpen && !horizontalDock ? { gridRow: agentFirst ? 3 : 1, gridColumn: 1 } : agentOpen && agentFirst ? { gridColumn: 3, gridRow: 1 } : { gridColumn: 1, gridRow: 1 };
+  const splitterPlacement = agentOpen && !horizontalDock ? { gridRow: 2, gridColumn: 1 } : agentOpen && agentFirst ? { gridColumn: 2, gridRow: 1 } : { gridColumn: 2, gridRow: 1 };
+  const agentPlacement = agentOpen && !horizontalDock ? { gridRow: agentFirst ? 1 : 3, gridColumn: 1 } : agentOpen && agentFirst ? { gridColumn: 1, gridRow: 1 } : { gridColumn: 3, gridRow: 1 };
   return (
-    <div ref={appShellRef} className={"app-shell" + (agentOpen ? " agent-open" : "")} style={{ gridTemplateColumns: agentOpen ? `minmax(0, 1fr) 6px ${agentWidth}px` : "minmax(0, 1fr)" }}>
-      <div className="browser-workspace" ref={browserWorkspaceRef}>
+    <div ref={appShellRef} className={"app-shell" + (agentOpen ? " agent-open" : "")} style={shellStyle}>
+      <div className="browser-workspace" ref={browserWorkspaceRef} style={browserPlacement}>
       <div className="browser-chrome" ref={chromeRef}>
         <div className="tab-strip">
           <div className="tabs">
@@ -298,10 +311,10 @@ function App() {
         )}
       </div>
       </div>
-      {agentOpen && <div className="workspace-splitter" role="separator" aria-orientation="vertical" aria-label="Resize Agent panel" tabIndex={0}
+      {agentOpen && <div className={"workspace-splitter" + (horizontalDock ? " vertical" : " horizontal")} style={splitterPlacement} role="separator" aria-orientation={horizontalDock ? "vertical" : "horizontal"} aria-label="Resize Agent panel" tabIndex={0}
         onPointerDown={onSplitterPointerDown} onPointerMove={onSplitterPointerMove} onPointerUp={onSplitterPointerUp} onPointerCancel={onSplitterPointerUp}
         onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { const next = Math.max(280, Math.min(720, agentWidth + (event.key === "ArrowLeft" ? 16 : -16))); setAgentWidth(next); saveWorkspaceLayout(true, next); } }} />}
-      {agentOpen && <AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} />}
+      {agentOpen && <div style={agentPlacement}><AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }} /></div>}
     </div>
   );
 }
