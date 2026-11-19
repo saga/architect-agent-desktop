@@ -74,7 +74,9 @@ export class CopilotDesktopAgent {
  async inspectModels(provider: AgentProvider): Promise<AgentModelInfo[]> {
   if (provider === "codebuddy") { const models=readCodeBuddyCatalog().map(model => normalizeModelInfo("codebuddy", model)).filter((m): m is AgentModelInfo => Boolean(m)); models.forEach(model=>this.inspectedModels.set("codebuddy:"+model.id,model)); return models; }
   const { CopilotClient } = await import("@github/copilot-sdk");
-  const client = new CopilotClient({ useLoggedInUser: true, mode: "empty", baseDirectory: path.join(app.getPath("userData"), "copilot-inspect") });
+  const inspectDirectory = path.join(app.getPath("userData"), "copilot-inspect");
+  mkdirSync(inspectDirectory, { recursive: true });
+  const client = new CopilotClient({ useLoggedInUser: true, mode: "empty", baseDirectory: inspectDirectory });
   try { await client.start(); const result = await client.listModels(); const models=(Array.isArray(result) ? result : []).map(model => normalizeModelInfo("copilot", model)).filter((m): m is AgentModelInfo => Boolean(m)); models.forEach(model=>this.inspectedModels.set("copilot:"+model.id,model)); return models; }
   finally { await client.stop().catch(() => undefined); }
  }
