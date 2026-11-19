@@ -114,7 +114,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
     await tab.view.webContents.executeJavaScript("window.scrollBy({top:" + (direction==="down" ? amount : -amount) + ",behavior:'smooth'})");
     return "Scrolled " + direction + " by " + amount + " pixels.";
-  },
+  },, agentSettings
 });
 let downloadSequence = 0;
 
@@ -779,10 +779,24 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     return await copilotAgent.status();
   });
-  ipcMain.handle("agent:set-provider", async (event, provider: unknown) => {
+  ipcMain.handle("agent:get-settings", (event) => {
     assertTrustedSender(event);
-    if (provider !== "copilot" && provider !== "codebuddy") throw new Error("Unsupported Agent provider.");
-    await copilotAgent.setProvider(provider as AgentProvider);
+    return copilotAgent.getSettings();
+  });
+  ipcMain.handle("agent:save-settings", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.object({
+      provider: z.enum(["copilot", "codebuddy"]),
+      copilotModel: z.string().max(200),
+      codebuddyModel: z.string().max(200),
+      thinkingLevel: z.enum(["low", "medium", "high"]),
+      systemPrompt: z.string().max(12000),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Agent settings.");
+    await copilotAgent.configure(parsed.data);
+    agentSettings = parsed.data;
+    writeFileSync(SETTINGS_PATH, JSON.stringify(agentSettings, null, 2), { encoding: "utf8", mode: 0o600 });
+    return copilotAgent.getSettings();
   });
   ipcMain.handle("copilot:send", async (event, input: unknown) => {
     assertTrustedSender(event);
