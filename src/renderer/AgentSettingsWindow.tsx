@@ -95,7 +95,7 @@ export default function AgentSettingsWindow() {
           </div>
         </Form.Item>
         {selectedModel?.effortOptions && selectedModel.effortOptions.length > 0 && <Form.Item label="推理强度（模型能力）">
-          <Select value={selectedModel.effortOptions.includes(settings.thinkingLevel) ? settings.thinkingLevel : selectedModel.effortOptions[0]}
+          <Select value={selectedModel.effortOptions.includes(settings.thinkingLevel) ? settings.thinkingLevel : selectedModel.effortOptions[0] as AgentSettings["thinkingLevel"]}
             onChange={(value: AgentSettings["thinkingLevel"]) => update("thinkingLevel", value)}
             options={selectedModel.effortOptions.map(value => ({ label: value.toUpperCase(), value }))} />
         </Form.Item>}
