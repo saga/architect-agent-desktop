@@ -13,6 +13,7 @@ A cross-platform Electron desktop application. The first milestone is a built-in
 - Find in page, page context menu and common browser keyboard shortcuts.
 - Per-session permission prompts for media, screen capture, geolocation, notifications and clipboard read.
 - Isolated browser processes: remote pages do not receive Node.js access.
+- Local project workspaces: select a directory from the toolbar, restore it on launch, and keep Agent conversations separate per project. CodeBuddy uses the selected directory as its working directory; Copilot exposes permission-gated workspace file tools.
 - Local declarative plugin directories: import, validate, enable/disable, export and remove. Enabled plugin Skills and Workflow templates are included in Agent instructions; plugins cannot execute arbitrary code.
 
 This is the browser foundation, not a complete replacement for Chrome, Edge or Firefox. Browser extensions, cross-device sync, password import, bookmark management and advanced privacy controls are not included yet.
@@ -64,10 +65,15 @@ Unsigned builds may trigger the operating system's normal security warnings. Pro
 - **Main process:** owns the application window, tab lifecycle, navigation, downloads, permission prompts and native menus.
 - **Browser content:** each tab is a WebContentsView. Tabs share one persistent Chromium session while keeping separate web contents.
 - **Preload:** exposes a narrow, typed IPC API using contextBridge; it does not expose raw Electron APIs.
-- **Renderer:** local React UI for the tab strip, navigation toolbar, address bar and Agent/plugin settings.
+- **Renderer:** local React UI for the tab strip, navigation toolbar, address bar, project workspace selection and Agent/plugin settings.
+- **Project workspace:** stores the selected local project directory independently from the Layout Engine and maintains a separate Agent transcript for each workspace.
 - **Plugin host:** stores local plugin directories under the application user-data directory, validates manifests and referenced resources, and exposes only host-known tool/view identifiers. Plugin content is data, never executable code.
 
 Remote pages run with nodeIntegration: false, contextIsolation: true and sandbox: true. The renderer is not allowed to send arbitrary IPC messages; only the methods in the preload API are exposed.
+
+## Local project workspace
+
+Choose **打开工作区** in the main toolbar to select a local project directory. The selected directory is restored on restart, becomes the Agent working directory where supported, and has its own conversation history. See [本地项目工作区设计](docs/architecture/LOCAL-WORKSPACE.md) for permission behavior and file boundaries.
 
 ## Plugins
 

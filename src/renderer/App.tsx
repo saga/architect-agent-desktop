@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { BrowserDownloadEvent, BrowserState, BrowserTabState, WorkspaceDocument } from "../shared/types";
+import type { BrowserDownloadEvent, BrowserState, BrowserTabState, WorkspaceDocument, WorkspaceProject } from "../shared/types";
 import { activateWorkspaceTab, createWorkspaceTabGroup, DEFAULT_WORKSPACE_DOCUMENT, setWorkspacePanelVisibility, ungroupWorkspacePanel } from "../shared/workspace-document";
 import AgentPanel from "./AgentPanel";
-import { Button, Tooltip } from "antd";
-import { RobotOutlined } from "@ant-design/icons";
+import { Button, Tooltip, message } from "antd";
+import { FolderOpenOutlined, RobotOutlined } from "@ant-design/icons";
 
 const EMPTY_STATE: BrowserState = { tabs: [], activeTabId: null };
 
@@ -29,6 +29,7 @@ function App() {
   const [agentWidth, setAgentWidth] = useState(390);
   const [agentPosition, setAgentPosition] = useState<"left" | "right" | "top" | "bottom">("right");
   const [workspaceDocument, setWorkspaceDocument] = useState<WorkspaceDocument>(DEFAULT_WORKSPACE_DOCUMENT);
+  const [workspaceProject, setWorkspaceProject] = useState<WorkspaceProject>({ path: null, name: null });
   const [chromeHeight, setChromeHeight] = useState(91);
   const [dockDragActive, setDockDragActive] = useState(false);
   const splitterDrag = useRef<{ startCoordinate: number; startWidth: number; width: number } | null>(null);
@@ -49,6 +50,8 @@ function App() {
   );
 
   useEffect(() => {
+    void window.browser.getWorkspaceProject().then(setWorkspaceProject).catch((error: unknown) => console.error("Unable to load project workspace", error));
+    const unsubscribeProject = window.browser.onWorkspaceProjectUpdated(setWorkspaceProject);
     void window.browser.getWorkspaceDocument().then(setWorkspaceDocument).catch((error: unknown) => console.error("Unable to load workspace document", error));
     void window.browser.getWorkspaceLayout().then((layout) => {
       setAgentWidth(layout.agentPanelWidth);
@@ -95,6 +98,7 @@ function App() {
     });
 
     return () => {
+      unsubscribeProject();
       unsubscribeState();
       unsubscribeLayout();
       unsubscribeFocus();
@@ -142,6 +146,15 @@ function App() {
 
   const createTab = useCallback(() => {
     void window.browser.createTab();
+  }, []);
+
+  const chooseWorkspace = useCallback(async () => {
+    try {
+      const selected = await window.browser.selectWorkspace();
+      if (selected) setWorkspaceProject(selected);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
   }, []);
 
   const navigate = useCallback(() => {
@@ -327,6 +340,7 @@ function App() {
           </form>
 
           <div className="toolbar-actions">
+            <Tooltip title={workspaceProject.path || "选择本地项目目录"}><Button size="small" icon={<FolderOpenOutlined />} onClick={() => void chooseWorkspace()}>{workspaceProject.name || "打开工作区"}</Button></Tooltip>
             {!groupedWorkspace && <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => { if (!agentOpen) { void window.browser.redockAgentPanel(); return; } setAgentOpen(false); saveWorkspaceLayout(false); }} /></Tooltip>}
             {!groupedWorkspace && <Button size="small" type="text" disabled={agentIsFloating} onClick={() => groupAgentWithBrowser()}>Tab Agent</Button>}
             {groupedWorkspace && <div className="workspace-tab-group">

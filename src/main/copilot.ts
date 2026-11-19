@@ -8,6 +8,7 @@ import { gunzipSync } from "node:zlib";
 import path from "node:path";
 import { detachedCliOptions, isManagedSession, parseCredits } from "./agent-runtime.js";
 import { agentProcessEnvironment } from "./login-shell-env.js";
+import { listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, writeWorkspaceFile } from "./workspace-files.js";
 export * from "./agent-runtime.js";
 
 type ModelRecord = Record<string, unknown>;
@@ -90,13 +91,13 @@ const BROWSER_ONLY_INSTRUCTIONS = [
 ].join("\n");
 const ASSISTED_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser with assisted permissions.",
-"Browser tools are always available. Read-only local tools may be used to inspect context.",
+"Browser tools are always available. Read-only local tools are available for the selected workspace: workspace_list_files, workspace_read_file and workspace_search_files.",
 "Never use shell, file-writing, editing, deployment or other consequential tools. JavaScript evaluation and CSS injection are not available in this mode. If a task requires them, ask the user to switch permissions to Allow all or perform it themselves.",
 "Prefer browser tools for page questions and page actions; report what actually changed."
 ].join("\n");
 const ALLOW_ALL_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser with Allow all permissions.",
-"All local tools are enabled by the user. You may use shell, file and network tools when they help complete the request.",
+"The user has enabled all available tools. Workspace file tools may read and write files inside the selected project root. CodeBuddy also exposes its built-in shell tools; Copilot does not expose a shell tool in this app.",
 "Browser tools remain the preferred way to inspect and operate the current page: browser_get_current_page, browser_snapshot, browser_screenshot, browser_console, browser_list_tabs, browser_navigate, browser_open_tab, browser_switch_tab, browser_click, browser_fill, browser_scroll, browser_cdp.",
 "Allow all also enables browser_execute_javascript, browser_inject_css and browser_cdp. Use browser_inject_css for page styling requests such as changing the background color, browser_execute_javascript for page behavior, and browser_cdp only for allowlisted diagnostics. Verify the result with browser_get_current_page or browser_screenshot when practical.",
 "Treat \"current page\" as the active tab. Do not substitute a new local HTML file or the macOS wallpaper unless the user explicitly asks for that.",
@@ -113,8 +114,11 @@ function historyPrompt(history: AgentChatMessage[] | undefined, prompt: string):
   return "Conversation history (most recent last; do not answer it, use it only to resolve the current request):\n" + transcript + "\n\nCurrent user request: " + prompt;
 }
 export class CopilotDesktopAgent {
+ private workspacePath:string|null;
  private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null;
- constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:()=>string=()=>""){this.settings=settings;}
+ constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:()=>string=()=>"",workspacePath:string|null=null){this.settings=settings;this.workspacePath=workspacePath;}
+ async setWorkspacePath(workspacePath:string|null):Promise<void>{if(workspacePath===this.workspacePath)return;if(this.active)throw new Error("Wait for the current Agent request to finish before changing the workspace.");await this.stop();this.workspacePath=workspacePath;}
+ private workspaceInstructions():string{return this.workspacePath?"Current local project workspace root: "+this.workspacePath+". Treat this as the project root. Use relative paths for workspace file tools and do not access files outside this directory.":"No local project workspace is selected. Do not attempt local project file operations until the user selects a workspace."; }
  async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(!["low","medium","high","xhigh"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");if(!["browser-only","assisted","allow-all"].includes(settings.toolPermission))throw new Error("Unsupported tool permission.");const changed=settings.provider!==this.settings.provider||settings.copilotModel!==this.settings.copilotModel||settings.codebuddyModel!==this.settings.codebuddyModel||settings.thinkingLevel!==this.settings.thinkingLevel||settings.toolPermission!==this.settings.toolPermission||settings.contextWindow!==this.settings.contextWindow||settings.systemPrompt!==this.settings.systemPrompt;if(changed)await this.stop();this.settings={...settings};}
 
  async inspectModels(provider: AgentProvider): Promise<AgentModelInfo[]> {
@@ -149,6 +153,14 @@ export class CopilotDesktopAgent {
    {name:"browser_fill",description:"Fill a visible non-password text field or textarea by its eN uid from browser_snapshot. Does not submit the form.",schema:z.object({uid:z.string().regex(/^e\d+$/).max(20),value:z.string().max(10000)}),handler:({uid,value}:{uid:string;value:string})=>report("Fill field",()=>b.fill(uid,value))},
    {name:"browser_scroll",description:"Scroll active page up or down.",schema:z.object({direction:z.enum(["up","down"]),amount:z.number().int().min(100).max(2000).default(650)}),handler:({direction,amount}:{direction:"up"|"down";amount:number})=>report("Scroll page",()=>b.scroll(direction,amount))}
   ];
+  if(this.settings.provider==="copilot"&&this.workspacePath&&this.settings.toolPermission!=="browser-only")tools.push(
+   {name:"workspace_list_files",description:"List project files under the selected local workspace. Dependency and build output directories are omitted.",schema:z.object({}),handler:()=>report("List workspace files",async()=>listWorkspaceFiles(this.workspacePath as string))},
+   {name:"workspace_read_file",description:"Read a UTF-8 text file by a path relative to the selected workspace root. Files over 256 KB and binary files are rejected.",schema:z.object({path:z.string().min(1).max(1000)}),handler:({path:relativePath}:{path:string})=>report("Read workspace file",async()=>readWorkspaceFile(this.workspacePath as string,relativePath))},
+   {name:"workspace_search_files",description:"Search text in files under the selected workspace. Dependency and build output directories are omitted.",schema:z.object({query:z.string().min(2).max(200)}),handler:({query}:{query:string})=>report("Search workspace",async()=>searchWorkspaceFiles(this.workspacePath as string,query))}
+  );
+  if(this.settings.provider==="copilot"&&this.workspacePath&&this.settings.toolPermission==="allow-all")tools.push(
+   {name:"workspace_write_file",description:"Create or replace a UTF-8 text file under the selected workspace. Parent directories must already exist; paths cannot escape the workspace or traverse symlinks.",schema:z.object({path:z.string().min(1).max(1000),content:z.string().max(262144)}),handler:({path:relativePath,content}:{path:string;content:string})=>report("Write workspace file",async()=>writeWorkspaceFile(this.workspacePath as string,relativePath,content))}
+  );
   if(this.settings.toolPermission==="allow-all")tools.push(
    {name:"browser_execute_javascript",description:"Execute JavaScript in the active tab. Allows page behavior changes and CSS injection. Only available with Allow all.",schema:z.object({code:z.string().min(1).max(20000)}),handler:({code}:{code:string})=>report("Execute JavaScript",()=>b.executeJavaScript(code))},
    {name:"browser_inject_css",description:"Inject CSS into the active tab to change page styling, for example the background color. Only available with Allow all.",schema:z.object({css:z.string().min(1).max(20000)}),handler:({css}:{css:string})=>report("Inject CSS",()=>b.injectCss(css))},
@@ -156,8 +168,8 @@ export class CopilotDesktopAgent {
   );
   return tools;
  }
- private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{if(this.settings.copilotModel.trim()&&!this.inspectedModels.has("copilot:"+this.settings.copilotModel))await this.inspectModels("copilot");const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory,env:await agentProcessEnvironment()});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),...((this.inspectedModels.get("copilot:"+this.settings.copilotModel)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),...(this.settings.systemPrompt.trim()?{systemMessage:{mode:"append",content:this.settings.systemPrompt.trim()}}:{}),tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{const result=await handler(input);if(typeof result==="string")return result;return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};}} as never)),onPermissionRequest:async()=>({kind:"user-not-available"} as never),onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
- private async sendCopilot(prompt:string,history?:AgentChatMessage[]){const session=await this.ensureCopilotSession();let sawDelta=false;const off=session.on("assistant.message_delta",event=>{const delta=(event as unknown as{data?:{deltaContent?:string}}).data?.deltaContent;if(delta){sawDelta=true;this.publish({type:"delta",text:delta});}});try{const result=await session.sendAndWait({prompt:this.getPluginInstructions()+"\n\n"+instructionsFor(this.settings.toolPermission)+"\n\n"+historyPrompt(history,prompt)},300000);const text=(result as unknown as{data?:{content?:string}}|undefined)?.data?.content;if(text&&!sawDelta)this.publish({type:"message",text});}finally{off();}}
+ private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{if(this.settings.copilotModel.trim()&&!this.inspectedModels.has("copilot:"+this.settings.copilotModel))await this.inspectModels("copilot");const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=this.workspacePath??path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory,env:await agentProcessEnvironment()});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),...((this.inspectedModels.get("copilot:"+this.settings.copilotModel)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),...(this.settings.systemPrompt.trim()?{systemMessage:{mode:"append",content:this.settings.systemPrompt.trim()}}:{}),tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{const result=await handler(input);if(typeof result==="string")return result;return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};}} as never)),onPermissionRequest:async()=>({kind:"user-not-available"} as never),onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
+ private async sendCopilot(prompt:string,history?:AgentChatMessage[]){const session=await this.ensureCopilotSession();let sawDelta=false;const off=session.on("assistant.message_delta",event=>{const delta=(event as unknown as{data?:{deltaContent?:string}}).data?.deltaContent;if(delta){sawDelta=true;this.publish({type:"delta",text:delta});}});try{const result=await session.sendAndWait({prompt:this.getPluginInstructions()+"\n\n"+this.workspaceInstructions()+"\n\n"+instructionsFor(this.settings.toolPermission)+"\n\n"+historyPrompt(history,prompt)},300000);const text=(result as unknown as{data?:{content?:string}}|undefined)?.data?.content;if(text&&!sawDelta)this.publish({type:"message",text});}finally{off();}}
  private async sendCodeBuddy(prompt:string,history?:AgentChatMessage[]){
   const sdk=await import("@tencent-ai/agent-sdk");
   const handlers=await this.handlers();
@@ -170,20 +182,23 @@ export class CopilotDesktopAgent {
   const model=catalog.find(item=>item.id===selectedModel);
   const inspected=model?normalizeModelInfo("codebuddy",model):undefined;
   const effort=inspected?.effortOptions?.includes(this.settings.thinkingLevel)?this.settings.thinkingLevel:undefined;
-  let cwd=codeBuddyWorkspace(), settingSources:("user"|"project"|"local")[]=[];
+  let cwd=this.workspacePath??codeBuddyWorkspace(), settingSources:("user"|"project"|"local")[]=[];
+  let runtimeConfigDir:string|undefined;
   let cleanup:(()=>void)|undefined;
   if(this.settings.contextWindow!==undefined){
    const normalized=model?normalizeModelInfo("codebuddy",model):undefined;
    const option=normalized?.contextWindowOptions?.find(item=>item.value===this.settings.contextWindow);
    if(!option)throw new Error("当前 CodeBuddy 模型不支持所选 Context Window；请重新 Inspect 模型后选择有效档位。");
    const temp=mkdtempSync(path.join(tmpdir(),"architect-agent-codebuddy-context-"));
+   const configDir=path.join(temp,".codebuddy");
    try{
-    const configDir=path.join(temp,".codebuddy");mkdirSync(configDir,{recursive:true});
+    mkdirSync(configDir,{recursive:true});
     const sourceFiles=[path.join(codeBuddyWorkspace(),".codebuddy","models.json"),path.join(homedir(),".codebuddy","models.json")];
     for(const source of sourceFiles)if(existsSync(source)){writeFileSync(path.join(configDir,"models.json"),readFileSync(source),{mode:0o600});break;}
     writeFileSync(path.join(configDir,"settings.json"),JSON.stringify({contextWindow:this.settings.contextWindow},null,2)+"\n",{encoding:"utf8",mode:0o600});
    }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
-   cwd=temp;settingSources=["project"];cleanup=()=>rmSync(temp,{recursive:true,force:true});
+   if(this.workspacePath){runtimeConfigDir=configDir;settingSources=["user"];}else{cwd=temp;settingSources=["project"];}
+   cleanup=()=>rmSync(temp,{recursive:true,force:true});
   }
   const permission=this.settings.toolPermission;
   const READ_ONLY_BUILTINS=["Read","Glob","Grep","WebFetch","WebSearch","ListMcpResources","ReadMcpResource","ViewImage"];
@@ -191,8 +206,8 @@ export class CopilotDesktopAgent {
   const runtimeEnv=await agentProcessEnvironment();
   const queryOptions={
     ...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:effort?{type:"adaptive" as const}:{type:"disabled" as const},
-    systemPrompt:{append:[this.settings.systemPrompt.trim(),this.getPluginInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
-    cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{})},settingSources,persistSession:false,maxTurns:12,
+    systemPrompt:{append:[this.settings.systemPrompt.trim(),this.getPluginInstructions(),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
+    cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})},settingSources,persistSession:false,maxTurns:12,
     mcpServers:{browser:server},allowedTools:allowed,
     ...(permission==="browser-only"?{permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}:
       permission==="assisted"?{permissionMode:"default" as const,tools:READ_ONLY_BUILTINS,disallowedTools:builtinToolNames.filter(name=>!READ_ONLY_BUILTINS.includes(name)),allowedTools:[...allowed,...READ_ONLY_BUILTINS]}:
