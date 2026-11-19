@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  CODE_MODE_SYSTEM_INSTRUCTIONS,
   createCodeModeDescription,
   createToolProviders,
   generateTypesFromJsonSchema,
@@ -27,14 +28,38 @@ describe("Code Mode provider composition", () => {
         }) },
         handler,
       },
+      {
+        name: "browser_screenshot",
+        description: "Capture the active page.",
+        schema: { toJSONSchema: () => ({ type: "object" }) },
+        handler,
+      },
     ]);
 
     expect(providers.map(provider => provider.name)).toEqual(["browser", "workspace"]);
     const resolved = providers.map(resolveProvider);
     expect(resolved[0].fns.getCurrentPage).toBeTypeOf("function");
     expect(resolved[1].fns.readFile).toBeTypeOf("function");
-    expect(generateTypesFromJsonSchema(resolved)).toContain("readFile(input: { \"path\": string })");
-    expect(generateTypesFromJsonSchema(resolved)).toContain("getCurrentPage(input?: Record<string, unknown>)");
+    const declarations = generateTypesFromJsonSchema(resolved);
+    expect(declarations).toContain("readFile(input: { \"path\": string }): Promise<string>");
+    expect(declarations).toContain("getCurrentPage(input?: Record<string, unknown>): Promise<string>");
+    expect(declarations).toContain("screenshot(input?: Record<string, unknown>): Promise<string | { text: string; image?: { mimeType: string; data: string } }>");
+  });
+
+  it("resolves local JSON Schema references when generating API types", () => {
+    const [provider] = createToolProviders([{
+      name: "workspace_search",
+      description: "Search files.",
+      schema: { toJSONSchema: () => ({
+        type: "object",
+        properties: { options: { $ref: "#/$defs/SearchOptions" } },
+        required: ["options"],
+        $defs: { SearchOptions: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } },
+      }) },
+      handler: async () => "ok",
+    }]);
+    expect(generateTypesFromJsonSchema([resolveProvider(provider)]))
+      .toContain('"options": { "query"?: string }');
   });
 
   it("executes a resolved provider method through its descriptor", async () => {
@@ -59,7 +84,18 @@ describe("Code Mode provider composition", () => {
     const description = createCodeModeDescription([resolveProvider(provider)]);
     expect(description).toContain("declare const browser");
     expect(description).toContain("listTabs");
+    expect(description).toContain("Promise<string>");
+    expect(description).toContain("Promise.all");
     expect(description).not.toContain("workspace");
+  });
+});
+
+describe("Code Mode system guidance", () => {
+  it("explains when to use direct tools versus Code Mode", () => {
+    expect(CODE_MODE_SYSTEM_INSTRUCTIONS).toContain("Use a direct tool call for one simple");
+    expect(CODE_MODE_SYSTEM_INSTRUCTIONS).toContain("Use execute_code for workflows");
+    expect(CODE_MODE_SYSTEM_INSTRUCTIONS).toContain("Promise.all");
+    expect(CODE_MODE_SYSTEM_INSTRUCTIONS).toContain("Do not use direct Node.js APIs");
   });
 });
 
