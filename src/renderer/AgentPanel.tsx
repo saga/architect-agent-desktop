@@ -29,7 +29,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
         else next.push({ key: crypto.randomUUID(), role: "assistant", content: event.text ?? "" });
         return next;
       });
-      if (event.type === "done") {
+      if (event.type === "tool" && event.text) setItems((current) => [...current, { key: crypto.randomUUID(), role: "assistant", content: "工具执行：" + event.text }]);\n      if (event.type === "done") {
         setLoading(false);
         setStatus("ready");
         setItems((current) => current.map((item) => item.loading ? { ...item, loading: false } : item));
@@ -53,7 +53,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
 
   return <aside className="agent-panel">
     <header className="agent-panel-header">
-      <div><strong>Copilot Agent</strong><div className="agent-subtitle">GitHub Copilot SDK · Local account</div></div>
+      <div><strong>Copilot Agent</strong><div className="agent-subtitle">Copilot · 当前网页控制已启用</div></div>
       <Tag color={status === "ready" ? "success" : "default"}>{status}</Tag>
       <Button type="text" size="small" onClick={onClose}>×</Button>
     </header>
@@ -61,6 +61,6 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
     <div className="agent-messages">
       <Bubble.List items={items.map((item) => ({ key: item.key, role: item.role, content: item.content, loading: item.loading && !item.content }))} />
     </div>
-    <Sender value={input} onChange={setInput} onSubmit={(value) => { setInput(""); void send(value); }} onCancel={() => void window.browser.copilotCancel()} loading={loading} placeholder="Ask Copilot…" />
+    <Sender value={input} onChange={setInput} onSubmit={(value) => { setInput(""); void send(value); }} onCancel={() => void window.browser.copilotCancel()} loading={loading} placeholder="询问页面内容，或让 AI 操作当前网页…" />
   </aside>;
 }
