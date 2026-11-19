@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CopilotDesktopAgent } from "./copilot";
 import path from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
 import type { AgentProvider, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 
 const APP_ID = "com.saga.architectagentdesktop";
@@ -48,7 +49,7 @@ let contentRight = 0;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
 const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", systemPrompt: "" };
 function loadAgentSettings(): AgentSettings {
-  try { const raw = JSON.parse(require("node:fs").readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" ? raw.thinkingLevel : "medium", copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? raw.systemPrompt.slice(0, 12000) : "" }; } catch { return { ...DEFAULT_SETTINGS }; }
+  try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" ? raw.thinkingLevel : "medium", copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? raw.systemPrompt.slice(0, 12000) : "" }; } catch { return { ...DEFAULT_SETTINGS }; }
 }
 let agentSettings = loadAgentSettings();
 const copilotAgent = new CopilotDesktopAgent((payload) => {
