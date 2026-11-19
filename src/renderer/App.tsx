@@ -51,7 +51,13 @@ function App() {
       window.setTimeout(() => findRef.current?.focus(), 0);
     });
     const unsubscribeDownload = window.browser.onDownload(setLatestDownload);
-    const unsubscribeAgentToggle = window.browser.onToggleAgent(() => {\n      void window.browser.getWorkspaceLayout().then((layout) => {\n        const visible = !layout.agentPanelVisible;\n        setAgentOpen(visible);\n        return window.browser.saveWorkspaceLayout({ ...layout, agentPanelVisible: visible });\n      }).catch((error: unknown) => console.error("Unable to toggle Agent panel", error));\n    });
+    const unsubscribeAgentToggle = window.browser.onToggleAgent(() => {
+      void window.browser.getWorkspaceLayout().then((layout) => {
+        const visible = !layout.agentPanelVisible;
+        setAgentOpen(visible);
+        return window.browser.saveWorkspaceLayout({ ...layout, agentPanelVisible: visible });
+      }).catch((error: unknown) => console.error("Unable to toggle Agent panel", error));
+    });
 
     void window.browser.getState().then(setBrowserState).catch((error: unknown) => {
       console.error("Unable to load browser state", error);
