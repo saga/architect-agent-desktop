@@ -141,6 +141,8 @@ export class UtilityProcessAgentRuntime {
               child?.postMessage({ type: "capability.response", executionId: id, requestId: message.requestId, ok: true, value });
             } catch (error) {
               child?.postMessage({ type: "capability.response", executionId: id, requestId: message.requestId, ok: false, error: error instanceof Error ? error.message : String(error) });
+            } finally {
+              inFlightCalls = Math.max(0, inFlightCalls - 1);
             }
           })();
           return;
@@ -241,8 +243,6 @@ export class UtilityProcessAgentRuntime {
                 ok: false,
                 error: error instanceof Error ? error.message : String(error),
               });
-            } finally {
-              inFlightCalls = Math.max(0, inFlightCalls - 1);
             }
           })();
           return;
