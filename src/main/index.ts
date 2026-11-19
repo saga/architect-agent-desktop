@@ -54,6 +54,9 @@ let isQuitting = false;
 let browserSession: Session;
 let activeTabId: string | null = null;
 let attachedView: WebContentsView | null = null;
+let snapshotView: WebContentsView | null = null;
+let snapshotActive = false;
+let currentBrowserBounds: { x: number; y: number; width: number; height: number } | null = null;
 let contentTop = DEFAULT_CONTENT_TOP;
 let contentLeft = 0;
 let contentWidth: number | null = null;
@@ -234,13 +237,50 @@ function updateActiveBounds(): void {
     if (activeTabId) nativeViewStack.setBounds("browser:" + activeTabId, { x: 0, y: 0, width: 0, height: 0 });
     return;
   }
-  nativeViewStack.setBounds("browser:" + activeTabId, {
+  currentBrowserBounds = {
     x: browserBounds.x, y: browserBounds.y + top,
     width: browserBounds.width, height: Math.max(0, browserBounds.height - top),
+  };
+  nativeViewStack.setBounds("browser:" + activeTabId, currentBrowserBounds);
+  if (snapshotActive && currentBrowserBounds) nativeViewStack.setBounds("snapshot", currentBrowserBounds);
+}
+
+function hideSnapshot(): void {
+  if (!snapshotView) { snapshotActive = false; return; }
+  nativeViewStack.unregister("snapshot", true);
+  snapshotView = null;
+  snapshotActive = false;
+}
+
+async function toggleSnapshot(): Promise<boolean> {
+  if (snapshotActive) {
+    hideSnapshot();
+    return false;
+  }
+  const tab = activeTabId ? tabs.get(activeTabId) : null;
+  if (!tab || !mainWindow || mainWindow.isDestroyed()) return false;
+  const captured = await tab.view.webContents.capturePage();
+  const dataUrl = captured.toDataURL();
+  const view = new WebContentsView({
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
+  snapshotView = view;
+  nativeViewStack.register("snapshot", view, "overlay");
+  const html = "<!doctype html><html><head><meta charset='utf-8'><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff}img{display:block;width:100%;height:100%;object-fit:fill;user-select:none;-webkit-user-drag:none}</style></head><body><img draggable='false' alt='Page snapshot' src='" + dataUrl + "'></body></html>";
+  try {
+    await view.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+    snapshotActive = true;
+    nativeViewStack.show("snapshot");
+    if (currentBrowserBounds) nativeViewStack.setBounds("snapshot", currentBrowserBounds);
+    return true;
+  } catch (error) {
+    hideSnapshot();
+    throw error;
+  }
 }
 
 function activateTab(id: string): void {
+  hideSnapshot();
   const nextTab = tabs.get(id);
   if (!nextTab || !mainWindow || mainWindow.isDestroyed()) return;
 
@@ -720,6 +760,9 @@ function createMainWindow(): void {
 
   mainWindow.on("closed", () => {
     nativeViewStack.closeAll();
+    if (snapshotView && !snapshotView.webContents.isDestroyed()) snapshotView.webContents.close();
+    snapshotView = null;
+    snapshotActive = false;
     for (const tab of tabs.values()) {
       if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
     }
@@ -910,6 +953,7 @@ function registerIpcHandlers(): void {
     return { ...workspaceLayout };
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
+  ipcMain.handle("browser:toggle-snapshot", async (event) => { assertTrustedSender(event); return await toggleSnapshot(); });
   ipcMain.handle("browser:get-state", (event) => {
     assertTrustedSender(event);
     return currentState();
