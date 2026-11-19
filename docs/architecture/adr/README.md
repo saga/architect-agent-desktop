@@ -17,4 +17,3 @@ These ADRs are **proposed** and describe design intent only. They do not indicat
 
 The records cover plugin lifecycle, profile composition, capability governance, UI/layout ownership, trust boundaries and rollout strategy.
 
-They intentionally do not decide changes to the current Agent SDK integration or Agent Framework selection. Those topics are outside this design package.
