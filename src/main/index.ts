@@ -1447,7 +1447,16 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     const parsed = z.object({ prompt: z.string().trim().min(1).max(30000), history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(12000) })).max(20).optional() }).safeParse(input);
     if (!parsed.success) throw new Error("Message must contain 1–30,000 characters.");
-    const traceId = randomUUID();\n    activeAgentTraceId = traceId;\n    recordAgentTrace("turn.started", { prompt: parsed.data.prompt, history: parsed.data.history ?? [], settings: agentSettings, workspacePath: workspaceProject.path }, "running");\n    try {\n      await copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined);\n      recordAgentTrace("turn.completed", { outcome: "completed" }, "completed");\n    } catch (error) {\n      recordAgentTrace("turn.failed", { error: error instanceof Error ? error.message : String(error) }, "failed");\n      throw error;\n    } finally { activeAgentTraceId = null; }
+    const traceId = randomUUID();
+    activeAgentTraceId = traceId;
+    recordAgentTrace("turn.started", { prompt: parsed.data.prompt, history: parsed.data.history ?? [], settings: agentSettings, workspacePath: workspaceProject.path }, "running");
+    try {
+      await copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined);
+      recordAgentTrace("turn.completed", { outcome: "completed" }, "completed");
+    } catch (error) {
+      recordAgentTrace("turn.failed", { error: error instanceof Error ? error.message : String(error) }, "failed");
+      throw error;
+    } finally { activeAgentTraceId = null; }
   });
   ipcMain.handle("copilot:cancel", async (event) => {
     assertTrustedSender(event);
