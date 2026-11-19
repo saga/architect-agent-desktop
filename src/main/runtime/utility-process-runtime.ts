@@ -26,7 +26,12 @@ function safeEntry(skillRootValue: string, entry: string): { root: string; file:
     throw new Error("Skill entry path traversal is not allowed.");
   }
   const root = realpathSync(skillRootValue);
-  const file = path.resolve(root, ...segments);
+  let cursor = root;
+  for (const segment of segments) {
+    cursor = path.join(cursor, segment);
+    if (lstatSync(cursor).isSymbolicLink()) throw new Error("Skill entry cannot traverse symbolic links.");
+  }
+  const file = realpathSync(path.resolve(root, ...segments));
   const relative = path.relative(root, file);
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error("Skill entry must be inside its skill package.");
@@ -97,9 +102,15 @@ export class UtilityProcessAgentRuntime {
 
       try {
         if (!existsSync(this.workerPath)) throw new Error("Runtime worker is missing: " + this.workerPath);
+        const env: Record<string, string> = {};
+        for (const key of ["PATH", "HOME", "USERPROFILE", "TMPDIR", "TMP", "TEMP", "SystemRoot", "WINDIR"]) {
+          const value = process.env[key];
+          if (value) env[key] = value;
+        }
         child = utilityProcess.fork(this.workerPath, [], {
           serviceName: "Agent Skill Runtime",
           cwd: root,
+          env,
         });
         this.active.set(id, child);
       } catch (error) {
