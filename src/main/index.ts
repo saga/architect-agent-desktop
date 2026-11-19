@@ -19,7 +19,7 @@ import { CopilotDesktopAgent } from "./copilot";
 import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import type { AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
-import { calculateLayout, type LayoutNode } from "./layout/layout-engine";
+import { calculateLayout } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
