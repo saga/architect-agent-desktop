@@ -50,7 +50,7 @@ export interface BrowserApi {
   getWorkspaceDocument(): Promise<WorkspaceDocument>;
   saveWorkspaceDocument(document: WorkspaceDocument): Promise<WorkspaceDocument>;
   floatAgentPanel(): Promise<void>;
-  redockAgentPanel(): Promise<void>;
+  redockAgentPanel(position?: "left" | "right" | "top" | "bottom"): Promise<void>;
   toggleSnapshot(): Promise<boolean>;
   onSnapshotState(listener: (active: boolean) => void): () => void;
   onWorkspaceLayoutUpdated(listener: (layout: WorkspaceLayoutState) => void): () => void;
