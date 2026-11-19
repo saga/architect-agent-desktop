@@ -52,12 +52,26 @@ function safeEntry(skillRootValue: string, entry: string): { root: string; file:
 export class UtilityProcessAgentRuntime {
   private readonly handlers: RuntimeCapabilityHandlers;
   private readonly active = new Map<string, UtilityProcess>();
+  private toolCallHandler: ((name: string, input: unknown) => Promise<unknown>) | null = null;
 
   constructor(
     private readonly workerPath = path.join(__dirname, "utility-worker.js"),
     handlers: RuntimeCapabilityHandlers = {},
   ) {
-    this.handlers = { ...createWorkspaceCapabilityHandlers(), ...handlers };
+    this.handlers = {
+      ...createWorkspaceCapabilityHandlers(),
+      ...handlers,
+      "tools.call": async (_context, args) => {
+        if (!this.toolCallHandler) throw new Error("Tool Broker is not available.");
+        const input = args as { name?: unknown; input?: unknown };
+        if (typeof input?.name !== "string" || !input.name) throw new Error("A tool name is required.");
+        return this.toolCallHandler(input.name, input.input ?? {});
+      },
+    };
+  }
+
+  setToolCallHandler(handler: ((name: string, input: unknown) => Promise<unknown>) | null): void {
+    this.toolCallHandler = handler;
   }
 
   async executeGeneratedCode(request: CodeModeRequest): Promise<RuntimeExecutionResult> {
