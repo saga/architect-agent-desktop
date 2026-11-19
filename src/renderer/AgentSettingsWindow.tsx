@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Form, Input, Radio, Select, Spin, message } from "antd";
-import type { AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission } from "../shared/types";
+import { Button, Form, Input, Radio, Select, Spin, message, List, Switch, Popconfirm, Tag, Divider } from "antd";
+import type { AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission, PluginSummary } from "../shared/types";
 
 const DEFAULT_SETTINGS: AgentSettings = {
   provider: "copilot", copilotModel: "", codebuddyModel: "",
@@ -14,6 +14,9 @@ export default function AgentSettingsWindow() {
   const [inspecting, setInspecting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [inspectError, setInspectError] = useState("");
+  const [plugins, setPlugins] = useState<PluginSummary[]>([]);
+  const [pluginsLoading, setPluginsLoading] = useState(false);
+  const [pluginBusy, setPluginBusy] = useState(false);
 
   const selectedId = settings.provider === "copilot" ? settings.copilotModel : settings.codebuddyModel;
   const selectedModel = useMemo(() => models.find(model => model.id === selectedId), [models, selectedId]);
@@ -35,12 +38,20 @@ export default function AgentSettingsWindow() {
     }
   }, []);
 
+  const refreshPlugins = useCallback(async () => {
+    setPluginsLoading(true);
+    try { setPlugins(await window.browser.pluginList()); }
+    catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+    finally { setPluginsLoading(false); }
+  }, []);
+
   useEffect(() => {
+    void refreshPlugins();
     void window.browser.agentGetSettings()
       .then(async value => { setSettings(value); await inspect(value.provider); })
       .catch((error: unknown) => message.error(error instanceof Error ? error.message : String(error)))
       .finally(() => setLoading(false));
-  }, [inspect]);
+  }, [inspect, refreshPlugins]);
 
   const update = <K extends keyof AgentSettings>(key: K, value: AgentSettings[K]) =>
     setSettings(current => ({ ...current, [key]: value }));
@@ -57,6 +68,36 @@ export default function AgentSettingsWindow() {
     if (model?.effortOptions?.length && !model.effortOptions.includes(settings.thinkingLevel)) {
       update("thinkingLevel", model.effortOptions.includes("medium") ? "medium" : model.effortOptions[0] as AgentSettings["thinkingLevel"]);
     }
+  };
+
+  const importPlugin = async () => {
+    setPluginBusy(true);
+    try {
+      const plugin = await window.browser.pluginImport();
+      if (plugin) { message.success("已导入插件：" + plugin.name); await refreshPlugins(); }
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+    finally { setPluginBusy(false); }
+  };
+
+  const togglePlugin = async (plugin: PluginSummary, enabled: boolean) => {
+    try { setPlugins(await window.browser.pluginSetEnabled(plugin.id, enabled)); }
+    catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+  };
+
+  const exportPlugin = async (plugin: PluginSummary) => {
+    setPluginBusy(true);
+    try {
+      const destination = await window.browser.pluginExport(plugin.id);
+      if (destination) message.success("插件已导出到：" + destination);
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+    finally { setPluginBusy(false); }
+  };
+
+  const removePlugin = async (plugin: PluginSummary) => {
+    try {
+      setPlugins(await window.browser.pluginRemove(plugin.id));
+      message.success("已删除插件：" + plugin.name);
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
   };
 
   const save = async () => {
@@ -134,6 +175,33 @@ export default function AgentSettingsWindow() {
           <div className="settings-field-help">自定义提示作为额外系统指令传入模型。应用强制执行的浏览器安全规则优先级更高。</div>
         </Form.Item>
       </Form>
+      <Divider />
+      <section className="plugin-manager">
+        <div className="plugin-manager-heading">
+          <div><h2>插件管理</h2><p>导入声明式插件目录。插件只能提供 Skills、宿主工具引用、工作流和受支持视图声明，不能运行任意代码。</p></div>
+          <Button type="primary" loading={pluginBusy} onClick={() => void importPlugin()}>导入插件目录</Button>
+        </div>
+        <List
+          loading={pluginsLoading}
+          dataSource={plugins}
+          locale={{ emptyText: "尚未安装插件" }}
+          renderItem={(plugin) => <List.Item actions={[
+            <Switch key="enabled" checked={plugin.enabled} checkedChildren="启用" unCheckedChildren="停用" onChange={(value) => void togglePlugin(plugin, value)} />,
+            <Button key="export" size="small" disabled={pluginBusy} onClick={() => void exportPlugin(plugin)}>导出</Button>,
+            <Popconfirm key="remove" title="删除此插件？" description="插件目录和本地启用状态将被删除。" okText="删除" cancelText="取消" onConfirm={() => void removePlugin(plugin)}>
+              <Button size="small" danger>删除</Button>
+            </Popconfirm>
+          ]}>
+            <List.Item.Meta
+              title={<span>{plugin.name} <Tag>{plugin.version}</Tag></span>}
+              description={<>
+                <div>{plugin.description || plugin.id}</div>
+                <div className="settings-field-help">Skills {plugin.skills.length} · Tools {plugin.tools.length} · Workflows {plugin.workflows.length} · Views {plugin.views.length}</div>
+              </>}
+            />
+          </List.Item>}
+        />
+      </section>
     </section>
     <footer className="settings-window-footer">
       <Button onClick={() => window.close()}>取消</Button>
