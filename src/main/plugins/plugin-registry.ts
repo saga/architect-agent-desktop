@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync,
-  renameSync, rmSync, statSync, writeFileSync,
+  renameSync, rmSync, writeFileSync,
 } from "node:fs";
 import path from "node:path";
 
