@@ -6,7 +6,16 @@ import path from "node:path";
 export type AgentProvider = "copilot" | "codebuddy";
 export interface BrowserAgentTools { getCurrentPage(): Promise<string>; listTabs(): Promise<string>; navigate(url:string):Promise<string>; openTab(url:string):Promise<string>; switchTab(tabId:string):Promise<string>; click(selector:string):Promise<string>; fill(selector:string,value:string):Promise<string>; scroll(direction:"up"|"down",amount:number):Promise<string>; }
 export interface CopilotEvent { type:"status"|"delta"|"message"|"error"|"done"|"tool"; status?:"starting"|"ready"|"unauthenticated"; text?:string; }
-function codeBuddyWorkspace(): string {\n const dir = path.join(app.getPath("userData"), "codebuddy-workspace");\n mkdirSync(dir, { recursive: true });\n return dir;\n}\nfunction codeBuddyExecutable(): string | undefined {\n const candidates = [process.env.CODEBUDDY_CODE_PATH, ...String(process.env.PATH || "").split(path.delimiter).map((dir) => path.join(dir, process.platform === "win32" ? "codebuddy.exe" : "codebuddy")), ...(process.platform === "darwin" ? ["/opt/homebrew/bin/codebuddy", "/usr/local/bin/codebuddy"] : [])].filter((item): item is string => Boolean(item));\n return candidates.find((item) => existsSync(item));\n}\nconst INSTRUCTIONS = [
+function codeBuddyWorkspace(): string {
+ const dir = path.join(app.getPath("userData"), "codebuddy-workspace");
+ mkdirSync(dir, { recursive: true });
+ return dir;
+}
+function codeBuddyExecutable(): string | undefined {
+ const candidates = [process.env.CODEBUDDY_CODE_PATH, ...String(process.env.PATH || "").split(path.delimiter).map((dir) => path.join(dir, process.platform === "win32" ? "codebuddy.exe" : "codebuddy")), ...(process.platform === "darwin" ? ["/opt/homebrew/bin/codebuddy", "/usr/local/bin/codebuddy"] : [])].filter((item): item is string => Boolean(item));
+ return candidates.find((item) => existsSync(item));
+}
+const INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser.",
 "When the user asks about the current page, inspect it with browser_get_current_page instead of guessing.",
 "When asked to interact with the browser, use browser tools and report what changed.",
