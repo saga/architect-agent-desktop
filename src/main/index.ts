@@ -71,7 +71,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
   },
   async openTab(url) {
     if (!safeWebUrl(url)) throw new Error("Only http(s) URLs are allowed.");
-    const id=createTab(url); return "Opened new tab " + id + " at " + url;
+    const id=await createTab(url); return "Opened new tab " + id + " at " + url;
   },
   async switchTab(tabId) {
     if (!tabs.has(tabId)) throw new Error("Unknown tab ID.");
