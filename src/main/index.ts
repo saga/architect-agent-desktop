@@ -218,7 +218,13 @@ function updateActiveBounds(): void {
     width: Math.max(0, Math.min(contentWidth ?? (width - left), width - left)),
     height,
   };
-  const layout = calculateLayout(workspaceDocument.root, viewport, { pixelRatio: 1 });
+  const panelGroup = workspaceDocument.tabGroups.find((group) => group.panelIds.includes("browser") && group.panelIds.includes("agent"));
+  let layoutTree = workspaceDocument.root;
+  if (panelGroup) {
+    layoutTree = setPanelVisibility(layoutTree, "browser", workspaceDocument.activePanelId === "browser");
+    layoutTree = setPanelVisibility(layoutTree, "agent", workspaceDocument.activePanelId === "agent");
+  }
+  const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
   const browserBounds = layout.bounds.browser;
   if (!browserBounds) {
     currentBrowserBounds = null;
@@ -945,6 +951,13 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     try { workspaceDocument = parseWorkspaceDocument(input); }
     catch (error) { throw new Error(error instanceof Error ? error.message : "Invalid workspace document."); }
+    const panelGroup = workspaceDocument.tabGroups.find((group) => group.panelIds.includes("browser") && group.panelIds.includes("agent"));
+    if (panelGroup) {
+      workspaceDocument = {
+        ...workspaceDocument,
+        root: setPanelVisibility(setPanelVisibility(workspaceDocument.root, "browser", workspaceDocument.activePanelId === "browser"), "agent", workspaceDocument.activePanelId === "agent"),
+      };
+    }
     const agentPanel = findPanel(workspaceDocument.root, "agent");
     workspaceLayout = { ...workspaceLayout, agentPanelVisible: agentPanel?.visible !== false };
     writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
