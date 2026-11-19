@@ -72,7 +72,7 @@ function App() {
 
   useEffect(() => {
     const chrome = chromeRef.current;
-    const workspace = browserWorkspaceRef.current;
+    const workspace = appShellRef.current;
     if (!chrome || !workspace) return;
 
     const updateBounds = () => {
