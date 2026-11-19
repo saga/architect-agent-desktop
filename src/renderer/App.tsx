@@ -161,8 +161,8 @@ function App() {
   const horizontalDock = agentPosition === "left" || agentPosition === "right";
   const agentFirst = agentPosition === "left" || agentPosition === "top";
   const shellStyle = agentOpen ? horizontalDock
-    ? { gridTemplateColumns: agentFirst ? `${agentWidth}px 6px minmax(0, 1fr)` : `minmax(0, 1fr) 6px ${agentWidth}px` }
-    : { gridTemplateRows: agentFirst ? `${agentWidth}px 6px minmax(0, 1fr)` : `minmax(0, 1fr) 6px ${agentWidth}px` }
+    ? { gridTemplateColumns: agentFirst ? `${agentWidth}px 6px minmax(0, 1fr)` : `minmax(0, 1fr) 6px ${agentWidth}px`, gridTemplateRows: "minmax(0, 1fr)" }
+    : { gridTemplateColumns: "minmax(0, 1fr)", gridTemplateRows: agentFirst ? `${agentWidth}px 6px minmax(0, 1fr)` : `minmax(0, 1fr) 6px ${agentWidth}px` }
     : { gridTemplateColumns: "minmax(0, 1fr)" };
   const browserPlacement = agentOpen && !horizontalDock ? { gridRow: agentFirst ? 3 : 1, gridColumn: 1 } : agentOpen && agentFirst ? { gridColumn: 3, gridRow: 1 } : { gridColumn: 1, gridRow: 1 };
   const splitterPlacement = agentOpen && !horizontalDock ? { gridRow: 2, gridColumn: 1 } : agentOpen && agentFirst ? { gridColumn: 2, gridRow: 1 } : { gridColumn: 2, gridRow: 1 };
@@ -324,7 +324,7 @@ function App() {
       </div>
       {agentOpen && <div className={"workspace-splitter" + (horizontalDock ? " vertical" : " horizontal")} style={splitterPlacement} role="separator" aria-orientation={horizontalDock ? "vertical" : "horizontal"} aria-label="Resize Agent panel" tabIndex={0}
         onPointerDown={onSplitterPointerDown} onPointerMove={onSplitterPointerMove} onPointerUp={onSplitterPointerUp} onPointerCancel={onSplitterPointerUp}
-        onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { const next = Math.max(280, Math.min(720, agentWidth + (event.key === "ArrowLeft" ? 16 : -16))); setAgentWidth(next); saveWorkspaceLayout(true, next); } }} />}
+        onKeyDown={(event) => { const keys = horizontalDock ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"]; if (keys.includes(event.key)) { event.preventDefault(); const increase = agentPosition === "left" || agentPosition === "top" ? (event.key === "ArrowRight" || event.key === "ArrowDown") : (event.key === "ArrowLeft" || event.key === "ArrowUp"); const next = Math.max(280, Math.min(720, agentWidth + (increase ? 16 : -16))); setAgentWidth(next); saveWorkspaceLayout(true, next); } }} />}
       {agentOpen && <div className="agent-panel-slot" style={agentPlacement}><AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} onFloat={() => { void window.browser.floatAgentPanel(); }} onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }} /></div>}
     </div>
   );
