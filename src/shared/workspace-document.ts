@@ -126,7 +126,10 @@ export function createFloatingPanel(
     ...document,
     root: setPanelVisible(document.root, panelId, false),
     activePanelId: document.activePanelId === panelId ? "browser" : document.activePanelId,
-    tabGroups: document.tabGroups.map((group) => group.panelIds.includes(panelId) && group.activePanelId === panelId ? { ...group, activePanelId: "browser" } : group),
+    tabGroups: document.tabGroups.map((group) => {
+      const panelIds = group.panelIds.filter((id) => id !== panelId);
+      return { ...group, panelIds, activePanelId: panelIds.includes(group.activePanelId) ? group.activePanelId : panelIds[0] || "" };
+    }).filter((group) => group.panelIds.length > 0),
     floating: [...document.floating, { id: "floating-" + panelId, panelId, bounds }],
   };
 }
