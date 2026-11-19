@@ -43,7 +43,8 @@ let browserSession: Session;
 let activeTabId: string | null = null;
 let attachedView: WebContentsView | null = null;
 let contentTop = DEFAULT_CONTENT_TOP;
-let contentLeft = 0;\nlet contentRight = 0;
+let contentLeft = 0;
+let contentRight = 0;
 const copilotAgent = new CopilotDesktopAgent((payload) => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("copilot:event", payload);
 }, {
@@ -85,7 +86,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
       const r=el.getBoundingClientRect(); if (r.width<=0 || r.height<=0) throw new Error("Element is not visible.");
       const text=(el.innerText || el.getAttribute("aria-label") || "").trim();
       const type=(el.getAttribute("type") || "").toLowerCase();
-      if (type==="submit" || el.tagName==="FORM" || /pay|purchase|buy now|place order|delete|remove account|send message|transfer|confirm payment|unsubscribe/i.test(text)) throw new Error("Potentially consequential action blocked. Ask the user to perform it.");
+      if (type==="submit" || el.tagName==="FORM" || (el.closest("form") && el.tagName==="BUTTON" && type!=="button") || /pay|purchase|buy now|add to cart|checkout|place order|delete|remove account|send message|transfer|confirm payment|unsubscribe|publish|post now/i.test(text)) throw new Error("Potentially consequential action blocked. Ask the user to perform it.");
       el.click(); return "Clicked " + (text || el.tagName) + ".";
     })()`);
   },
