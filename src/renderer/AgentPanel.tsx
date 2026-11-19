@@ -51,7 +51,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
         setItems((current) => [...current, { key: crypto.randomUUID(), role: "assistant", content: event.text ?? "Request failed." }]);
       }
     });
-    return unsubscribe;
+    return () => { unsubscribeSettings(); unsubscribe(); };
   }, []);
 
   const openSettings = async () => {
