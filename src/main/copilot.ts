@@ -1,10 +1,51 @@
 import type { CopilotClient, CopilotSession } from "@github/copilot-sdk" with { "resolution-mode": "import" };
 import { z } from "zod";
-import type { AgentSettings } from "../shared/types";
+import type { AgentModelInfo, AgentProvider, AgentSettings } from "../shared/types";
 import { app } from "electron";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { gunzipSync } from "node:zlib";
 import path from "node:path";
-export type AgentProvider = "copilot" | "codebuddy";
+
+type ModelRecord = Record<string, unknown>;
+function asRecord(value: unknown): ModelRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as ModelRecord : {}; }
+function positiveTokens(value: unknown): number | undefined {
+ const n = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value.trim()) ? Number(value) : NaN;
+ return Number.isSafeInteger(n) && n > 0 ? n : undefined;
+}
+function normalizeModelInfo(provider: AgentProvider, raw: unknown): AgentModelInfo | undefined {
+ const item = asRecord(raw);
+ const id = typeof item.id === "string" ? item.id.trim() : typeof item.model === "string" ? item.model.trim() : "";
+ if (!id) return undefined;
+ const caps = asRecord(item.capabilities), supports = asRecord(caps.supports);
+ const rawEfforts = item.supportedEffortLevels ?? item.reasoningEfforts ?? supports.reasoningEffort ?? item.effortLevels;
+ const effortValues = Array.isArray(rawEfforts) ? rawEfforts : typeof rawEfforts === "string" ? [rawEfforts] : [];
+ const efforts = [...new Set(effortValues.filter((v): v is string => typeof v === "string" && ["low","medium","high","xhigh"].includes(v.toLowerCase())).map(v => v.toLowerCase()))];
+ const maxInputTokens = positiveTokens(item.maxInputTokens ?? asRecord(caps.limits).max_context_window_tokens);
+ const cw = asRecord(item.contextWindow), rawLengths = cw.supportedLengths;
+ const lengths = Array.isArray(rawLengths) ? rawLengths.map(positiveTokens) : [];
+ const validLengths = [...new Set(lengths.filter((v): v is number => v !== undefined && (!maxInputTokens || v <= maxInputTokens)))].sort((a,b)=>a-b);
+ const contextWindowOptions = validLengths.length >= 2 ? validLengths.map(v=>({value:v,label:v%1000000===0?(v/1000000)+"M":v%1000===0?(v/1000)+"K":v.toLocaleString("en-US")+" tokens"})) : undefined;
+ return { provider, id, name: typeof item.name === "string" && item.name.trim() ? item.name : id,
+  ...(typeof item.description === "string" ? {description:item.description} : {}),
+  ...(efforts.length ? {effortOptions:efforts} : {}), ...(contextWindowOptions ? {contextWindowOptions} : {}),
+  ...(maxInputTokens ? {maxInputTokens} : {}) };
+}
+function decodeCodeBuddyCatalog(text: string): ModelRecord[] {
+ try { let parsed: unknown = JSON.parse(text); if (typeof parsed === "string") parsed = JSON.parse(gunzipSync(Buffer.from(parsed,"base64")).toString("utf8"));
+  const models = asRecord(parsed).models; return Array.isArray(models) ? models.map(asRecord) : [];
+ } catch { return []; }
+}
+function readCodeBuddyCatalog(): ModelRecord[] {
+ const home=homedir(), candidates:string[]=[]; const envPath=(process.env.ACC_PRODUCT_CONFIG_PATH||"").trim(); if(envPath)candidates.push(envPath);
+ const storage=path.join(home,".codebuddy","local_storage");
+ try { candidates.push(...readdirSync(storage).filter(n=>n.endsWith(".info")).map(n=>path.join(storage,n)).sort((a,b)=>statSync(b).mtimeMs-statSync(a).mtimeMs)); } catch {}
+ let base:ModelRecord[]=[];
+ for(const file of candidates){try{base=decodeCodeBuddyCatalog(readFileSync(file,"utf8").trim());if(base.length)break;}catch{}}
+ const merge=(target:ModelRecord[],file:string)=>{try{const models=decodeCodeBuddyCatalog(readFileSync(file,"utf8"));for(const item of models){const id=typeof item.id==="string"?item.id:"";if(!id)continue;const i=target.findIndex(x=>x.id===id);if(i>=0)target[i]={...target[i],...item};else target.push(item);}}catch{}};
+ merge(base,path.join(home,".codebuddy","models.json")); merge(base,path.join(codeBuddyWorkspace(),".codebuddy","models.json")); return base;
+}
+
 export interface BrowserAgentTools { getCurrentPage(): Promise<string>; listTabs(): Promise<string>; navigate(url:string):Promise<string>; openTab(url:string):Promise<string>; switchTab(tabId:string):Promise<string>; click(selector:string):Promise<string>; fill(selector:string,value:string):Promise<string>; scroll(direction:"up"|"down",amount:number):Promise<string>; }
 export interface CopilotEvent { type:"status"|"delta"|"message"|"error"|"done"|"tool"; status?:"starting"|"ready"|"unauthenticated"; text?:string; }
 function codeBuddyWorkspace(): string {
@@ -28,6 +69,15 @@ export class CopilotDesktopAgent {
  private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null;
  constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings){this.settings=settings;}
  async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(!["low","medium","high"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");const changed=settings.provider!==this.settings.provider||settings.copilotModel!==this.settings.copilotModel||settings.codebuddyModel!==this.settings.codebuddyModel||settings.thinkingLevel!==this.settings.thinkingLevel||settings.systemPrompt!==this.settings.systemPrompt;if(changed)await this.stop();this.settings={...settings};}
+
+ async inspectModels(provider: AgentProvider): Promise<AgentModelInfo[]> {
+  if (provider === "codebuddy") return readCodeBuddyCatalog().map(model => normalizeModelInfo("codebuddy", model)).filter((m): m is AgentModelInfo => Boolean(m));
+  const { CopilotClient } = await import("@github/copilot-sdk");
+  const client = new CopilotClient({ useLoggedInUser: true, mode: "empty", baseDirectory: path.join(app.getPath("userData"), "copilot-inspect") });
+  try { await client.start(); const result = await client.listModels(); return (Array.isArray(result) ? result : []).map(model => normalizeModelInfo("copilot", model)).filter((m): m is AgentModelInfo => Boolean(m)); }
+  finally { await client.stop().catch(() => undefined); }
+ }
+
  getSettings():AgentSettings{return {...this.settings};}
  async status():Promise<{status:string;message?:string;provider:AgentProvider}>{if(this.settings.provider==="codebuddy")return{status:"not_checked",message:"CodeBuddy authentication is checked on the first request.",provider:this.settings.provider};try{await this.ensureCopilotSession();return{status:"ready",provider:this.settings.provider};}catch(error){const message=error instanceof Error?error.message:String(error);const authFailure=/unauthenticated|not authenticated|authentication|login required|unauthorized|token expired/i.test(message);return{status:authFailure?"unauthenticated":"error",message,provider:this.settings.provider};}}
  private async handlers(){const b=this.browser;const report=(name:string,detail:string)=>{this.publish({type:"tool",text:name+": "+(name==="Read current page"?"Page content read":detail.slice(0,180))});return detail;};return[
