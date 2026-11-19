@@ -198,3 +198,16 @@ export function removePanelFromTabGroup(document: WorkspaceDocument, groupId: st
     }).filter((group) => group.panelIds.length > 0),
   };
 }
+
+export function setWorkspacePanelVisibility(document: WorkspaceDocument, panelId: string, visible: boolean): WorkspaceDocument {
+  return { ...document, root: setPanelVisible(document.root, panelId, visible) };
+}
+
+export function ungroupWorkspacePanel(document: WorkspaceDocument, groupId: string, panelId: string): WorkspaceDocument {
+  const withoutPanel = removePanelFromTabGroup(document, groupId, panelId);
+  return {
+    ...withoutPanel,
+    root: setPanelVisible(withoutPanel.root, panelId, true),
+    activePanelId: "browser",
+  };
+}
