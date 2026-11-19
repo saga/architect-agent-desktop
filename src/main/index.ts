@@ -1447,7 +1447,7 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     const parsed = z.object({ prompt: z.string().trim().min(1).max(30000), history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(12000) })).max(20).optional() }).safeParse(input);
     if (!parsed.success) throw new Error("Message must contain 1–30,000 characters.");
-    const traceId = randomUUID();\n    activeAgentTraceId = traceId;\n    recordAgentTrace("turn.started", { prompt: parsed.data.prompt, history: parsed.data.history ?? [] }, "running");\n    try {\n      await copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined);\n      recordAgentTrace("turn.completed", { outcome: "completed" }, "completed");\n    } catch (error) {\n      recordAgentTrace("turn.failed", { error: error instanceof Error ? error.message : String(error) }, "failed");\n      throw error;\n    } finally { activeAgentTraceId = null; }
+    const traceId = randomUUID();\n    activeAgentTraceId = traceId;\n    recordAgentTrace("turn.started", { prompt: parsed.data.prompt, history: parsed.data.history ?? [], settings: agentSettings, workspacePath: workspaceProject.path }, "running");\n    try {\n      await copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined);\n      recordAgentTrace("turn.completed", { outcome: "completed" }, "completed");\n    } catch (error) {\n      recordAgentTrace("turn.failed", { error: error instanceof Error ? error.message : String(error) }, "failed");\n      throw error;\n    } finally { activeAgentTraceId = null; }
   });
   ipcMain.handle("copilot:cancel", async (event) => {
     assertTrustedSender(event);
@@ -1455,16 +1455,16 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:load-session", (event) => {
     assertTrustedSender(event);
-    const items = loadAgentSession();\n    recordAgentTrace("session.loaded", { itemCount: items.length }, "completed");\n    return items;
+    const items = loadAgentSession();\n    recordAgentTrace("session.loaded", { itemCount: items.length, items }, "completed");\n    return items;
   });
   ipcMain.handle("agent:save-session", (event, input: unknown) => {
     assertTrustedSender(event);
     if (!Array.isArray(input)) throw new Error("Invalid Agent session.");
-    const items = parseAgentSessionItems(input);\n    saveAgentSession(items);\n    recordAgentTrace("session.saved", { itemCount: items.length }, "completed");
+    const items = parseAgentSessionItems(input);\n    saveAgentSession(items);\n    recordAgentTrace("session.saved", { itemCount: items.length, items }, "completed");
   });
   ipcMain.handle("agent:clear-session", (event) => {
     assertTrustedSender(event);
-    recordAgentTrace("session.cleared", { workspacePath: workspaceProject.path }, "completed");\n    rmSync(currentAgentSessionPath(), { force: true });
+    recordAgentTrace("session.cleared", { workspacePath: workspaceProject.path, previousItems: loadAgentSession() }, "completed");\n    rmSync(currentAgentSessionPath(), { force: true });
     if (!workspaceProject.path) rmSync(LEGACY_AGENT_SESSION_PATH, { force: true });
   });
 
