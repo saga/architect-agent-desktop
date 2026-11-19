@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Descriptions, Drawer, Empty, Input, List, Spin, Statistic, Tabs, Tag, Typography } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
+import type { AgentSessionItem } from "../shared/types";
 
 type TraceSession = {
   id: string;
@@ -62,6 +63,7 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
   const [sessions, setSessions] = useState<TraceSession[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [events, setEvents] = useState<TraceEvent[]>([]);
+  const [messages, setMessages] = useState<AgentSessionItem[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [search, setSearch] = useState("");
@@ -89,12 +91,20 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
   useEffect(() => {
     if (!open || !selectedId) {
       setEvents([]);
+      setMessages([]);
       return;
     }
     let cancelled = false;
     setLoadingEvents(true);
-    void window.browser.agentTraceQuery({ sessionId: selectedId, limit: 1000 })
-      .then((result) => { if (!cancelled) setEvents(result as TraceEvent[]); })
+    void Promise.all([
+      window.browser.agentTraceQuery({ sessionId: selectedId, limit: 1000 }),
+      window.browser.agentTraceListSessionItems(selectedId),
+    ])
+      .then(([eventRows, messageRows]) => {
+        if (cancelled) return;
+        setEvents(eventRows as TraceEvent[]);
+        setMessages(messageRows);
+      })
       .catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason)); })
       .finally(() => { if (!cancelled) setLoadingEvents(false); });
     return () => { cancelled = true; };
@@ -117,6 +127,19 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
   });
   const contextEvents = visibleEvents.filter((event) => event.type.startsWith("context.") || event.type === "provider.request");
   const completedCalls = modelCalls.filter((call) => call.response).length;
+
+  const transcript = <div className="session-explorer-list">
+    {loadingEvents ? <Spin /> : messages.length ? <List dataSource={messages} renderItem={(item) => <List.Item>
+      <div className={"session-message is-" + item.kind}>
+        <div className="session-message-heading">
+          <Text strong>{item.kind === "user" ? "用户" : item.kind === "assistant" ? "Agent" : item.kind === "tool" ? item.toolName || "工具调用" : "错误"}</Text>
+          <Tag color={item.kind === "error" ? "red" : item.kind === "user" ? "blue" : item.kind === "tool" ? "gold" : "default"}>{item.kind}</Tag>
+          <Text type="secondary">{formatTime(item.createdAt)}</Text>
+        </div>
+        <pre>{item.content}</pre>
+      </div>
+    </List.Item>} /> : <Empty description="当前 Session 没有保存的消息" />}
+  </div>;
 
   const timeline = <div className="session-explorer-list">
     {loadingEvents ? <Spin /> : visibleEvents.length ? <List
@@ -214,13 +237,14 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
             <Text type="secondary">更新时间：{formatTime(selected.updatedAt)} · {selected.messageCount ?? 0} 条消息 · {selected.eventCount ?? 0} 个事件</Text>
           </div>
           <Input.Search allowClear placeholder="搜索事件类型、工具名称或内容" value={search} onChange={(event) => setSearch(event.target.value)} />
-          <Tabs defaultActiveKey="timeline" items={[
+          <Tabs defaultActiveKey="messages" items={[
+            { key: "messages", label: "会话记录", children: transcript },
             { key: "timeline", label: "事件时间线", children: timeline },
             { key: "tools", label: "工具调用", children: tools },
             { key: "models", label: "模型分析", children: models },
             { key: "context", label: "Context 调试", children: context },
           ]} />
-          <Text type="secondary">当前显示最近最多 1,000 个事件。完整消息历史单独保存在 Agent Data 的 SQLite session_messages 表中。</Text>
+          <Text type="secondary">事件时间线显示最近最多 1,000 个事件；会话消息从 SQLite session_messages 表完整读取。</Text>
         </>}
       </main>
     </div>
