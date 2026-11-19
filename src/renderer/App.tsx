@@ -24,7 +24,7 @@ function App() {
   const [latestDownload, setLatestDownload] = useState<BrowserDownloadEvent | null>(null);
   const [agentOpen, setAgentOpen] = useState(true);\n  const [agentWidth, setAgentWidth] = useState(390);\n  const splitterDrag = useRef<{ startX: number; startWidth: number } | null>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
-  const browserWorkspaceRef = useRef<HTMLDivElement>(null);
+  const browserWorkspaceRef = useRef<HTMLDivElement>(null);\n  const appShellRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
 
@@ -118,7 +118,7 @@ function App() {
   const isSecure = activeTab?.url.startsWith("https://") ?? false;\n\n  const saveWorkspaceLayout = (visible = agentOpen, width = agentWidth) => {\n    void window.browser.saveWorkspaceLayout({ version: 1, agentPanelWidth: width, agentPanelVisible: visible }).catch((error: unknown) => console.error("Unable to save workspace layout", error));\n  };\n  const onSplitterPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {\n    event.currentTarget.setPointerCapture(event.pointerId);\n    splitterDrag.current = { startX: event.clientX, startWidth: agentWidth };\n  };\n  const onSplitterPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {\n    if (!splitterDrag.current) return;\n    setAgentWidth(Math.max(280, Math.min(720, splitterDrag.current.startWidth + splitterDrag.current.startX - event.clientX)));\n  };\n  const onSplitterPointerUp = () => {\n    if (!splitterDrag.current) return;\n    splitterDrag.current = null;\n    saveWorkspaceLayout(agentOpen, agentWidth);\n  };
 
   return (
-    <div className={"app-shell" + (agentOpen ? " agent-open" : "")} style={{ gridTemplateColumns: agentOpen ? `minmax(0, 1fr) 6px ${agentWidth}px` : "minmax(0, 1fr)" }}>
+    <div ref={appShellRef} className={"app-shell" + (agentOpen ? " agent-open" : "")} style={{ gridTemplateColumns: agentOpen ? `minmax(0, 1fr) 6px ${agentWidth}px` : "minmax(0, 1fr)" }}>
       <div className="browser-workspace" ref={browserWorkspaceRef}>
       <div className="browser-chrome" ref={chromeRef}>
         <div className="tab-strip">
