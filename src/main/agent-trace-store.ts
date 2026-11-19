@@ -16,7 +16,7 @@ export interface AgentTraceInput {
 }
 
 const SECRET_KEY = /authorization|(^|[_-])token($|[_-])|api[_-]?key|password|secret|cookie|credential|private[_-]?key/i;
-const BEARER = /\\bBearer\\s+[A-Za-z0-9._~+/-]+=*/gi;
+const BEARER = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
 
 function redact(value: unknown, key = ""): unknown {
