@@ -17,6 +17,7 @@ function displayTitle(tab: BrowserTabState): string {
 }
 
 function App() {
+  const isFloatingAgentWindow = new URLSearchParams(window.location.search).get("agent-panel") === "1";
   const [browserState, setBrowserState] = useState<BrowserState>(EMPTY_STATE);
   const [address, setAddress] = useState("");
   const [showFind, setShowFind] = useState(false);
@@ -44,6 +45,11 @@ function App() {
       setAgentPosition(layout.agentPanelPosition ?? "right");
     }).catch((error: unknown) => console.error("Unable to load workspace layout", error));
     const unsubscribeState = window.browser.onState(setBrowserState);
+    const unsubscribeLayout = window.browser.onWorkspaceLayoutUpdated((layout) => {
+      setAgentOpen(layout.agentPanelVisible);
+      setAgentWidth(layout.agentPanelWidth);
+      setAgentPosition(layout.agentPanelPosition);
+    });
     const unsubscribeFocus = window.browser.onFocusAddress(() => {
       addressRef.current?.focus();
       addressRef.current?.select();
@@ -67,6 +73,7 @@ function App() {
 
     return () => {
       unsubscribeState();
+      unsubscribeLayout();
       unsubscribeFocus();
       unsubscribeFind();
       unsubscribeDownload();
@@ -160,6 +167,10 @@ function App() {
   const browserPlacement = agentOpen && !horizontalDock ? { gridRow: agentFirst ? 3 : 1, gridColumn: 1 } : agentOpen && agentFirst ? { gridColumn: 3, gridRow: 1 } : { gridColumn: 1, gridRow: 1 };
   const splitterPlacement = agentOpen && !horizontalDock ? { gridRow: 2, gridColumn: 1 } : agentOpen && agentFirst ? { gridColumn: 2, gridRow: 1 } : { gridColumn: 2, gridRow: 1 };
   const agentPlacement = agentOpen && !horizontalDock ? { gridRow: agentFirst ? 1 : 3, gridColumn: 1 } : agentOpen && agentFirst ? { gridColumn: 1, gridRow: 1 } : { gridColumn: 3, gridRow: 1 };
+  if (isFloatingAgentWindow) {
+    return <div className="agent-floating-root"><AgentPanel onClose={() => { void window.browser.redockAgentPanel(); }} onDock={(position) => { void window.browser.getWorkspaceLayout().then((layout) => window.browser.saveWorkspaceLayout({ ...layout, agentPanelPosition: position })); }} /></div>;
+  }
+
   return (
     <div ref={appShellRef} className={"app-shell" + (agentOpen ? " agent-open" : "")} style={shellStyle}>
       <div className="browser-workspace" ref={browserWorkspaceRef} style={browserPlacement}>
@@ -314,7 +325,7 @@ function App() {
       {agentOpen && <div className={"workspace-splitter" + (horizontalDock ? " vertical" : " horizontal")} style={splitterPlacement} role="separator" aria-orientation={horizontalDock ? "vertical" : "horizontal"} aria-label="Resize Agent panel" tabIndex={0}
         onPointerDown={onSplitterPointerDown} onPointerMove={onSplitterPointerMove} onPointerUp={onSplitterPointerUp} onPointerCancel={onSplitterPointerUp}
         onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { const next = Math.max(280, Math.min(720, agentWidth + (event.key === "ArrowLeft" ? 16 : -16))); setAgentWidth(next); saveWorkspaceLayout(true, next); } }} />}
-      {agentOpen && <div style={agentPlacement}><AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }} /></div>}
+      {agentOpen && <div style={agentPlacement}><AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} onFloat={() => { void window.browser.floatAgentPanel(); }} onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }} /></div>}
     </div>
   );
 }
