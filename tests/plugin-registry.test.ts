@@ -46,7 +46,11 @@ describe("declarative plugin packages", () => {
     const registry = path.join(root, "plugins.json");
     expect(importPlugin(source, pluginRoot, registry).enabled).toBe(true);
     expect(listPlugins(pluginRoot, registry)).toHaveLength(1);
+    expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("research.md");
+    const exported = exportPlugin("team.research", pluginRoot, path.join(root, "export"), registry);
+    expect(exported).toContain("team.research");
     expect(setPluginEnabled("team.research", false, pluginRoot, registry)[0].enabled).toBe(false);
+    expect(readEnabledPluginInstructions(pluginRoot, registry)).toBe("");
     expect(removePlugin("team.research", pluginRoot, registry)).toHaveLength(0);
   });
 });
