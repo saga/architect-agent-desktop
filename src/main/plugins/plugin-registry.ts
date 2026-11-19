@@ -22,7 +22,7 @@ export const pluginManifestSchema = z.object({
   manifestVersion: z.literal(1),
   id: z.string().min(3).max(100).regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/),
   name: z.string().trim().min(1).max(120),
-  version: z.string().regex(/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$/),
+  version: z.string().regex(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/),
   description: z.string().max(500).optional(),
   skills: z.array(resourcePath).max(30).default([]),
   tools: z.array(z.enum(HOST_TOOL_IDS)).max(50).default([]),
@@ -194,7 +194,7 @@ export function readEnabledPluginInstructions(pluginRoot: string, registryPath: 
   let remaining = MAX_SKILL_CONTEXT;
   for (const plugin of listPlugins(pluginRoot, registryPath).filter(item => item.enabled)) {
     if (plugin.tools.length && remaining > 0) {
-      const chunk = "### " + plugin.name + " / 宿主工具引用\n" + plugin.tools.join(", ") + "\\n这些标识只用于说明插件依赖的宿主工具，不会授予权限；工具仍受应用当前权限设置约束。";
+      const chunk = "### " + plugin.name + " / 宿主工具引用\n" + plugin.tools.join(", ") + "\n这些标识只用于说明插件依赖的宿主工具，不会授予权限；工具仍受应用当前权限设置约束。";
       chunks.push(chunk);
       remaining -= chunk.length;
     }
