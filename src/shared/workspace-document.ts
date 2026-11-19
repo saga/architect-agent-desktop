@@ -1,4 +1,4 @@
-import type { LayoutNode } from "../main/layout/layout-engine";
+import { validateLayout, type LayoutNode } from "../main/layout/layout-engine";
 
 export interface WorkspaceTabGroup {
   id: string;
@@ -57,18 +57,22 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
     return { ...structuredClone(DEFAULT_WORKSPACE_DOCUMENT), root };
   }
   const root = input.root as LayoutNode;
-  const collect = (node: LayoutNode, ids = new Set<string>()): Set<string> => {
-    if (!node || typeof node !== "object" || typeof node.id !== "string" || !node.id.trim() || ids.has(node.id)) throw new Error("Invalid workspace layout tree.");
+  let nodeCount = 0;
+  const collect = (node: LayoutNode, ids = new Set<string>(), depth = 0): Set<string> => {
+    nodeCount += 1;
+    if (nodeCount > 128 || depth > 32 || !node || typeof node !== "object" || typeof node.id !== "string" || !node.id.trim() || ids.has(node.id)) throw new Error("Invalid workspace layout tree.");
     ids.add(node.id);
     if (node.type === "split") {
       if (node.axis !== "horizontal" && node.axis !== "vertical") throw new Error("Invalid split axis.");
       if (!Number.isFinite(node.ratio) || node.ratio <= 0 || node.ratio >= 1) throw new Error("Invalid split ratio.");
-      collect(node.first, ids); collect(node.second, ids);
+      collect(node.first, ids, depth + 1); collect(node.second, ids, depth + 1);
     } else if (node.type !== "panel") throw new Error("Unknown layout node.");
     return ids;
   };
   const collectPanels = (node: LayoutNode): string[] => node.type === "panel" ? [node.id] : [...collectPanels(node.first), ...collectPanels(node.second)];
   const panelIds = collectPanels(root);
+  const layoutErrors = validateLayout(root);
+  if (layoutErrors.length > 0) throw new Error("Invalid workspace layout tree: " + layoutErrors.join(" "));
   const allNodeIds = collect(root);
   const floatingInput = Array.isArray(input.floating) ? input.floating : [];
   const floating = floatingInput.slice(0, 12).map((item) => {
