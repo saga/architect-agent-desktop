@@ -72,6 +72,8 @@ export interface AgentSessionItem {
 export interface WorkspaceLayoutState { version: 1; agentPanelWidth: number; agentPanelVisible: boolean; agentPanelPosition: "left" | "right" | "top" | "bottom"; }
 export interface WorkspaceDocument { version: 2; root: import("./workspace-document").WorkspaceDocument["root"]; tabGroups: import("./workspace-document").WorkspaceTabGroup[]; floating: import("./workspace-document").FloatingPanelRoot[]; activePanelId: string; }
 
+export interface PluginSummary { manifestVersion: 1; id: string; name: string; version: string; description?: string; skills: string[]; tools: string[]; workflows: string[]; views: string[]; enabled: boolean; }
+
 export interface BrowserApi {
   getWorkspaceLayout(): Promise<WorkspaceLayoutState>;
   saveWorkspaceLayout(layout: WorkspaceLayoutState): Promise<WorkspaceLayoutState>;
@@ -96,6 +98,11 @@ export interface BrowserApi {
   onToggleAgent(listener: () => void): () => void;
   copilotStatus(): Promise<{ status: string; message?: string; provider: AgentProvider }>;
   openAgentSettings(): Promise<void>;
+  pluginList(): Promise<PluginSummary[]>;
+  pluginImport(): Promise<PluginSummary | null>;
+  pluginSetEnabled(id: string, enabled: boolean): Promise<PluginSummary[]>;
+  pluginRemove(id: string): Promise<PluginSummary[]>;
+  pluginExport(id: string): Promise<string | null>;
   agentGetSettings(): Promise<AgentSettings>;
   agentInspectModels(provider: AgentProvider): Promise<AgentModelInfo[]>;
   onAgentSettingsUpdated(listener: (settings: AgentSettings) => void): () => void;
