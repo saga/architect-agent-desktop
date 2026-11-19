@@ -761,8 +761,10 @@ function floatAgentPanel(): void {
   if (agentPanelWindow && !agentPanelWindow.isDestroyed()) {
     agentPanelWindow.show(); agentPanelWindow.focus(); return;
   }
+  const savedBounds = workspaceDocument.floating.find((item) => item.panelId === "agent")?.bounds;
   const window = new BrowserWindow({
-    parent: mainWindow, width: 480, height: 760, minWidth: 360, minHeight: 480,
+    parent: mainWindow, x: savedBounds?.x ?? 120, y: savedBounds?.y ?? 100,
+    width: savedBounds?.width ?? 480, height: savedBounds?.height ?? 760, minWidth: 360, minHeight: 480,
     title: "Browser Agent", backgroundColor: "#ffffff", autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
@@ -772,14 +774,14 @@ function floatAgentPanel(): void {
   agentPanelWindow = window;
   workspaceDocument = createFloatingPanel(workspaceDocument, "agent", { x: 120, y: 100, width: 480, height: 760 });
   writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
-  window.on("move", () => {
+  const updateFloatingBounds = () => {
     const bounds = window.getBounds();
     workspaceDocument = { ...workspaceDocument, floating: workspaceDocument.floating.map((item) => item.panelId === "agent" ? { ...item, bounds } : item) };
-    writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
-  });
-  window.on("resize", () => {
-    const bounds = window.getBounds();
-    workspaceDocument = { ...workspaceDocument, floating: workspaceDocument.floating.map((item) => item.panelId === "agent" ? { ...item, bounds } : item) };
+  };
+  window.on("move", updateFloatingBounds);
+  window.on("resize", updateFloatingBounds);
+  window.on("close", () => {
+    updateFloatingBounds();
     writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
   });
   window.on("closed", () => {
@@ -889,7 +891,7 @@ function registerIpcHandlers(): void {
     workspaceLayout = parseWorkspaceLayout(parsed.data);
     writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
     const root = workspaceDocument.root;
-    if (root.type === "split" && ((root.first.type === "panel" && root.second.type === "panel") || root.axis === "horizontal" || root.axis === "vertical")) {
+    if (root.type === "split" && root.first.type === "panel" && root.second.type === "panel" && new Set([root.first.id, root.second.id]).size === 2 && [root.first.id, root.second.id].includes("browser") && [root.first.id, root.second.id].includes("agent")) {
       const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
       const [windowWidth, windowHeight] = mainWindow?.getContentSize() ?? [1200, 800];
       const available = Math.max(1, (isHorizontal ? (contentWidth ?? windowWidth) : windowHeight) - (workspaceLayout.agentPanelVisible ? 6 : 0));
@@ -897,7 +899,7 @@ function registerIpcHandlers(): void {
       const agentSize = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;
       const browserSize = Math.max(0, available - agentSize);
       root.axis = isHorizontal ? "horizontal" : "vertical";
-      root.ratio = available > 0 ? (agentFirst ? agentSize : browserSize) / available : 0.5;
+      root.ratio = workspaceLayout.agentPanelVisible && available > 0 ? Math.max(0.05, Math.min(0.95, (agentFirst ? agentSize : browserSize) / available)) : 0.5;
       const browserNode = root.first.id === "browser" || root.second.id === "browser" ? (root.first.id === "browser" ? root.first : root.second) : { type: "panel" as const, id: "browser", minWidth: 320, minHeight: 240 };
       const agentNode = root.first.id === "agent" || root.second.id === "agent" ? (root.first.id === "agent" ? root.first : root.second) : { type: "panel" as const, id: "agent", minWidth: 280, minHeight: 240 };
       root.first = agentFirst ? { ...agentNode, visible: workspaceLayout.agentPanelVisible } : browserNode;
