@@ -45,6 +45,8 @@ const api: BrowserApi = {
   },
   copilotStatus: () => ipcRenderer.invoke("copilot:status"),
   openAgentSettings: () => ipcRenderer.invoke("agent:open-settings"),
+  agentDataGetDirectory: () => ipcRenderer.invoke("agent-data:get-directory"),
+  agentDataSelectDirectory: () => ipcRenderer.invoke("agent-data:select-directory"),
   pluginList: (): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:list"),
   pluginImport: (): Promise<PluginSummary | null> => ipcRenderer.invoke("plugin:import"),
   pluginSetEnabled: (id: string, enabled: boolean): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:set-enabled", { id, enabled }),
