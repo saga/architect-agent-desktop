@@ -289,6 +289,7 @@ function activateTab(id: string): void {
   activeTabId = id;
   attachedView = nextTab.view;
   nativeViewStack.show("browser:" + id);
+  nativeViewStack.focus("browser:" + id);
   updateActiveBounds();
   sendState();
 }
