@@ -167,6 +167,9 @@ export class AgentTraceStore {
         ON CONFLICT(session_id, id) DO UPDATE SET
           kind=excluded.kind, content=excluded.content, tool_name=excluded.tool_name,
           tool_state=excluded.tool_state, created_at=excluded.created_at, updated_at=excluded.updated_at
+        WHERE kind IS NOT excluded.kind OR content IS NOT excluded.content
+          OR tool_name IS NOT excluded.tool_name OR tool_state IS NOT excluded.tool_state
+          OR created_at IS NOT excluded.created_at
       `);
       for (const item of items) {
         upsert.run(sessionId, item.id, item.kind, String(redact(item.content)), item.toolName ?? null,
