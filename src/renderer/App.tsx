@@ -219,7 +219,7 @@ function App() {
           </form>
 
           <div className="toolbar-actions">
-            <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => setAgentOpen((open) => { const next = !open; saveWorkspaceLayout(next); return next; })} /></Tooltip>
+            <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => { const next = !agentOpen; setAgentOpen(next); saveWorkspaceLayout(next); }} /></Tooltip>
             <button className="toolbar-button download-button" type="button"
               aria-label="Dismiss recent download status"
               title={latestDownload ? latestDownload.fileName : "Downloads"}
