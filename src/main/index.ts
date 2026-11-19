@@ -234,6 +234,8 @@ function updateActiveBounds(): void {
   const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
   const browserBounds = layout.bounds.browser;
   if (!browserBounds) {
+    currentBrowserBounds = null;
+    hideSnapshot();
     if (activeTabId) nativeViewStack.setBounds("browser:" + activeTabId, { x: 0, y: 0, width: 0, height: 0 });
     return;
   }
@@ -260,7 +262,10 @@ async function toggleSnapshot(): Promise<boolean> {
   }
   const tab = activeTabId ? tabs.get(activeTabId) : null;
   if (!tab || !mainWindow || mainWindow.isDestroyed()) return false;
+  const tabId = tab.id;
+  const pageUrl = tab.view.webContents.getURL();
   const captured = await tab.view.webContents.capturePage();
+  if (activeTabId !== tabId || tabs.get(tabId) !== tab || tab.view.webContents.isLoading() || tab.view.webContents.getURL() !== pageUrl) return false;
   const dataUrl = captured.toDataURL();
   const view = new WebContentsView({
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
