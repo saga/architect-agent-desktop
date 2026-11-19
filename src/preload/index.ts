@@ -2,6 +2,14 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, BrowserApi, BrowserDownloadEvent, PluginSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
 
 const api: BrowserApi = {
+  getWorkspaceProject: () => ipcRenderer.invoke("workspace:get-project"),
+  selectWorkspace: () => ipcRenderer.invoke("workspace:select-project"),
+  clearWorkspace: () => ipcRenderer.invoke("workspace:clear-project"),
+  onWorkspaceProjectUpdated: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, workspace: WorkspaceProject) => listener(workspace);
+    ipcRenderer.on("workspace:project-updated", handler);
+    return () => ipcRenderer.removeListener("workspace:project-updated", handler);
+  },
   getWorkspaceLayout: () => ipcRenderer.invoke("workspace:get-layout"),
   saveWorkspaceLayout: (layout: WorkspaceLayoutState) => ipcRenderer.invoke("workspace:save-layout", layout),
   getWorkspaceDocument: () => ipcRenderer.invoke("workspace:get-document"),
