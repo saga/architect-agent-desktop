@@ -22,7 +22,7 @@ function App() {
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState("");
   const [latestDownload, setLatestDownload] = useState<BrowserDownloadEvent | null>(null);
-  const [agentOpen, setAgentOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(true);
   const chromeRef = useRef<HTMLDivElement>(null);
   const browserWorkspaceRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
@@ -44,6 +44,7 @@ function App() {
       window.setTimeout(() => findRef.current?.focus(), 0);
     });
     const unsubscribeDownload = window.browser.onDownload(setLatestDownload);
+    const unsubscribeAgentToggle = window.browser.onToggleAgent(() => setAgentOpen((open) => !open));
 
     void window.browser.getState().then(setBrowserState).catch((error: unknown) => {
       console.error("Unable to load browser state", error);
@@ -54,6 +55,7 @@ function App() {
       unsubscribeFocus();
       unsubscribeFind();
       unsubscribeDownload();
+      unsubscribeAgentToggle();
     };
   }, []);
 
@@ -70,8 +72,8 @@ function App() {
       const workspaceBounds = workspace.getBoundingClientRect();
       window.browser.setContentBounds({
         top: Math.ceil(chrome.getBoundingClientRect().height),
-        left: 0,
-        right: Math.max(0, Math.ceil(window.innerWidth - workspaceBounds.right)),
+        left: Math.max(0, Math.floor(workspaceBounds.left)),
+        width: Math.max(0, Math.floor(workspaceBounds.width)),
       });
     };
 
