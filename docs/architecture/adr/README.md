@@ -1,19 +1,12 @@
 # Architecture Decision Records
 
-This directory records decisions for the proposed plugin and profile architecture of Architect Agent Desktop.
-
-These ADRs are **proposed** and describe design intent only. They do not indicate that the corresponding implementation exists.
-
 | ADR | Decision | Status |
 |---|---|---|
-| [ADR-001](./ADR-001-plugin-host-boundary.md) | Host-owned plugin lifecycle and extension contracts | Proposed |
-| [ADR-002](./ADR-002-profile-composition.md) | Profiles compose plugins and workspace configuration | Proposed |
-| [ADR-003](./ADR-003-capability-policy-separation.md) | Capability discovery is separate from authorization | Proposed |
-| [ADR-004](./ADR-004-layout-engine-ownership.md) | Layout Engine owns workspace geometry and snapshots | Proposed |
-| [ADR-005](./ADR-005-plugin-trust-and-execution.md) | Plugin execution follows explicit trust boundaries | Proposed |
-| [ADR-006](./ADR-006-incremental-adoption.md) | Adopt the architecture incrementally, local-first | Proposed |
+| [ADR-001](./ADR-001-plugin-host-boundary.md) | Declarative plugin packages owned by the Host | Proposed |
+| [ADR-002](./ADR-002-profile-composition.md) | Simple Team Profiles with local overrides | Proposed |
 
-## Decision scope
+The Layout Engine and Electron native-view decisions are documented in:
+- [Layout Engine](../LAYOUT-ENGINE.md)
+- [Electron Native View Layout and Snapshot Design](../ELECTRON-NATIVE-VIEW-LAYOUT-AND-SNAPSHOT-DESIGN.md)
 
-The records cover plugin lifecycle, profile composition, capability governance, UI/layout ownership, trust boundaries and rollout strategy.
-
+Only retain a separate ADR when it records a decision that is not already clear in the architecture documents.
