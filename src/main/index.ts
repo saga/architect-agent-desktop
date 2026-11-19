@@ -24,6 +24,7 @@ import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, 
 import { MAX_AGENT_SESSION_ITEMS, parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
 import { writeJsonAtomic } from "./json-store";
+import { exportPlugin, importPlugin, listPlugins, readEnabledPluginInstructions, removePlugin, setPluginEnabled } from "./plugins/plugin-registry";
 import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./login-shell-env";
 import { calculateLayout } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
@@ -74,6 +75,8 @@ const AGENT_SESSION_PATH = path.join(app.getPath("userData"), "agent-session.jso
 const WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
 const WORKSPACE_DOCUMENT_PATH = path.join(app.getPath("userData"), "workspace-document.json");
 const WINDOW_STATE_PATH = path.join(app.getPath("userData"), "window-state.json");
+const PLUGIN_ROOT = path.join(app.getPath("userData"), "plugins");
+const PLUGIN_REGISTRY_PATH = path.join(app.getPath("userData"), "plugins.json");
 function loadWorkspaceLayout(): WorkspaceLayoutState {
   try { return parseWorkspaceLayout(JSON.parse(readFileSync(WORKSPACE_LAYOUT_PATH, "utf8"))); }
   catch { return { ...DEFAULT_WORKSPACE_LAYOUT }; }
@@ -202,7 +205,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const text=typeof result === "string" ? result : JSON.stringify(result);
     return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
-}, agentSettings);
+}, agentSettings, () => readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH));
 let downloadSequence = 0;
 
 function safeWebUrl(value: string): boolean {
@@ -1176,6 +1179,50 @@ function registerIpcHandlers(): void {
     workspaceDocument = { ...workspaceDocument, root };
     writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
     return { ...workspaceLayout };
+  });
+  ipcMain.handle("plugin:list", (event) => {
+    assertTrustedSender(event);
+    return listPlugins(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
+  });
+  ipcMain.handle("plugin:import", async (event) => {
+    assertTrustedSender(event);
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "导入插件目录",
+      properties: ["openDirectory"],
+    });
+    if (canceled || !filePaths[0]) return null;
+    const plugin = importPlugin(filePaths[0], PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
+    recordOperation("plugin", "import " + plugin.id);
+    return plugin;
+  });
+  ipcMain.handle("plugin:set-enabled", (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.object({ id: z.string().min(3).max(100), enabled: z.boolean() }).safeParse(input);
+    if (!parsed.success) throw new Error("无效的插件状态请求。");
+    const plugins = setPluginEnabled(parsed.data.id, parsed.data.enabled, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
+    recordOperation("plugin", (parsed.data.enabled ? "enable " : "disable ") + parsed.data.id);
+    return plugins;
+  });
+  ipcMain.handle("plugin:remove", (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.string().min(3).max(100).safeParse(input);
+    if (!parsed.success) throw new Error("无效的插件 ID。");
+    const plugins = removePlugin(parsed.data, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
+    recordOperation("plugin", "remove " + parsed.data);
+    return plugins;
+  });
+  ipcMain.handle("plugin:export", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.string().min(3).max(100).safeParse(input);
+    if (!parsed.success) throw new Error("无效的插件 ID。");
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "选择插件导出目录",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (canceled || !filePaths[0]) return null;
+    const destination = exportPlugin(parsed.data, PLUGIN_ROOT, filePaths[0], PLUGIN_REGISTRY_PATH);
+    recordOperation("plugin", "export " + parsed.data);
+    return destination;
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
   ipcMain.handle("browser:toggle-snapshot", async (event) => { assertTrustedSender(event); return await toggleSnapshot(); });
