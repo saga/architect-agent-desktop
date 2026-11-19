@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentProvider, AgentSettings, BrowserApi, BrowserDownloadEvent, BrowserState, CopilotEvent } from "../shared/types";
+import type { AgentSettings, BrowserApi, BrowserDownloadEvent, BrowserState, CopilotEvent } from "../shared/types";
 
 const api: BrowserApi = {
   getState: () => ipcRenderer.invoke("browser:get-state"),
@@ -13,7 +13,6 @@ const api: BrowserApi = {
   stop: (id) => ipcRenderer.invoke("browser:stop", id),
   setContentBounds: (bounds) => ipcRenderer.send("browser:set-content-bounds", bounds),
   copilotStatus: () => ipcRenderer.invoke("copilot:status"),
-  agentSetProvider: (provider: AgentProvider) => ipcRenderer.invoke("agent:set-provider", provider),
   agentGetSettings: () => ipcRenderer.invoke("agent:get-settings"),
   agentSaveSettings: (settings: AgentSettings) => ipcRenderer.invoke("agent:save-settings", settings),
   copilotSend: (prompt) => ipcRenderer.invoke("copilot:send", { prompt }),
