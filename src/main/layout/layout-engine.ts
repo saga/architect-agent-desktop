@@ -5,7 +5,6 @@
  * windows are adapters that consume the resulting rectangles.
  */
 import type { LayoutAxis, LayoutNode, LayoutOptions, LayoutRect, LayoutResult } from "../../shared/layout-types";
-import { validateLayout } from "../../shared/layout-validation";
 export type { LayoutAxis, LayoutNode, LayoutOptions, LayoutRect, LayoutResult } from "../../shared/layout-types";
 
 const finite = (n: number, fallback: number) => Number.isFinite(n) ? n : fallback;
