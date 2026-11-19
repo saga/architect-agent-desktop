@@ -23,7 +23,7 @@ import { calculateLayout, type LayoutNode } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
 import type { WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
-import { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument } from "../shared/workspace-document";
+import { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel } from "../shared/workspace-document";
 
 const APP_ID = "com.saga.architectagentdesktop";
 const HOME_URL = "https://www.google.com/";
@@ -741,6 +741,8 @@ function publishWorkspaceLayout(): void {
 }
 
 function redockAgentPanel(): void {
+  workspaceDocument = redockFloatingPanel(workspaceDocument, "agent");
+  writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
   if (agentPanelWindow && !agentPanelWindow.isDestroyed()) {
     closingAgentPanelForRedock = true;
     agentPanelWindow.close();
@@ -766,11 +768,15 @@ function floatAgentPanel(): void {
     },
   });
   agentPanelWindow = window;
+  workspaceDocument = createFloatingPanel(workspaceDocument, "agent", { x: 120, y: 100, width: 480, height: 760 });
+  writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
   window.on("closed", () => {
     if (agentPanelWindow === window) agentPanelWindow = null;
     const wasRedocking = closingAgentPanelForRedock;
     closingAgentPanelForRedock = false;
     if (!wasRedocking) {
+      workspaceDocument = redockFloatingPanel(workspaceDocument, "agent");
+      writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
       workspaceLayout = { ...workspaceLayout, agentPanelVisible: true };
       writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
       publishWorkspaceLayout();
