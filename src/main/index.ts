@@ -959,7 +959,7 @@ function registerIpcHandlers(): void {
       };
     }
     const agentPanel = findPanel(workspaceDocument.root, "agent");
-    workspaceLayout = { ...workspaceLayout, agentPanelVisible: agentPanel?.visible !== false };
+    workspaceLayout = { ...workspaceLayout, agentPanelVisible: Boolean(agentPanel && agentPanel.visible !== false) };
     writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
     writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
     publishWorkspaceLayout();
