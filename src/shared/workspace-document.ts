@@ -45,7 +45,7 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
     const width = Math.round(Math.max(280, Math.min(720, finite(legacy.agentPanelWidth, 390))));
     const visible = legacy.agentPanelVisible !== false;
     const root = structuredClone(DEFAULT_WORKSPACE_DOCUMENT.root) as Extract<LayoutNode, { type: "split" }>;
-    root.ratio = visible ? Math.max(0.05, Math.min(0.95, 1 - width / 1200)) : 1;
+    root.ratio = visible ? Math.max(0.05, Math.min(0.95, 1 - width / 1200)) : 0.5;
     const agentNode = root.second as Extract<LayoutNode, { type: "panel" }>;
     root.second = { ...agentNode, visible };
     return { ...structuredClone(DEFAULT_WORKSPACE_DOCUMENT), root };
