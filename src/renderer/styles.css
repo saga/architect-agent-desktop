@@ -482,6 +482,12 @@ button { color: inherit; }
 .settings-window-content .ant-input,
 .settings-window-content .ant-select { width: 100%; }
 .settings-field-help { margin-top: 5px; color: #858e9b; font-size: 11px; line-height: 1.5; }
+.agent-tool-permission { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.agent-tool-permission .ant-radio-wrapper { display: flex; align-items: flex-start; margin-inline-end: 0; padding: 9px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+.agent-tool-permission .ant-radio-wrapper-checked { border-color: #4b79b9; background: #f5f9ff; }
+.agent-tool-permission .ant-radio { margin-top: 3px; }
+.tool-permission-title { display: block; color: #20242b; font-size: 13px; font-weight: 600; line-height: 1.4; }
+.tool-permission-desc { display: block; color: #7b8492; font-size: 11px; line-height: 1.45; }
 .settings-window-footer {
   display: flex;
   flex: 0 0 auto;

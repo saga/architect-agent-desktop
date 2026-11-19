@@ -35,11 +35,13 @@ export interface AgentModelInfo {
   credits?: number;
 }
 export type AgentThinkingLevel = "low" | "medium" | "high" | "xhigh";
+export type AgentToolPermission = "browser-only" | "assisted" | "allow-all";
 export interface AgentSettings {
   provider: AgentProvider;
   copilotModel: string;
   codebuddyModel: string;
   thinkingLevel: AgentThinkingLevel;
+  toolPermission: AgentToolPermission;
   contextWindow?: number;
   systemPrompt: string;
 }
@@ -48,6 +50,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   copilotModel: "",
   codebuddyModel: "",
   thinkingLevel: "medium",
+  toolPermission: "browser-only",
   systemPrompt: "",
 };
 

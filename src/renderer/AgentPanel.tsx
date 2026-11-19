@@ -5,7 +5,7 @@ import { Bubble, Sender } from "@ant-design/x";
 import type { AgentSettings, CopilotEvent } from "../shared/types";
 
 type ChatItem = { key: string; role: "user" | "assistant"; content: string; loading?: boolean };
-const EMPTY_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", systemPrompt: "" };
+const EMPTY_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", toolPermission: "browser-only", systemPrompt: "" };
 
 export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMaximize, onRestore }: { onClose: () => void; onDock: (position: "left" | "right" | "top" | "bottom") => void; onFloat?: () => void; onDragState?: (active: boolean) => void; onMaximize?: () => void; onRestore?: () => void }) {
   const [status, setStatus] = useState("checking");

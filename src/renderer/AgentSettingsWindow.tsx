@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Form, Input, Select, Spin, message } from "antd";
-import type { AgentModelInfo, AgentProvider, AgentSettings } from "../shared/types";
+import { Button, Form, Input, Radio, Select, Spin, message } from "antd";
+import type { AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission } from "../shared/types";
 
 const DEFAULT_SETTINGS: AgentSettings = {
   provider: "copilot", copilotModel: "", codebuddyModel: "",
-  thinkingLevel: "medium", systemPrompt: "",
+  thinkingLevel: "medium", toolPermission: "browser-only", systemPrompt: "",
 };
 
 export default function AgentSettingsWindow() {
@@ -79,6 +79,23 @@ export default function AgentSettingsWindow() {
             { label: "GitHub Copilot", value: "copilot" },
             { label: "CodeBuddy", value: "codebuddy" },
           ]} />
+        </Form.Item>
+        <Form.Item label="工具权限">
+          <Radio.Group className="agent-tool-permission" value={settings.toolPermission}
+            onChange={(event) => update("toolPermission", event.target.value as AgentToolPermission)}>
+            <Radio value="browser-only">
+              <span className="tool-permission-title">仅浏览器工具</span>
+              <span className="tool-permission-desc">只能读写当前网页，不能调用本机命令、文件或网络工具。</span>
+            </Radio>
+            <Radio value="assisted">
+              <span className="tool-permission-title">辅助权限</span>
+              <span className="tool-permission-desc">允许只读工具查看上下文；危险工具仍被禁用。</span>
+            </Radio>
+            <Radio value="allow-all">
+              <span className="tool-permission-title">Allow all</span>
+              <span className="tool-permission-desc">不询问，允许所有工具调用，包括本机命令和文件修改。仅在你信任请求时使用。</span>
+            </Radio>
+          </Radio.Group>
         </Form.Item>
         <Form.Item label="模型">
           <Select showSearch optionFilterProp="label" value={selectedId || undefined}
