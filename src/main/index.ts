@@ -50,6 +50,7 @@ const nativeViewStack = new NativeViewStackManager(() => mainWindow);
 let agentSettingsWindow: BrowserWindow | null = null;
 let agentPanelWindow: BrowserWindow | null = null;
 let closingAgentPanelForRedock = false;
+let isQuitting = false;
 let browserSession: Session;
 let activeTabId: string | null = null;
 let attachedView: WebContentsView | null = null;
@@ -730,6 +731,7 @@ function createMainWindow(): void {
   });
 
   void createTab();
+  if (workspaceDocument.floating.some((item) => item.panelId === "agent")) floatAgentPanel();
 }
 
 function isTrustedAppSender(webContents: WebContents): boolean {
@@ -770,11 +772,21 @@ function floatAgentPanel(): void {
   agentPanelWindow = window;
   workspaceDocument = createFloatingPanel(workspaceDocument, "agent", { x: 120, y: 100, width: 480, height: 760 });
   writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+  window.on("move", () => {
+    const bounds = window.getBounds();
+    workspaceDocument = { ...workspaceDocument, floating: workspaceDocument.floating.map((item) => item.panelId === "agent" ? { ...item, bounds } : item) };
+    writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+  });
+  window.on("resize", () => {
+    const bounds = window.getBounds();
+    workspaceDocument = { ...workspaceDocument, floating: workspaceDocument.floating.map((item) => item.panelId === "agent" ? { ...item, bounds } : item) };
+    writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+  });
   window.on("closed", () => {
     if (agentPanelWindow === window) agentPanelWindow = null;
     const wasRedocking = closingAgentPanelForRedock;
     closingAgentPanelForRedock = false;
-    if (!wasRedocking) {
+    if (!wasRedocking && !isQuitting) {
       workspaceDocument = redockFloatingPanel(workspaceDocument, "agent");
       writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
       workspaceLayout = { ...workspaceLayout, agentPanelVisible: true };
@@ -1027,6 +1039,7 @@ app.whenReady().then(() => {
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   void copilotAgent.stop();
 });
 
