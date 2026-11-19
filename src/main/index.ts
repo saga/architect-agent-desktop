@@ -210,15 +210,20 @@ function updateActiveBounds(): void {
     width: Math.max(0, Math.min(contentWidth ?? (width - left), width - left)),
     height: Math.max(0, height - top),
   };
+  const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
   const splitterSize = workspaceLayout.agentPanelVisible ? 6 : 0;
-  const agentWidth = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;
-  const availableWidth = Math.max(0, viewport.width - splitterSize);
-  const browserWidth = Math.max(0, availableWidth - agentWidth);
+  const agentSize = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;
+  const axisSize = isHorizontal ? viewport.width : viewport.height;
+  const available = Math.max(0, axisSize - splitterSize);
+  const browserSize = Math.max(0, available - agentSize);
+  const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
+  const browserNode: LayoutNode = { type: "panel", id: "browser", minWidth: 320, minHeight: 240 };
+  const agentNode: LayoutNode = { type: "panel", id: "agent", minWidth: 280, minHeight: 240, visible: workspaceLayout.agentPanelVisible };
   const layoutTree: LayoutNode = {
-    type: "split", id: "workspace-root", axis: "horizontal",
-    ratio: availableWidth > 0 ? browserWidth / availableWidth : 1, splitterSize,
-    first: { type: "panel", id: "browser", minWidth: 320, minHeight: 240 },
-    second: { type: "panel", id: "agent", minWidth: 280, minHeight: 240, visible: workspaceLayout.agentPanelVisible },
+    type: "split", id: "workspace-root", axis: isHorizontal ? "horizontal" : "vertical",
+    ratio: available > 0 ? (agentFirst ? agentSize : browserSize) / available : 1, splitterSize,
+    first: agentFirst ? agentNode : browserNode,
+    second: agentFirst ? browserNode : agentNode,
   };
   const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
   const browserBounds = layout.bounds.browser;
@@ -801,7 +806,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("workspace:save-layout", (event, input: unknown) => {
     assertTrustedSender(event);
-    const parsed = z.object({ version: z.literal(1), agentPanelWidth: z.number().finite().min(280).max(720), agentPanelVisible: z.boolean() }).safeParse(input);
+    const parsed = z.object({ version: z.literal(1), agentPanelWidth: z.number().finite().min(280).max(720), agentPanelVisible: z.boolean(), agentPanelPosition: z.enum(["left", "right", "top", "bottom"]).default("right") }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid workspace layout.");
     workspaceLayout = parseWorkspaceLayout(parsed.data);
     writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
