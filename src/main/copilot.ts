@@ -2,8 +2,8 @@ import type { CopilotClient, CopilotSession } from "@github/copilot-sdk" with { 
 import { z } from "zod";
 import type { AgentModelInfo, AgentProvider, AgentSettings } from "../shared/types";
 import { app } from "electron";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
 import path from "node:path";
 
@@ -68,7 +68,7 @@ const INSTRUCTIONS = [
 export class CopilotDesktopAgent {
  private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null;
  constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings){this.settings=settings;}
- async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(!["low","medium","high"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");const changed=settings.provider!==this.settings.provider||settings.copilotModel!==this.settings.copilotModel||settings.codebuddyModel!==this.settings.codebuddyModel||settings.thinkingLevel!==this.settings.thinkingLevel||settings.systemPrompt!==this.settings.systemPrompt;if(changed)await this.stop();this.settings={...settings};}
+ async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(!["low","medium","high","xhigh"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");const changed=settings.provider!==this.settings.provider||settings.copilotModel!==this.settings.copilotModel||settings.codebuddyModel!==this.settings.codebuddyModel||settings.thinkingLevel!==this.settings.thinkingLevel||settings.systemPrompt!==this.settings.systemPrompt;if(changed)await this.stop();this.settings={...settings};}
 
  async inspectModels(provider: AgentProvider): Promise<AgentModelInfo[]> {
   if (provider === "codebuddy") return readCodeBuddyCatalog().map(model => normalizeModelInfo("codebuddy", model)).filter((m): m is AgentModelInfo => Boolean(m));
@@ -92,7 +92,35 @@ export class CopilotDesktopAgent {
  ];}
  private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),reasoningEffort:this.settings.thinkingLevel,...(this.settings.systemPrompt.trim()?{systemMessage:{mode:"append",content:this.settings.systemPrompt.trim()}}:{}),tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler} as never)),onPermissionRequest:async()=>({kind:"user-not-available"} as never),onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
  private async sendCopilot(prompt:string){const session=await this.ensureCopilotSession();const off=session.on("assistant.message_delta",event=>{const delta=(event as unknown as{data?:{deltaContent?:string}}).data?.deltaContent;if(delta)this.publish({type:"delta",text:delta});});try{const result=await session.sendAndWait({prompt:INSTRUCTIONS+"\n\nUser request: "+prompt},300000);const text=(result as unknown as{data?:{content?:string}}|undefined)?.data?.content;if(text)this.publish({type:"message",text});}finally{off();}}
- private async sendCodeBuddy(prompt:string){const sdk=await import("@tencent-ai/agent-sdk");const handlers=await this.handlers();const tools=handlers.map(({name,description,schema,handler})=>sdk.tool(name,description,schema.shape,async(input:any)=>({content:[{type:"text" as const,text:await (handler as (value:any)=>Promise<string>)(input)}]})));const server=sdk.createSdkMcpServer({name:"browser",tools});const allowed=handlers.map(({name})=>"mcp__browser__"+name);const query=sdk.query({prompt:"User request: "+prompt,options:{...(this.settings.codebuddyModel.trim()?{model:this.settings.codebuddyModel.trim()}:{}),effort:this.settings.thinkingLevel,thinking:{type:"adaptive"},systemPrompt:{append:[this.settings.systemPrompt.trim(),INSTRUCTIONS].filter(Boolean).join("\n\n")},cwd:codeBuddyWorkspace(),...(codeBuddyExecutable()?{pathToCodebuddyCode:codeBuddyExecutable()}:{}),settingSources:[],persistSession:false,permissionMode:"default",maxTurns:12,mcpServers:{browser:server},allowedTools:allowed}});this.codeBuddyQuery=query;let answer="";try{for await(const item of query){const m=item as{type?:string;message?:{content?:Array<{type?:string;text?:string}>};subtype?:string;error?:unknown};if(m.type==="assistant"&&Array.isArray(m.message?.content)){for(const part of m.message.content)if(part.type==="text"&&part.text){answer+=part.text;this.publish({type:"delta",text:part.text});}}if(m.type==="result"&&m.subtype&&m.subtype!=="success")throw new Error("CodeBuddy 执行失败："+String(m.error||m.subtype));}if(answer.trim())this.publish({type:"message",text:answer.trim()});else throw new Error("CodeBuddy 已结束但没有返回文本，请确认 CLI 登录状态和模型权限。");}finally{this.codeBuddyQuery=null;}}
+ private async sendCodeBuddy(prompt:string){
+  const sdk=await import("@tencent-ai/agent-sdk");
+  const handlers=await this.handlers();
+  const tools=handlers.map(({name,description,schema,handler})=>sdk.tool(name,description,schema.shape,async(input:any)=>({content:[{type:"text" as const,text:await (handler as (value:any)=>Promise<string>)(input)}]})));
+  const server=sdk.createSdkMcpServer({name:"browser",tools});
+  const allowed=handlers.map(({name})=>"mcp__browser__"+name);
+  const selectedModel=this.settings.codebuddyModel.trim();
+  const catalog=readCodeBuddyCatalog();
+  const model=catalog.find(item=>item.id===selectedModel);
+  let cwd=codeBuddyWorkspace(), settingSources:string[]=[];
+  let cleanup:(()=>void)|undefined;
+  if(this.settings.contextWindow!==undefined){
+   const normalized=model?normalizeModelInfo("codebuddy",model):undefined;
+   const option=normalized?.contextWindowOptions?.find(item=>item.value===this.settings.contextWindow);
+   if(!option)throw new Error("当前 CodeBuddy 模型不支持所选 Context Window；请重新 Inspect 模型后选择有效档位。");
+   const temp=mkdtempSync(path.join(tmpdir(),"architect-agent-codebuddy-context-"));
+   try{
+    const configDir=path.join(temp,".codebuddy");mkdirSync(configDir,{recursive:true});
+    const sourceFiles=[path.join(homedir(),".codebuddy","models.json"),path.join(codeBuddyWorkspace(),".codebuddy","models.json")];
+    for(const source of sourceFiles)if(existsSync(source)){writeFileSync(path.join(configDir,"models.json"),readFileSync(source),{mode:0o600});break;}
+    writeFileSync(path.join(configDir,"settings.json"),JSON.stringify({contextWindow:this.settings.contextWindow},null,2)+"\n",{encoding:"utf8",mode:0o600});
+   }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
+   cwd=temp;settingSources=["project"];cleanup=()=>rmSync(temp,{recursive:true,force:true});
+  }
+  const query=sdk.query({prompt:"User request: "+prompt,options:{...(selectedModel?{model:selectedModel}:{}),effort:this.settings.thinkingLevel,thinking:{type:"adaptive"},systemPrompt:{append:[this.settings.systemPrompt.trim(),INSTRUCTIONS].filter(Boolean).join("\n\n")},cwd,...(codeBuddyExecutable()?{pathToCodebuddyCode:codeBuddyExecutable()}:{}),settingSources,persistSession:false,permissionMode:"default",maxTurns:12,mcpServers:{browser:server},allowedTools:allowed}});
+  this.codeBuddyQuery=query;let answer="";
+  try{for await(const item of query){const m=item as{type?:string;message?:{content?:Array<{type?:string;text?:string}>};subtype?:string;error?:unknown};if(m.type==="assistant"&&Array.isArray(m.message?.content)){for(const part of m.message.content)if(part.type==="text"&&part.text){answer+=part.text;this.publish({type:"delta",text:part.text});}}if(m.type==="result"&&m.subtype&&m.subtype!=="success")throw new Error("CodeBuddy 执行失败："+String(m.error||m.subtype));}if(answer.trim())this.publish({type:"message",text:answer.trim()});else throw new Error("CodeBuddy 已结束但没有返回文本，请确认 CodeBuddy 登录状态和模型权限。");}
+  finally{this.codeBuddyQuery=null;cleanup?.();}
+ }
  async send(prompt:string):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt);else await this.sendCopilot(prompt);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"\n\nCodeBuddy 登录：在系统终端运行 codebuddy，按 CLI 提示完成登录；登录后回到应用重试。":"\n\nGitHub Copilot CLI 登录：在系统终端运行 copilot login，选择 GitHub.com 和浏览器登录，完成授权后回到终端。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
  async cancel():Promise<void>{if(this.settings.provider==="codebuddy"&&this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();else if(this.active&&this.session)await this.session.abort();}
  async stop():Promise<void>{const client=this.client;this.client=null;this.session=null;if(client)await client.stop();}
