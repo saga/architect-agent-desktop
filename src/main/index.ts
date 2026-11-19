@@ -1248,7 +1248,8 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("plugin:set-enabled", (event, input: unknown) => {
     assertTrustedSender(event);
-    const parsed = z.object({ id: z.string().min(3).max(100), enabled: z.boolean() }).safeParse(input);    if (!parsed.success) throw new Error("无效的插件状态请求。");
+    const parsed = z.object({ id: z.string().min(3).max(100), enabled: z.boolean() }).safeParse(input);
+    if (!parsed.success) throw new Error("无效的插件状态请求。");
     const plugins = setPluginEnabled(parsed.data.id, parsed.data.enabled, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", (parsed.data.enabled ? "enable " : "disable ") + parsed.data.id);
     return plugins;
