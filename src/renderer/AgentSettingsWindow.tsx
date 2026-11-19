@@ -188,6 +188,17 @@ export default function AgentSettingsWindow() {
       <Divider />
       <section className="plugin-manager">
         <div className="plugin-manager-heading">
+          <div>
+            <h2>Agent Data</h2>
+            <p>保存 Session 快照、模型运行事件和工具调用记录。默认位于应用数据目录下的 agent-data，可切换到其他本地目录。</p>
+            <div className="settings-field-help">{agentDataDirectory || "正在读取目录…"}</div>
+          </div>
+          <Button loading={changingDataDirectory} onClick={() => void chooseAgentDataDirectory()}>更改数据目录</Button>
+        </div>
+      </section>
+      <Divider />
+      <section className="plugin-manager">
+        <div className="plugin-manager-heading">
           <div><h2>插件管理</h2><p>目录中需要包含 manifest.json。可参考仓库 examples/plugins/research-assistant。插件只能提供 Skills、宿主工具引用、工作流和宿主视图声明，不能运行任意代码。</p></div>
           <Button type="primary" loading={pluginBusy} onClick={() => void importPlugin()}>导入插件目录</Button>
         </div>
