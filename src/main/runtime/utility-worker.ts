@@ -25,11 +25,6 @@ function callCapability(capability: string, args: unknown): Promise<unknown> {
 }
 
 const api = Object.freeze({
-  workspace: Object.freeze({
-    listFiles: (path = "", recursive = false) => callCapability("workspace.list", { path, recursive }),
-    readFile: (path: string) => callCapability("workspace.read", { path }),
-    writeFile: (path: string, content: string) => callCapability("workspace.write", { path, content }),
-  }),
   tools: Object.freeze({
     call: (name: string, input: unknown = {}) => callCapability("tools.call", { name, input }),
   }),
@@ -75,8 +70,8 @@ parentPort.on("message", (event) => {
     void (async () => {
       try {
         const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => (...values: unknown[]) => Promise<unknown>;
-        const execute = new AsyncFunction("tools", "workspace", "log", message.code as string);
-        const value = await execute(api.tools, api.workspace, api.log);
+        const execute = new AsyncFunction("tools", "log", message.code as string);
+        const value = await execute(api.tools, api.log);
         send({ type: "result", value });
       } catch (error) {
         send({ type: "error", error: error instanceof Error ? error.stack ?? error.message : String(error) });
