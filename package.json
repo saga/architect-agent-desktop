@@ -1,0 +1,61 @@
+{
+  "name": "architect-agent-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A cross-platform desktop workspace with a built-in multi-tab web browser.",
+  "main": "dist/main/index.js",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "dev": "concurrently -k -n VITE,TSC,ELECTRON \"vite --host 127.0.0.1\" \"tsc -p tsconfig.electron.json --watch\" \"wait-on tcp:5173 dist/main/index.js && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
+    "build": "npm run clean && npm run typecheck && vite build && tsc -p tsconfig.electron.json",
+    "package:mac": "npm run build && electron-builder --mac dmg zip",
+    "package:win": "npm run build && electron-builder --win nsis portable"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.2.0",
+    "cross-env": "^10.0.0",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0",
+    "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.saga.architectagentdesktop",
+    "productName": "Architect Agent Desktop",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "package.json"],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ]
+    },
+    "dmg": { "title": "Architect Agent Desktop" },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64", "arm64"] },
+        { "target": "portable", "arch": ["x64", "arm64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
