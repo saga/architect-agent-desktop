@@ -16,6 +16,7 @@ interface ManagedView {
  */
 export class NativeViewStackManager {
   private readonly views = new Map<string, ManagedView>();
+  private focusedViewId: string | null = null;
 
   constructor(private readonly getWindow: () => BrowserWindow | null) {}
 
@@ -50,7 +51,17 @@ export class NativeViewStackManager {
     const item = this.views.get(id);
     if (!item || !item.visible) return;
     this.detach(item);
+    if (this.focusedViewId === id) this.focusedViewId = null;
   }
+
+  focus(id: string): void {
+    const item = this.views.get(id);
+    if (!item || !item.visible || item.view.webContents.isDestroyed()) return;
+    item.view.webContents.focus();
+    this.focusedViewId = id;
+  }
+
+  getFocusedViewId(): string | null { return this.focusedViewId; }
 
   setBounds(id: string, bounds: Rectangle): void {
     const item = this.views.get(id);
@@ -80,12 +91,14 @@ export class NativeViewStackManager {
     if (!item) return;
     this.detach(item);
     this.views.delete(id);
+    if (this.focusedViewId === id) this.focusedViewId = null;
     if (close && !item.view.webContents.isDestroyed()) item.view.webContents.close();
   }
 
   closeAll(): void {
     for (const item of this.views.values()) this.detach(item);
     this.views.clear();
+    this.focusedViewId = null;
   }
 
   private applyBounds(item: ManagedView): void {
