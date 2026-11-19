@@ -539,4 +539,11 @@ button { color: inherit; }
 .plugin-manager .ant-list-item-action { display: flex; align-items: center; gap: 8px; margin-inline-start: 12px; }
 .settings-window-loading { display: grid; width: 100%; height: 100vh; place-items: center; background: #fff; }
 
-.agent-workspace { color:#87909d; font-size:10px; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.agent-workspace-row { display:flex; align-items:center; gap:2px; min-width:0; }
+.agent-workspace { display:inline-flex; align-items:center; gap:3px; min-width:0; padding:0; border:0; background:none; color:#87909d; font-family:inherit; font-size:11px; line-height:1.35; text-align:left; cursor:pointer; }
+.agent-workspace:hover { color:#1677ff; }
+.agent-workspace.is-empty { color:#5b6472; }
+.agent-workspace.is-empty .agent-workspace-label { text-decoration:underline dotted; text-underline-offset:2px; }
+.agent-workspace-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.agent-workspace-clear { flex:0 0 auto; padding:0 2px; border:0; background:none; color:#a3aab5; font-size:12px; line-height:1; cursor:pointer; }
+.agent-workspace-clear:hover { color:#e5484d; }

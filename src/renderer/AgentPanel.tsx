@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Dropdown, Popconfirm, Tag, message, Tooltip } from "antd";
-import { AppstoreOutlined, DeleteOutlined, SettingOutlined } from "@ant-design/icons";
+import { AppstoreOutlined, DeleteOutlined, FolderOpenOutlined, SettingOutlined } from "@ant-design/icons";
 import { Bubble, Sender } from "@ant-design/x";
 import XMarkdown from "@ant-design/x-markdown";
 import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } from "../shared/types";
@@ -192,6 +192,18 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
   };
 
+  const chooseWorkspace = async () => {
+    try {
+      const selected = await window.browser.selectWorkspace();
+      if (selected) setWorkspaceProject(selected);
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+  };
+
+  const clearWorkspace = async () => {
+    try { setWorkspaceProject(await window.browser.clearWorkspace()); }
+    catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+  };
+
   const clearSession = async () => {
     try {
       if (typeof window.browser.agentClearSession === "function") await window.browser.agentClearSession();
@@ -218,6 +230,8 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const modelName = settings.provider === "copilot" ? settings.copilotModel : settings.codebuddyModel;
 
   const subtitle = [providerName, modelName || "使用 CLI 默认模型", `${settings.thinkingLevel} thinking`].join(" · ");
+  const fileAccess = settings.toolPermission === "browser-only" ? "文件访问关闭" : settings.toolPermission === "assisted" ? "只读" : "可读写";
+  const workspaceLabel = workspaceProject.name ? "工作区：" + workspaceProject.name + " · " + fileAccess : "未选择工作区 · 选择项目目录";
   const dockItems = [
     { key: "left", label: "靠左停靠" },
     { key: "right", label: "靠右停靠" },
@@ -235,7 +249,17 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       >
         <strong className="agent-panel-title">Browser Agent</strong>
         <div className="agent-subtitle" title={subtitle}>{subtitle}</div>
-        <div className="agent-workspace" title={workspaceProject.path || "尚未选择本地项目目录"}>{workspaceProject.name ? "工作区：" + workspaceProject.name + " · " + (settings.toolPermission === "browser-only" ? "文件访问关闭" : settings.toolPermission === "assisted" ? "只读" : "可读写") : "未选择工作区"}</div>
+        <div className="agent-workspace-row">
+          <button type="button" draggable={false} className={"agent-workspace" + (workspaceProject.name ? "" : " is-empty")}
+            title={workspaceProject.path ? workspaceProject.path + "（点击切换工作区）" : "点击选择本地项目目录"}
+            onClick={() => void chooseWorkspace()}>
+            <FolderOpenOutlined aria-hidden />
+            <span className="agent-workspace-label">{workspaceLabel}</span>
+          </button>
+          {workspaceProject.name && <Popconfirm title="关闭工作区？" description="Agent 会话会切换到无工作区记录。" okText="关闭" cancelText="取消" onConfirm={() => void clearWorkspace()}>
+            <button type="button" draggable={false} className="agent-workspace-clear" aria-label="关闭工作区" title="关闭工作区">×</button>
+          </Popconfirm>}
+        </div>
       </div>
       <div className="agent-panel-toolbar">
         <Tag className="agent-status-tag" color={status === "ready" ? "success" : "default"}>{status}</Tag>
