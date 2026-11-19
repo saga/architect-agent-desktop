@@ -19,11 +19,13 @@ import { CopilotDesktopAgent } from "./copilot";
 import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import type { AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import { calculateLayout, type LayoutNode } from "./layout/layout-engine";
 
 const APP_ID = "com.saga.architectagentdesktop";
 const HOME_URL = "https://www.google.com/";
 const BROWSER_PARTITION = "persist:architect-agent-browser";
 const DEFAULT_CONTENT_TOP = 91;
+const WORKSPACE_LAYOUT: LayoutNode = { type: "panel", id: "browser", minWidth: 320, minHeight: 240 };
 const ASKABLE_PERMISSIONS = new Set(["media", "display-capture", "geolocation", "notifications", "clipboard-read"]);
 
 interface BrowserTab {
@@ -183,12 +185,25 @@ function sendState(): void {
 function updateActiveBounds(): void {
   if (!mainWindow || mainWindow.isDestroyed() || !attachedView) return;
   const [width, height] = mainWindow.getContentSize();
+  const left = Math.max(0, Math.min(contentLeft, width));
   const top = Math.max(0, Math.min(contentTop, height));
-  attachedView.setBounds({
-    x: Math.max(0, Math.min(contentLeft, width)),
+  const viewport = {
+    x: left,
     y: top,
-    width: Math.max(0, Math.min(contentWidth ?? (width - contentLeft), width - Math.max(0, Math.min(contentLeft, width)))),
+    width: Math.max(0, Math.min(contentWidth ?? (width - left), width - left)),
     height: Math.max(0, height - top),
+  };
+  const layout = calculateLayout(WORKSPACE_LAYOUT, viewport, { pixelRatio: 1 });
+  const browserBounds = layout.bounds.browser;
+  if (!browserBounds) {
+    attachedView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    return;
+  }
+  attachedView.setBounds({
+    x: Math.round(browserBounds.x),
+    y: Math.round(browserBounds.y),
+    width: Math.round(browserBounds.width),
+    height: Math.round(browserBounds.height),
   });
 }
 
