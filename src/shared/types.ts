@@ -52,6 +52,7 @@ export interface BrowserApi {
   floatAgentPanel(): Promise<void>;
   redockAgentPanel(): Promise<void>;
   toggleSnapshot(): Promise<boolean>;
+  onSnapshotState(listener: (active: boolean) => void): () => void;
   onWorkspaceLayoutUpdated(listener: (layout: WorkspaceLayoutState) => void): () => void;
   getState(): Promise<BrowserState>;
   createTab(url?: string): Promise<string>;
