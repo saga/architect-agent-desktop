@@ -106,7 +106,7 @@ export class CopilotDesktopAgent {
   const model=catalog.find(item=>item.id===selectedModel);
   const inspected=model?normalizeModelInfo("codebuddy",model):undefined;
   const effort=inspected?.effortOptions?.includes(this.settings.thinkingLevel)?this.settings.thinkingLevel:undefined;
-  let cwd=codeBuddyWorkspace(), settingSources:string[]=[];
+  let cwd=codeBuddyWorkspace(), settingSources:("user"|"project"|"local")[]=[];
   let cleanup:(()=>void)|undefined;
   if(this.settings.contextWindow!==undefined){
    const normalized=model?normalizeModelInfo("codebuddy",model):undefined;
