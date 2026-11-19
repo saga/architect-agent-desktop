@@ -85,6 +85,10 @@ Choose **打开工作区** in the main toolbar to select a local project directo
 
 这是一份本地运行轨迹与诊断证据，不是防篡改的合规审计账本。SDK 未提供的模型传输层请求、授权决策或外部副作用，不会被推断为已记录。
 
+### Session Explorer
+
+在 Agent 面板工具栏中打开「Session Explorer」，可以按工作区查看完整会话消息、运行事件时间线、工具调用参数与结果、模型请求耗时以及 SDK 可观察到的上下文内容。模型 Token 用量仅在 Provider 实际返回 usage 数据时展示；SDK 未暴露的底层请求不会被推断。会话消息逐条保存在 SQLite session_messages 表中，不再受旧版 200 条消息截断影响。详见 [ADR-003](docs/architecture/adr/ADR-003-session-explorer.md)。
+
 ## Plugins
 
 Open **Agent 与插件配置** from the application settings, then import a plugin directory. The repository includes a working example at `examples/plugins/research-assistant`.

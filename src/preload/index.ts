@@ -48,6 +48,7 @@ const api: BrowserApi = {
   agentDataGetDirectory: () => ipcRenderer.invoke("agent-data:get-directory"),
   agentDataSelectDirectory: () => ipcRenderer.invoke("agent-data:select-directory"),
   agentTraceListSessions: () => ipcRenderer.invoke("agent-trace:list-sessions"),
+  agentTraceListSessionItems: (sessionId: string) => ipcRenderer.invoke("agent-trace:list-session-items", sessionId),
   agentTraceQuery: (query) => ipcRenderer.invoke("agent-trace:query", query),
   pluginList: (): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:list"),
   pluginImport: (): Promise<PluginSummary | null> => ipcRenderer.invoke("plugin:import"),

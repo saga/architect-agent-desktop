@@ -39,6 +39,26 @@ describe("AgentTraceStore", () => {
     store.close();
   });
 
+  it("persists the complete session transcript independently of the 200-item legacy window", () => {
+    const store = new AgentTraceStore(temporaryDirectory());
+    const items = Array.from({ length: 250 }, (_, index) => ({
+      id: "message-" + index,
+      kind: index % 2 === 0 ? "user" : "assistant",
+      content: "message body " + index,
+      createdAt: 1_700_000_000_000 + index,
+    }));
+    store.saveSessionItems("session-long", "/workspace/long", items);
+    const restored = store.listSessionItems("session-long");
+    expect(restored).toHaveLength(250);
+    expect(restored[0]?.id).toBe("message-0");
+    expect(restored[249]?.id).toBe("message-249");
+    expect(store.listSessions()[0]).toMatchObject({ id: "session-long", messageCount: 250, eventCount: 0 });
+
+    store.clearSessionItems("session-long");
+    expect(store.listSessionItems("session-long")).toHaveLength(0);
+    store.close();
+  });
+
   it("switches the active data directory without deleting the previous store", () => {
     const first = temporaryDirectory();
     const second = temporaryDirectory();
