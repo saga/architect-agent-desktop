@@ -48,6 +48,8 @@ const permissionGrants = new Map<string, Set<string>>();
 let mainWindow: BrowserWindow | null = null;
 const nativeViewStack = new NativeViewStackManager(() => mainWindow);
 let agentSettingsWindow: BrowserWindow | null = null;
+let agentPanelWindow: BrowserWindow | null = null;
+let closingAgentPanelForRedock = false;
 let browserSession: Session;
 let activeTabId: string | null = null;
 let attachedView: WebContentsView | null = null;
@@ -731,7 +733,62 @@ function createMainWindow(): void {
 }
 
 function isTrustedAppSender(webContents: WebContents): boolean {
-  return Boolean((mainWindow && !mainWindow.isDestroyed() && webContents === mainWindow.webContents) || (agentSettingsWindow && !agentSettingsWindow.isDestroyed() && webContents === agentSettingsWindow.webContents));
+  return Boolean((mainWindow && !mainWindow.isDestroyed() && webContents === mainWindow.webContents) || (agentSettingsWindow && !agentSettingsWindow.isDestroyed() && webContents === agentSettingsWindow.webContents) || (agentPanelWindow && !agentPanelWindow.isDestroyed() && webContents === agentPanelWindow.webContents));
+}
+
+function publishWorkspaceLayout(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("workspace:layout-updated", { ...workspaceLayout });
+}
+
+function redockAgentPanel(): void {
+  if (agentPanelWindow && !agentPanelWindow.isDestroyed()) {
+    closingAgentPanelForRedock = true;
+    agentPanelWindow.close();
+  }
+  agentPanelWindow = null;
+  workspaceLayout = { ...workspaceLayout, agentPanelVisible: true };
+  writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
+  publishWorkspaceLayout();
+  updateActiveBounds();
+}
+
+function floatAgentPanel(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (agentPanelWindow && !agentPanelWindow.isDestroyed()) {
+    agentPanelWindow.show(); agentPanelWindow.focus(); return;
+  }
+  const window = new BrowserWindow({
+    parent: mainWindow, width: 480, height: 760, minWidth: 360, minHeight: 480,
+    title: "Browser Agent", backgroundColor: "#ffffff", autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/index.js"),
+      contextIsolation: true, nodeIntegration: false, sandbox: true,
+    },
+  });
+  agentPanelWindow = window;
+  window.on("closed", () => {
+    if (agentPanelWindow !== window) return;
+    agentPanelWindow = null;
+    if (!closingAgentPanelForRedock) {
+      workspaceLayout = { ...workspaceLayout, agentPanelVisible: true };
+      writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
+      publishWorkspaceLayout();
+      updateActiveBounds();
+    }
+    closingAgentPanelForRedock = false;
+  });
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  const loading = devServerUrl
+    ? window.loadURL(devServerUrl + (devServerUrl.includes("?") ? "&" : "?") + "agent-panel=1")
+    : window.loadFile(path.join(__dirname, "../renderer/index.html"), { query: { "agent-panel": "1" } });
+  void loading.catch((error: unknown) => {
+    console.error("Unable to open floating Agent panel", error);
+    if (!window.isDestroyed()) window.close();
+  });
+  workspaceLayout = { ...workspaceLayout, agentPanelVisible: false };
+  writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
+  publishWorkspaceLayout();
+  updateActiveBounds();
 }
 
 function openAgentSettingsWindow(): void {
@@ -796,6 +853,8 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 
 function registerIpcHandlers(): void {
   ipcMain.handle("workspace:get-layout", (event) => { assertTrustedSender(event); return { ...workspaceLayout }; });
+  ipcMain.handle("workspace:float-agent", (event) => { assertTrustedSender(event); floatAgentPanel(); });
+  ipcMain.handle("workspace:redock-agent", (event) => { assertTrustedSender(event); redockAgentPanel(); });
   ipcMain.handle("workspace:get-document", (event) => { assertTrustedSender(event); return workspaceDocument; });
   ipcMain.handle("workspace:save-document", (event, input: unknown) => {
     assertTrustedSender(event);
