@@ -2,8 +2,7 @@
 
 | ADR | 决策 | 状态 |
 |---|---|---|
-| [ADR-001](./ADR-001-plugin-host-boundary.md) | 由宿主应用管理声明式插件包 | 提议中 |
-| [ADR-002](./ADR-002-profile-composition.md) | 简化的团队工作配置与本地覆盖 | 提议中 |
+| [ADR-001](./ADR-001-plugin-host-boundary.md) | 由宿主应用管理声明式插件包 | 已采纳并实现第一版 |
 
 Layout Engine 和 Electron 原生视图相关决策记录在以下文档中：
 
