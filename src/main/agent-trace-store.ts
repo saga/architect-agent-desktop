@@ -92,9 +92,9 @@ export class AgentTraceStore {
     const timestamp = input.timestamp ?? new Date().toISOString();
     const safe = redact(input.data ?? null);
     let serialized: string;
+    let payloadComplete = true;
     try { serialized = JSON.stringify(safe) ?? "null"; }
     catch { serialized = JSON.stringify({ payloadOmitted: true, reason: "event payload could not be serialized" }); payloadComplete = false; }
-    let payloadComplete = true;
     if (Buffer.byteLength(serialized, "utf8") > MAX_PAYLOAD_BYTES) {
       serialized = JSON.stringify({
         payloadOmitted: true,
