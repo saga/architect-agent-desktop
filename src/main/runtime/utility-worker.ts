@@ -25,6 +25,11 @@ function callCapability(capability: string, args: unknown): Promise<unknown> {
 }
 
 const api = Object.freeze({
+  workspace: Object.freeze({
+    listFiles: (path = "", recursive = false) => callCapability("workspace.list", { path, recursive }),
+    readFile: (path: string) => callCapability("workspace.read", { path }),
+    writeFile: (path: string, content: string) => callCapability("workspace.write", { path, content }),
+  }),
   tools: Object.freeze({
     call: (name: string, input: unknown = {}) => callCapability("tools.call", { name, input }),
   }),
