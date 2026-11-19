@@ -26,6 +26,7 @@ export interface SkillExecutionRequest {
 export interface CodeModeRequest {
   mode: "generated-code";
   code: string;
+  providers: string[];
   workspaceRoot?: string;
   capabilities: RuntimeCapability[];
   limits?: Partial<RuntimeLimits>;
