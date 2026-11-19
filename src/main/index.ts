@@ -27,7 +27,7 @@ const APP_ID = "com.saga.architectagentdesktop";
 const HOME_URL = "https://www.google.com/";
 const BROWSER_PARTITION = "persist:architect-agent-browser";
 const DEFAULT_CONTENT_TOP = 91;
-const WORKSPACE_LAYOUT: LayoutNode = { type: "panel", id: "browser", minWidth: 320, minHeight: 240 };
+
 const ASKABLE_PERMISSIONS = new Set(["media", "display-capture", "geolocation", "notifications", "clipboard-read"]);
 
 interface BrowserTab {
@@ -201,7 +201,7 @@ function updateActiveBounds(): void {
     width: Math.max(0, Math.min(contentWidth ?? (width - left), width - left)),
     height: Math.max(0, height - top),
   };
-  const layout = calculateLayout(WORKSPACE_LAYOUT, viewport, { pixelRatio: 1 });
+  const splitterSize = workspaceLayout.agentPanelVisible ? 6 : 0;\n  const agentWidth = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;\n  const availableWidth = Math.max(0, viewport.width - splitterSize);\n  const browserWidth = Math.max(0, availableWidth - agentWidth);\n  const layoutTree: LayoutNode = {\n    type: "split", id: "workspace-root", axis: "horizontal",\n    ratio: viewport.width > 0 ? browserWidth / viewport.width : 1, splitterSize,\n    first: { type: "panel", id: "browser", minWidth: 320, minHeight: 240 },\n    second: { type: "panel", id: "agent", minWidth: 280, minHeight: 240, visible: workspaceLayout.agentPanelVisible },\n  };\n  const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
   const browserBounds = layout.bounds.browser;
   if (!browserBounds) {
     attachedView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
