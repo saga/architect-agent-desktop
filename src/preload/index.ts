@@ -8,6 +8,7 @@ const api: BrowserApi = {
   saveWorkspaceDocument: (document: WorkspaceDocument) => ipcRenderer.invoke("workspace:save-document", document),
   floatAgentPanel: () => ipcRenderer.invoke("workspace:float-agent"),
   redockAgentPanel: () => ipcRenderer.invoke("workspace:redock-agent"),
+  toggleSnapshot: () => ipcRenderer.invoke("browser:toggle-snapshot"),
   onWorkspaceLayoutUpdated: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, layout: WorkspaceLayoutState) => listener(layout);
     ipcRenderer.on("workspace:layout-updated", handler);
