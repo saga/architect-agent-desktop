@@ -96,7 +96,7 @@ export function searchWorkspaceFiles(rootInput: string, query: string): string {
 }
 
 export function writeWorkspaceFile(rootInput: string, relativePath: string, content: string): string {
-  if (typeof content !== "string" || content.length > MAX_TEXT_FILE_BYTES) {
+  if (typeof content !== "string" || Buffer.byteLength(content, "utf8") > MAX_TEXT_FILE_BYTES) {
     throw new Error("写入内容不能超过 256 KB。");
   }
   const target = resolveWorkspaceFile(rootInput, relativePath);
