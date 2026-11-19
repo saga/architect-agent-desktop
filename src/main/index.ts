@@ -40,6 +40,7 @@ const tabOrder: string[] = [];
 const permissionGrants = new Map<string, Set<string>>();
 
 let mainWindow: BrowserWindow | null = null;
+let agentSettingsWindow: BrowserWindow | null = null;
 let browserSession: Session;
 let activeTabId: string | null = null;
 let attachedView: WebContentsView | null = null;
@@ -687,7 +688,17 @@ function createMainWindow(): void {
 }
 
 function isTrustedAppSender(webContents: WebContents): boolean {
-  return Boolean(mainWindow && !mainWindow.isDestroyed() && webContents === mainWindow.webContents);
+  return Boolean((mainWindow && !mainWindow.isDestroyed() && webContents === mainWindow.webContents) || (agentSettingsWindow && !agentSettingsWindow.isDestroyed() && webContents === agentSettingsWindow.webContents));
+}
+
+function openAgentSettingsWindow(): void {
+  if (agentSettingsWindow && !agentSettingsWindow.isDestroyed()) { agentSettingsWindow.show(); agentSettingsWindow.focus(); return; }
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  agentSettingsWindow = new BrowserWindow({ parent: mainWindow, modal: true, width: 560, height: 680, minWidth: 520, minHeight: 600, resizable: true, maximizable: false, minimizable: false, title: "Agent Settings", backgroundColor: "#ffffff", autoHideMenuBar: true, webPreferences: { preload: path.join(__dirname, "../preload/index.js"), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  if (devServerUrl) void agentSettingsWindow.loadURL(devServerUrl + (devServerUrl.includes("?") ? "&" : "?") + "agent-settings=1");
+  else void agentSettingsWindow.loadFile(path.join(__dirname, "../renderer/index.html"), { query: { "agent-settings": "1" } });
+  agentSettingsWindow.on("closed", () => { agentSettingsWindow = null; });
 }
 
 function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
@@ -697,6 +708,7 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
   ipcMain.handle("browser:get-state", (event) => {
     assertTrustedSender(event);
     return currentState();
@@ -798,6 +810,7 @@ function registerIpcHandlers(): void {
     await copilotAgent.configure(parsed.data);
     agentSettings = parsed.data;
     writeFileSync(SETTINGS_PATH, JSON.stringify(agentSettings, null, 2), { encoding: "utf8", mode: 0o600 });
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("agent:settings-updated", agentSettings);
     return copilotAgent.getSettings();
   });
   ipcMain.handle("copilot:send", async (event, input: unknown) => {
