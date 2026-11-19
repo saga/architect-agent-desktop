@@ -126,12 +126,13 @@ export function createFloatingPanel(
     ...document,
     root: setPanelVisible(document.root, panelId, false),
     activePanelId: document.activePanelId === panelId ? "browser" : document.activePanelId,
+    tabGroups: document.tabGroups.map((group) => group.panelIds.includes(panelId) && group.activePanelId === panelId ? { ...group, activePanelId: "browser" } : group),
     floating: [...document.floating, { id: "floating-" + panelId, panelId, bounds }],
   };
 }
 
 export function redockFloatingPanel(document: WorkspaceDocument, panelId: string): WorkspaceDocument {
-  return { ...document, root: setPanelVisible(document.root, panelId, true), floating: document.floating.filter((item) => item.panelId !== panelId), activePanelId: panelId };
+  return { ...document, root: setPanelVisible(document.root, panelId, true), floating: document.floating.filter((item) => item.panelId !== panelId), tabGroups: document.tabGroups.map((group) => group.panelIds.includes(panelId) ? { ...group, activePanelId: panelId } : group), activePanelId: panelId };
 }
 
 export function activateWorkspaceTab(document: WorkspaceDocument, groupId: string, panelId: string): WorkspaceDocument {
