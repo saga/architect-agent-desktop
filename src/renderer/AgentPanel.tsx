@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Dropdown, Popconfirm, Tag, message, Tooltip } from "antd";
+import { Alert, Button, Dropdown, Popconfirm, message, Tooltip } from "antd";
 import { AppstoreOutlined, CameraOutlined, DeleteOutlined, FolderOpenOutlined, SettingOutlined } from "@ant-design/icons";
 import { Bubble, Sender } from "@ant-design/x";
 import XMarkdown from "@ant-design/x-markdown";
@@ -229,7 +229,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const providerName = settings.provider === "copilot" ? "GitHub Copilot CLI" : "CodeBuddy CLI";
   const modelName = settings.provider === "copilot" ? settings.copilotModel : settings.codebuddyModel;
 
-  const subtitle = [providerName, modelName || "使用 CLI 默认模型", `${settings.thinkingLevel} thinking`].join(" · ");
+  const subtitle = [providerName, modelName || "使用 CLI 默认模型"].join(" · ");
   const fileAccess = settings.toolPermission === "browser-only" ? "文件访问关闭" : settings.toolPermission === "assisted" ? "只读" : "可读写";
   const workspaceLabel = workspaceProject.name ? "工作区：" + workspaceProject.name + " · " + fileAccess : "未选择工作区 · 选择项目目录";
   const dockItems = [
@@ -263,7 +263,6 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
         </div>
       </div>
       <div className="agent-panel-toolbar">
-        <Tag className="agent-status-tag" color={status === "ready" ? "success" : "default"}>{status}</Tag>
         <Popconfirm title="清空当前会话？" description="本地保存的 Agent 对话记录会被删除。" okText="清空" cancelText="取消" onConfirm={() => void clearSession()}>
           <Tooltip title="清空会话"><Button type="text" size="small" aria-label="清空会话" icon={<DeleteOutlined />} /></Tooltip>
         </Popconfirm>
@@ -287,7 +286,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     </header>
     {status === "error" && settings.provider === "copilot" && <Alert type="error" showIcon message="GitHub Copilot Agent 初始化失败" description={<div>{statusMessage}<p>这通常是 SDK 配置或运行时问题，不代表 CLI 一定未登录。请检查应用版本和运行日志。</p></div>} />}
     {status === "unauthenticated" && settings.provider === "copilot" && <Alert type="warning" showIcon message="尚未完成 GitHub Copilot CLI 登录" description={<div>{statusMessage && <p>{statusMessage}</p>}本应用调用本机 Copilot CLI 凭据，不会自动复用 VS Code 扩展登录状态。<ol><li>打开 macOS「终端」应用。</li><li>运行 <code>copilot login</code>。如果提示找不到命令，先运行 <code>brew install --cask copilot-cli</code> 安装。</li><li>选择 GitHub.com，再选择浏览器登录。</li><li>在浏览器中登录正确的 GitHub 账号，并授权 GitHub Copilot CLI。</li><li>看到终端提示登录成功后，回到本应用发送消息。</li></ol>也可以运行 <code>copilot</code> 进入交互界面后输入 <code>/login</code>；使用 <code>/user</code> 检查账号。</div>} />}
-    {settings.provider === "codebuddy" && status !== "ready" && <Alert type="info" showIcon message="CodeBuddy 使用本机 CLI 登录态" description={<div>在系统终端运行 <code>codebuddy</code>，按 CLI 提示完成登录，并确认账号有可用模型权限。首次请求会实际验证认证和模型可用性。</div>} />}
+    {settings.provider === "codebuddy" && status !== "ready" && items.length === 0 && <Alert type="info" showIcon message="CodeBuddy 使用本机 CLI 登录态" description={<div>在系统终端运行 <code>codebuddy</code>，按 CLI 提示完成登录，并确认账号有可用模型权限。首次请求会实际验证认证和模型可用性。</div>} />}
     <div className="agent-messages">
       <Bubble.List role={bubbleRoles} autoScroll items={items.map((item) => ({
         key: item.id,
