@@ -32,7 +32,7 @@ export interface AgentModelInfo {
   contextWindowOptions?: Array<{ value: number; label: string }>;
   maxInputTokens?: number;
 }
-export type AgentThinkingLevel = "low" | "medium" | "high";
+export type AgentThinkingLevel = "low" | "medium" | "high" | "xhigh";
 export interface AgentSettings {
   provider: AgentProvider;
   copilotModel: string;
