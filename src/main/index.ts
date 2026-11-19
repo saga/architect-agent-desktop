@@ -73,6 +73,7 @@ let contentLeft = 0;
 let contentWidth: number | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
 const AGENT_SESSION_ROOT = path.join(app.getPath("userData"), "agent-sessions");
+const LEGACY_AGENT_SESSION_ITEMS = 200;
 const AGENT_DATA_SETTINGS_PATH = path.join(app.getPath("userData"), "agent-data.json");
 function loadAgentDataDirectory(): string {
   try {
@@ -155,7 +156,7 @@ function saveAgentSession(items: AgentSessionItem[]): void {
   const complete = parseAgentSessionItems(items);
   try {
     agentTraceStore.saveSessionItems(currentTraceSessionId(), workspaceProject.path, complete);
-    writeJsonAtomic(currentAgentSessionPath(), { version: 2, updatedAt: Date.now(), items: complete });
+    writeJsonAtomic(currentAgentSessionPath(), { version: 1, updatedAt: Date.now(), items: complete.slice(-LEGACY_AGENT_SESSION_ITEMS) });
   } catch (error) {
     recordOperation("session", "save failed: " + (error instanceof Error ? error.message : String(error)));
     throw error;
