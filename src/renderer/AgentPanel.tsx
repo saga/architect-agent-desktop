@@ -7,6 +7,7 @@ type ChatItem = { key: string; role: "user" | "assistant"; content: string; load
 
 export default function AgentPanel({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState("checking");
+  const [statusMessage, setStatusMessage] = useState("");
   const [provider, setProvider] = useState<AgentProvider>("copilot");
   const [switching, setSwitching] = useState(false);
   const [input, setInput] = useState("");
@@ -14,7 +15,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
   const [items, setItems] = useState<ChatItem[]>([]);
 
   useEffect(() => {
-    void window.browser.copilotStatus().then((result) => { setStatus(result.status); setProvider(result.provider); }).catch(() => setStatus("error"));
+    void window.browser.copilotStatus().then((result) => { setStatus(result.status); setStatusMessage(result.message ?? ""); setProvider(result.provider); }).catch(() => setStatus("error"));
     const unsubscribe = window.browser.onCopilotEvent((event: CopilotEvent) => {
       if (event.type === "status" && event.status) setStatus(event.status);
       if (event.type === "delta" && event.text) setItems((current) => {
@@ -54,6 +55,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
       setItems([]);
       const result = await window.browser.copilotStatus();
       setStatus(result.status);
+      setStatusMessage(result.message ?? "");
     } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
     finally { setSwitching(false); }
   };
@@ -74,7 +76,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
       <Button type="text" size="small" onClick={onClose}>×</Button>
     </header>
     <div className="agent-provider-switch"><span>模型提供方</span><Segmented block disabled={loading || switching} value={provider} options={[{ label: "GitHub Copilot", value: "copilot" }, { label: "CodeBuddy", value: "codebuddy" }]} onChange={(value) => void changeProvider(value as AgentProvider)} /></div>
-    {status === "unauthenticated" && provider === "copilot" && <Alert type="warning" showIcon message="尚未完成 GitHub Copilot CLI 登录" description={<div>本应用调用本机 Copilot CLI 凭据，不会自动复用 VS Code 扩展登录状态。<ol><li>打开 macOS「终端」应用。</li><li>运行 <code>copilot login</code>。如果提示找不到命令，先运行 <code>brew install --cask copilot-cli</code> 安装。</li><li>选择 GitHub.com，再选择浏览器登录。</li><li>在浏览器中登录正确的 GitHub 账号，并授权 GitHub Copilot CLI。</li><li>看到终端提示登录成功后，回到本应用发送消息。</li></ol>也可以运行 <code>copilot</code> 进入交互界面，再输入 <code>/login</code>。检查账号可在 CLI 中输入 <code>/user</code>。</div>} />}
+    {status === "unauthenticated" && provider === "copilot" && <Alert type="warning" showIcon message="尚未完成 GitHub Copilot CLI 登录" description={<div>{statusMessage && <p>{statusMessage}</p>}本应用调用本机 Copilot CLI 凭据，不会自动复用 VS Code 扩展登录状态。<ol><li>打开 macOS「终端」应用。</li><li>运行 <code>copilot login</code>。如果提示找不到命令，先运行 <code>brew install --cask copilot-cli</code> 安装。</li><li>选择 GitHub.com，再选择浏览器登录。</li><li>在浏览器中登录正确的 GitHub 账号，并授权 GitHub Copilot CLI。</li><li>看到终端提示登录成功后，回到本应用发送消息。</li></ol>也可以运行 <code>copilot</code> 进入交互界面，再输入 <code>/login</code>。检查账号可在 CLI 中输入 <code>/user</code>。</div>} />}
     {provider === "codebuddy" && <Alert type="info" showIcon message="CodeBuddy 使用本机 CLI 登录态" description={<div>在系统终端运行 <code>codebuddy</code>，按 CLI 提示完成登录，并确认账号有可用模型权限。CodeBuddy SDK 会复用 CLI 登录凭据。登录后回到这里发送消息；首次请求会实际验证认证和模型可用性。</div>} />}
     <div className="agent-messages">
       <Bubble.List items={items.map((item) => ({ key: item.key, role: item.role, content: item.content, loading: item.loading && !item.content }))} />
