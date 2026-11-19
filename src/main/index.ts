@@ -21,7 +21,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { calculateLayout } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
-import { setPanelVisibility } from "./layout/layout-tree";
+import { findPanel, setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
 import type { WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
 import { parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel } from "../shared/workspace-document";
@@ -218,8 +218,7 @@ function updateActiveBounds(): void {
     width: Math.max(0, Math.min(contentWidth ?? (width - left), width - left)),
     height,
   };
-  const layoutTree = setPanelVisibility(workspaceDocument.root, "agent", workspaceLayout.agentPanelVisible);
-  const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
+  const layout = calculateLayout(workspaceDocument.root, viewport, { pixelRatio: 1 });
   const browserBounds = layout.bounds.browser;
   if (!browserBounds) {
     currentBrowserBounds = null;
@@ -943,7 +942,11 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     try { workspaceDocument = parseWorkspaceDocument(input); }
     catch (error) { throw new Error(error instanceof Error ? error.message : "Invalid workspace document."); }
+    const agentPanel = findPanel(workspaceDocument.root, "agent");
+    workspaceLayout = { ...workspaceLayout, agentPanelVisible: agentPanel?.visible !== false };
+    writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
     writeFileSync(WORKSPACE_DOCUMENT_PATH, JSON.stringify(workspaceDocument, null, 2), { encoding: "utf8", mode: 0o600 });
+    publishWorkspaceLayout();
     updateActiveBounds();
     return workspaceDocument;
   });
