@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url);
 const { calculateLayout, validateLayout } = require("../dist/main/layout/layout-engine.js");
 const { dockPanel, removePanel, collectPanelIds, normalizeLayout } = require("../dist/main/layout/layout-tree.js");
 const { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, activateWorkspaceTab, createWorkspaceTabGroup, movePanelToTabGroup, removePanelFromTabGroup } = require("../dist/shared/workspace-document.js");
+const { NativeViewStackManager } = require("../dist/main/layout/native-view-stack.js");
 
 const base = {
   type: "split",
@@ -132,4 +133,49 @@ test("invalid layout constraints are rejected before geometry", () => {
   assert.ok(validateLayout(invalid).some((error) => error.includes("ratio")));
   const badPanel = { type: "panel", id: "bad", minWidth: -1 };
   assert.ok(validateLayout(badPanel).some((error) => error.includes("minWidth")));
+});
+
+test("native view stack manages visibility, layers, bounds and disposal", () => {
+  const children = [];
+  const fakeWindow = {
+    isDestroyed: () => false,
+    getContentSize: () => [800, 600],
+    contentView: {
+      addChildView(view) {
+        const index = children.indexOf(view);
+        if (index >= 0) children.splice(index, 1);
+        children.push(view);
+      },
+      removeChildView(view) {
+        const index = children.indexOf(view);
+        if (index >= 0) children.splice(index, 1);
+      },
+    },
+  };
+  const makeView = () => ({
+    bounds: null,
+    closed: false,
+    webContents: { isDestroyed: () => false, close() { this.closed = true; } },
+    setBounds(bounds) { this.bounds = bounds; },
+  });
+  const manager = new NativeViewStackManager(() => fakeWindow);
+  const browser = makeView();
+  const nextBrowser = makeView();
+  const overlay = makeView();
+  manager.register("browser:1", browser, "browser");
+  manager.register("browser:2", nextBrowser, "browser");
+  manager.register("snapshot", overlay, "overlay");
+  manager.show("browser:1");
+  assert.deepEqual(children, [browser]);
+  manager.show("browser:2");
+  assert.deepEqual(children, [nextBrowser]);
+  manager.show("snapshot");
+  assert.deepEqual(children, [nextBrowser, overlay]);
+  manager.setBounds("snapshot", { x: 700, y: 500, width: 300, height: 300 });
+  assert.deepEqual(overlay.bounds, { x: 700, y: 500, width: 100, height: 100 });
+  manager.hide("snapshot");
+  assert.deepEqual(children, [nextBrowser]);
+  manager.unregister("browser:2", true);
+  assert.equal(nextBrowser.webContents.closed, true);
+  assert.deepEqual(children, []);
 });
