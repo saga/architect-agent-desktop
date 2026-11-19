@@ -1,4 +1,4 @@
-import type { LayoutNode } from "./layout-engine";
+import type { LayoutNode } from "../../shared/layout-types";
 
 export type DockPosition = "left" | "right" | "top" | "bottom";
 
