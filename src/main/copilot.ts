@@ -174,10 +174,18 @@ export class CopilotDesktopAgent {
    schema:z.object({code:z.string().min(1).max(100000)}),
    handler:async({code}:{code:string})=>{
     const allowed=new Map(callableTools.map(tool=>[tool.name,tool]));
+    this.codeRuntime.setToolCallHandler(async(name,input)=>{
+     const tool=allowed.get(name);
+     if(!tool) throw new Error("Tool is not available in the current permission mode: "+name);
+     this.recordTrace("tool.call",{name,input,source:"code-mode"},"running");
+     try{const value=await tool.handler(input);const output=typeof value==="string"?value:value.text;this.recordTrace("tool.result",{name,input,result:output,source:"code-mode"},"completed");return value;}
+     catch(error){this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error),source:"code-mode"},"failed");throw error;}
+    });
     const result=await this.codeRuntime.executeGeneratedCode({
      mode:"generated-code",code,workspaceRoot:this.workspacePath??undefined,
      capabilities:["tools.call"],limits:{timeoutMs:30000,maxOutputBytes:256*1024,maxLogEntries:200}
     });
+    this.codeRuntime.setToolCallHandler(null);
     if(result.status!=="completed") throw new Error(result.error??"Code Mode execution failed.");
     return JSON.stringify({result:result.result,logs:result.logs});
    }
@@ -242,5 +250,5 @@ export class CopilotDesktopAgent {
  async send(prompt:string,history?:AgentChatMessage[]):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt,history);else await this.sendCopilot(prompt,history);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
  async cancel():Promise<void>{if(this.settings.provider==="codebuddy"){this.codeBuddyAbortController?.abort();if(this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();}else if(this.active&&this.session)await this.session.abort();}
  isBusy():boolean{return this.active;}
- async stop():Promise<void>{if(this.active){try{await this.cancel();}catch{/* the request is being torn down */}}const client=this.client;this.client=null;this.session=null;if(client){try{await client.stop();}catch{/* already stopped */}}}
+ async stop():Promise<void>{if(this.active){try{await this.cancel();}catch{/* the request is being torn down */}}this.codeRuntime.setToolCallHandler(null);await this.codeRuntime.dispose();const client=this.client;this.client=null;this.session=null;if(client){try{await client.stop();}catch{/* already stopped */}}}
 }
