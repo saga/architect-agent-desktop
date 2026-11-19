@@ -183,6 +183,7 @@ export class CopilotDesktopAgent {
   const inspected=model?normalizeModelInfo("codebuddy",model):undefined;
   const effort=inspected?.effortOptions?.includes(this.settings.thinkingLevel)?this.settings.thinkingLevel:undefined;
   let cwd=this.workspacePath??codeBuddyWorkspace(), settingSources:("user"|"project"|"local")[]=[];
+  let runtimeConfigDir:string|undefined;
   let cleanup:(()=>void)|undefined;
   if(this.settings.contextWindow!==undefined){
    const normalized=model?normalizeModelInfo("codebuddy",model):undefined;
@@ -195,7 +196,8 @@ export class CopilotDesktopAgent {
     for(const source of sourceFiles)if(existsSync(source)){writeFileSync(path.join(configDir,"models.json"),readFileSync(source),{mode:0o600});break;}
     writeFileSync(path.join(configDir,"settings.json"),JSON.stringify({contextWindow:this.settings.contextWindow},null,2)+"\n",{encoding:"utf8",mode:0o600});
    }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
-   cwd=temp;settingSources=["project"];cleanup=()=>rmSync(temp,{recursive:true,force:true});
+   if(this.workspacePath){runtimeConfigDir=configDir;settingSources=["user"];}else{cwd=temp;settingSources=["project"];}
+   cleanup=()=>rmSync(temp,{recursive:true,force:true});
   }
   const permission=this.settings.toolPermission;
   const READ_ONLY_BUILTINS=["Read","Glob","Grep","WebFetch","WebSearch","ListMcpResources","ReadMcpResource","ViewImage"];
@@ -204,7 +206,7 @@ export class CopilotDesktopAgent {
   const queryOptions={
     ...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:effort?{type:"adaptive" as const}:{type:"disabled" as const},
     systemPrompt:{append:[this.settings.systemPrompt.trim(),this.getPluginInstructions(),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
-    cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{})},settingSources,persistSession:false,maxTurns:12,
+    cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})},settingSources,persistSession:false,maxTurns:12,
     mcpServers:{browser:server},allowedTools:allowed,
     ...(permission==="browser-only"?{permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}:
       permission==="assisted"?{permissionMode:"default" as const,tools:READ_ONLY_BUILTINS,disallowedTools:builtinToolNames.filter(name=>!READ_ONLY_BUILTINS.includes(name)),allowedTools:[...allowed,...READ_ONLY_BUILTINS]}:
