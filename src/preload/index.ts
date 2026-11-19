@@ -6,6 +6,13 @@ const api: BrowserApi = {
   saveWorkspaceLayout: (layout: WorkspaceLayoutState) => ipcRenderer.invoke("workspace:save-layout", layout),
   getWorkspaceDocument: () => ipcRenderer.invoke("workspace:get-document"),
   saveWorkspaceDocument: (document: WorkspaceDocument) => ipcRenderer.invoke("workspace:save-document", document),
+  floatAgentPanel: () => ipcRenderer.invoke("workspace:float-agent"),
+  redockAgentPanel: () => ipcRenderer.invoke("workspace:redock-agent"),
+  onWorkspaceLayoutUpdated: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, layout: WorkspaceLayoutState) => listener(layout);
+    ipcRenderer.on("workspace:layout-updated", handler);
+    return () => ipcRenderer.removeListener("workspace:layout-updated", handler);
+  },
   getState: () => ipcRenderer.invoke("browser:get-state"),
   createTab: (url) => ipcRenderer.invoke("browser:create-tab", url),
   activateTab: (id) => ipcRenderer.invoke("browser:activate-tab", id),
