@@ -14,7 +14,8 @@ A cross-platform Electron desktop application. The first milestone is a built-in
 - Per-session permission prompts for media, screen capture, geolocation, notifications and clipboard read.
 - Isolated browser processes: remote pages do not receive Node.js access.
 - Local project workspaces: select a directory from the toolbar, restore it on launch, and keep Agent conversations separate per project. CodeBuddy uses the selected directory as its working directory; Copilot exposes permission-gated workspace file tools.
-- Local declarative plugin directories: import, validate, enable/disable, export and remove. Enabled plugin Skills and Workflow templates are included in Agent instructions; plugins cannot execute arbitrary code.\n- Agent Data: persist Session snapshots, request lifecycle, provider events and tool call inputs/results in a local SQLite trace store. The data directory defaults to userData/agent-data and can be changed in Agent settings.
+- Local declarative plugin directories: import, validate, enable/disable, export and remove. Enabled plugin Skills and Workflow templates are included in Agent instructions; plugins cannot execute arbitrary code.
+- Agent Data: persist Session snapshots, request lifecycle, provider events and tool call inputs/results in a local SQLite trace store. The data directory defaults to userData/agent-data and can be changed in Agent settings.
 
 This is the browser foundation, not a complete replacement for Chrome, Edge or Firefox. Browser extensions, cross-device sync, password import, bookmark management and advanced privacy controls are not included yet.
 
@@ -66,7 +67,8 @@ Unsigned builds may trigger the operating system's normal security warnings. Pro
 - **Browser content:** each tab is a WebContentsView. Tabs share one persistent Chromium session while keeping separate web contents.
 - **Preload:** exposes a narrow, typed IPC API using contextBridge; it does not expose raw Electron APIs.
 - **Renderer:** local React UI for the tab strip, navigation toolbar, address bar, project workspace selection and Agent/plugin settings.
-- **Project workspace:** stores the selected local project directory independently from the Layout Engine and maintains a separate Agent transcript for each workspace.\n- **Agent Data:** stores runtime events and Session evidence separately from project files. SQLite trace storage can be queried by Session, Trace and event type; the user can change its local directory.
+- **Project workspace:** stores the selected local project directory independently from the Layout Engine and maintains a separate Agent transcript for each workspace.
+- **Agent Data:** stores runtime events and Session evidence separately from project files. SQLite trace storage can be queried by Session, Trace and event type; the user can change its local directory.
 - **Plugin host:** stores local plugin directories under the application user-data directory, validates manifests and referenced resources, and exposes only host-known tool/view identifiers. Plugin content is data, never executable code.
 
 Remote pages run with nodeIntegration: false, contextIsolation: true and sandbox: true. The renderer is not allowed to send arbitrary IPC messages; only the methods in the preload API are exposed.
@@ -75,7 +77,15 @@ Remote pages run with nodeIntegration: false, contextIsolation: true and sandbox
 
 Choose **打开工作区** in the main toolbar to select a local project directory. The selected directory is restored on restart, becomes the Agent working directory where supported, and has its own conversation history. See [本地项目工作区设计](docs/architecture/LOCAL-WORKSPACE.md) for permission behavior and file boundaries.
 
-## Agent Data 与运行记录\n\n默认数据目录为 Electron userData 下的 `agent-data/`，主要文件为 `agent-traces.sqlite`。可在「Agent 与插件配置」中更改目录。切换目录不会搬移或删除旧目录的数据；之后的新事件写入新目录。\n\n记录内容包括用户输入与可见会话快照、模型输出增量、Provider 运行事件、工具调用参数和结果、错误、请求状态及工作区上下文。事件会按 Trace 关联并分配本地序号，敏感字段会在写入前脱敏，超过 1 MiB 的事件会标记为不完整。\n\n这是一份本地运行轨迹与诊断证据，不是防篡改的合规审计账本。SDK 未提供的模型传输层请求、授权决策或外部副作用，不会被推断为已记录。\n\n## Plugins
+## Agent Data 与运行记录
+
+默认数据目录为 Electron userData 下的 `agent-data/`，主要文件为 `agent-traces.sqlite`。可在「Agent 与插件配置」中更改目录。切换目录不会搬移或删除旧目录的数据；之后的新事件写入新目录。
+
+记录内容包括用户输入与可见会话快照、模型输出增量、Provider 运行事件、工具调用参数和结果、错误、请求状态及工作区上下文。事件会按 Trace 关联并分配本地序号，敏感字段会在写入前脱敏，超过 1 MiB 的事件会标记为不完整。
+
+这是一份本地运行轨迹与诊断证据，不是防篡改的合规审计账本。SDK 未提供的模型传输层请求、授权决策或外部副作用，不会被推断为已记录。
+
+## Plugins
 
 Open **Agent 与插件配置** from the application settings, then import a plugin directory. The repository includes a working example at `examples/plugins/research-assistant`.
 
