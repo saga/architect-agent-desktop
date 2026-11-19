@@ -289,6 +289,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
         </div>
       </div>
       <div className="agent-panel-toolbar">
+        <Tooltip title="Session Explorer"><Button type="text" size="small" aria-label="Session Explorer" icon={<HistoryOutlined />} onClick={() => setSessionExplorerOpen(true)} /></Tooltip>
         <Tooltip title="Agent 配置"><Button type="text" size="small" aria-label="Agent 配置" icon={<SettingOutlined />} onClick={() => void openSettings()} /></Tooltip>
         <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: moreItems, onClick: onMoreClick }}>
           <Button type="text" size="small" aria-label="更多操作" icon={<MoreOutlined />} />
