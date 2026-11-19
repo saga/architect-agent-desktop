@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { calculateLayout, validateLayout } = require("../dist/main/layout/layout-engine.js");
 const { dockPanel, removePanel, collectPanelIds, normalizeLayout } = require("../dist/main/layout/layout-tree.js");
-const { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, activateWorkspaceTab, createWorkspaceTabGroup, movePanelToTabGroup, removePanelFromTabGroup, ungroupWorkspacePanel } = require("../dist/shared/workspace-document.js");
+const { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, activateWorkspaceTab, createWorkspaceTabGroup, movePanelToTabGroup, removePanelFromTabGroup, ungroupWorkspacePanel, setWorkspacePanelVisibility } = require("../dist/shared/workspace-document.js");
 const { NativeViewStackManager } = require("../dist/main/layout/native-view-stack.js");
 
 const base = {
@@ -196,4 +196,30 @@ test("ungrouping restores both panels to the split tree", () => {
   assert.equal(ungrouped.activePanelId, "browser");
   const regrouped = createWorkspaceTabGroup(ungrouped, "browser-agent", ["browser", "agent"], "agent");
   assert.equal(regrouped.tabGroups.some((group) => group.id === "browser-agent" && group.panelIds.length === 2), true);
+});
+
+test("active workspace Tab Group panel receives the full shared slot", () => {
+  const document = {
+    ...DEFAULT_WORKSPACE_DOCUMENT,
+    root: { type: "split", id: "root", axis: "horizontal", ratio: 0.65, splitterSize: 6,
+      first: { type: "panel", id: "browser" }, second: { type: "panel", id: "agent" } },
+    tabGroups: [{ id: "browser-agent", panelIds: ["browser", "agent"], activePanelId: "browser" }],
+  };
+  const browserDocument = setWorkspacePanelVisibility(setWorkspacePanelVisibility(document, "browser", true), "agent", false);
+  const browserLayout = calculateLayout(browserDocument.root, { x: 0, y: 0, width: 1000, height: 700 });
+  assert.deepEqual(browserLayout.bounds.browser, { x: 0, y: 0, width: 1000, height: 700 });
+  assert.equal(browserLayout.bounds.agent, undefined);
+  const agentDocument = setWorkspacePanelVisibility(setWorkspacePanelVisibility(document, "browser", false), "agent", true);
+  const agentLayout = calculateLayout(agentDocument.root, { x: 0, y: 0, width: 1000, height: 700 });
+  assert.deepEqual(agentLayout.bounds.agent, { x: 0, y: 0, width: 1000, height: 700 });
+  assert.equal(agentLayout.bounds.browser, undefined);
+});
+
+test("workspace parser rejects invalid panel size constraints", () => {
+  const invalid = {
+    ...DEFAULT_WORKSPACE_DOCUMENT,
+    root: { type: "panel", id: "browser", minWidth: -1 },
+    tabGroups: [{ id: "browser-only", panelIds: ["browser"], activePanelId: "browser" }],
+  };
+  assert.throws(() => parseWorkspaceDocument(invalid));
 });
