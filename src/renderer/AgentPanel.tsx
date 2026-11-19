@@ -29,7 +29,8 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
         else next.push({ key: crypto.randomUUID(), role: "assistant", content: event.text ?? "" });
         return next;
       });
-      if (event.type === "tool" && event.text) setItems((current) => [...current, { key: crypto.randomUUID(), role: "assistant", content: "工具执行：" + event.text }]);\n      if (event.type === "done") {
+      if (event.type === "tool" && event.text) setItems((current) => [...current, { key: crypto.randomUUID(), role: "assistant", content: "工具执行：" + event.text }]);
+      if (event.type === "done") {
         setLoading(false);
         setStatus("ready");
         setItems((current) => current.map((item) => item.loading ? { ...item, loading: false } : item));
