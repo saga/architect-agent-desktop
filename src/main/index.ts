@@ -114,7 +114,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
     await tab.view.webContents.executeJavaScript("window.scrollBy({top:" + (direction==="down" ? amount : -amount) + ",behavior:'smooth'})");
     return "Scrolled " + direction + " by " + amount + " pixels.";
-  },, agentSettings
+  }, agentSettings
 });
 let downloadSequence = 0;
 
