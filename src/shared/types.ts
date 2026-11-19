@@ -55,7 +55,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   codebuddyModel: "",
   thinkingLevel: "medium",
   toolPermission: "browser-only",
-  systemPrompt: "",
+  systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt.",
 };
 
 export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done" | "tool"; status?: string; text?: string; }
