@@ -60,6 +60,9 @@ test("workspace document migrates legacy layout preferences", () => {
   assert.equal(migrated.version, 2);
   assert.equal(migrated.root.second.visible, false);
   assert.ok(migrated.root.ratio > 0 && migrated.root.ratio < 1);
+  const left = parseWorkspaceDocument({ version: 1, agentPanelWidth: 400, agentPanelVisible: true, agentPanelPosition: "left" });
+  assert.equal(left.root.axis, "horizontal");
+  assert.equal(left.root.first.id, "agent");
 });
 
 test("floating a panel hides it in the dock tree and redocking restores it", () => {
