@@ -61,9 +61,9 @@ function App() {
     const unsubscribeDownload = window.browser.onDownload(setLatestDownload);
     const unsubscribeAgentToggle = window.browser.onToggleAgent(() => {
       void window.browser.getWorkspaceLayout().then((layout) => {
-        const visible = !layout.agentPanelVisible;
-        setAgentOpen(visible);
-        return window.browser.saveWorkspaceLayout({ ...layout, agentPanelVisible: visible });
+        if (!layout.agentPanelVisible) return window.browser.redockAgentPanel();
+        setAgentOpen(false);
+        return window.browser.saveWorkspaceLayout({ ...layout, agentPanelVisible: false });
       }).catch((error: unknown) => console.error("Unable to toggle Agent panel", error));
     });
 
@@ -273,7 +273,7 @@ function App() {
           </form>
 
           <div className="toolbar-actions">
-            <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => { const next = !agentOpen; setAgentOpen(next); saveWorkspaceLayout(next); }} /></Tooltip>
+            <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => { if (!agentOpen) { void window.browser.redockAgentPanel(); return; } setAgentOpen(false); saveWorkspaceLayout(false); }} /></Tooltip>
             <button className="toolbar-button download-button" type="button"
               aria-label="Dismiss recent download status"
               title={latestDownload ? latestDownload.fileName : "Downloads"}
