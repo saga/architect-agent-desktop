@@ -103,6 +103,8 @@ export interface BrowserApi {
   onToggleAgent(listener: () => void): () => void;
   copilotStatus(): Promise<{ status: string; message?: string; provider: AgentProvider }>;
   openAgentSettings(): Promise<void>;
+  agentDataGetDirectory(): Promise<string>;
+  agentDataSelectDirectory(): Promise<string>;
   pluginList(): Promise<PluginSummary[]>;
   pluginImport(): Promise<PluginSummary | null>;
   pluginSetEnabled(id: string, enabled: boolean): Promise<PluginSummary[]>;
