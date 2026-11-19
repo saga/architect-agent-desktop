@@ -108,3 +108,25 @@ test("workspace tab groups support create, move and detach membership", () => {
   const detached = removePanelFromTabGroup(grouped, "workspace-tabs", "agent");
   assert.deepEqual(detached.tabGroups[0].panelIds, ["browser"]);
 });
+
+test("dock operation supports all four directions", () => {
+  for (const [position, axis, firstId, secondId] of [
+    ["left", "horizontal", "agent", "browser"],
+    ["right", "horizontal", "browser", "agent"],
+    ["top", "vertical", "agent", "browser"],
+    ["bottom", "vertical", "browser", "agent"],
+  ]) {
+    const next = dockPanel(base, "agent", "browser", position, "split-" + position);
+    assert.equal(next.axis, axis);
+    assert.equal(next.first.id, firstId);
+    assert.equal(next.second.id, secondId);
+    assert.deepEqual(validateLayout(next), []);
+  }
+});
+
+test("invalid layout constraints are rejected before geometry", () => {
+  const invalid = { ...base, ratio: 1.2 };
+  assert.ok(validateLayout(invalid).some((error) => error.includes("ratio")));
+  const badPanel = { type: "panel", id: "bad", minWidth: -1 };
+  assert.ok(validateLayout(badPanel).some((error) => error.includes("minWidth")));
+});
