@@ -24,6 +24,7 @@ function App() {
   const [latestDownload, setLatestDownload] = useState<BrowserDownloadEvent | null>(null);
   const [agentOpen, setAgentOpen] = useState(false);
   const chromeRef = useRef<HTMLDivElement>(null);
+  const browserWorkspaceRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
 
@@ -61,16 +62,23 @@ function App() {
   }, [activeTab?.id, activeTab?.url]);
 
   useEffect(() => {
-    const element = chromeRef.current;
-    if (!element) return;
+    const chrome = chromeRef.current;
+    const workspace = browserWorkspaceRef.current;
+    if (!chrome || !workspace) return;
 
-    const updateHeight = () => {
-      window.browser.setContentBounds({ top: Math.ceil(element.getBoundingClientRect().height), left: 0, right: agentOpen ? 390 : 0 });
+    const updateBounds = () => {
+      const workspaceBounds = workspace.getBoundingClientRect();
+      window.browser.setContentBounds({
+        top: Math.ceil(chrome.getBoundingClientRect().height),
+        left: 0,
+        right: Math.max(0, Math.ceil(window.innerWidth - workspaceBounds.right)),
+      });
     };
 
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(element);
-    updateHeight();
+    const observer = new ResizeObserver(updateBounds);
+    observer.observe(chrome);
+    observer.observe(workspace);
+    updateBounds();
 
     return () => observer.disconnect();
   }, [agentOpen]);
@@ -108,7 +116,8 @@ function App() {
   const isSecure = activeTab?.url.startsWith("https://") ?? false;
 
   return (
-    <div className="app-shell">
+    <div className={"app-shell" + (agentOpen ? " agent-open" : "")}>
+      <div className="browser-workspace" ref={browserWorkspaceRef}>
       <div className="browser-chrome" ref={chromeRef}>
         <div className="tab-strip">
           <div className="tabs">
@@ -255,6 +264,7 @@ function App() {
             <button type="button" aria-label="Dismiss download status" onClick={() => setLatestDownload(null)}>×</button>
           </div>
         )}
+      </div>
       </div>
       {agentOpen && <AgentPanel onClose={() => setAgentOpen(false)} />}
     </div>
