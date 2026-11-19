@@ -1465,16 +1465,21 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:load-session", (event) => {
     assertTrustedSender(event);
-    const items = loadAgentSession();\n    recordAgentTrace("session.loaded", { itemCount: items.length, items }, "completed");\n    return items;
+    const items = loadAgentSession();
+    recordAgentTrace("session.loaded", { itemCount: items.length, items }, "completed");
+    return items;
   });
   ipcMain.handle("agent:save-session", (event, input: unknown) => {
     assertTrustedSender(event);
     if (!Array.isArray(input)) throw new Error("Invalid Agent session.");
-    const items = parseAgentSessionItems(input);\n    saveAgentSession(items);\n    recordAgentTrace("session.saved", { itemCount: items.length, items }, "completed");
+    const items = parseAgentSessionItems(input);
+    saveAgentSession(items);
+    recordAgentTrace("session.saved", { itemCount: items.length, items }, "completed");
   });
   ipcMain.handle("agent:clear-session", (event) => {
     assertTrustedSender(event);
-    recordAgentTrace("session.cleared", { workspacePath: workspaceProject.path, previousItems: loadAgentSession() }, "completed");\n    rmSync(currentAgentSessionPath(), { force: true });
+    recordAgentTrace("session.cleared", { workspacePath: workspaceProject.path, previousItems: loadAgentSession() }, "completed");
+    rmSync(currentAgentSessionPath(), { force: true });
     if (!workspaceProject.path) rmSync(LEGACY_AGENT_SESSION_PATH, { force: true });
   });
 
@@ -1592,7 +1597,8 @@ app.on("before-quit", (event) => {
 });
 
 app.on("will-quit", () => {
-  agentTraceStore.close();\n  disposeLoginShellEnvironment();
+  agentTraceStore.close();
+  disposeLoginShellEnvironment();
 });
 
 app.on("window-all-closed", () => {
