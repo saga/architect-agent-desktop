@@ -130,3 +130,59 @@ export function activateWorkspaceTab(document: WorkspaceDocument, groupId: strin
     activePanelId: panelId,
   };
 }
+
+export function createWorkspaceTabGroup(
+  document: WorkspaceDocument,
+  groupId: string,
+  panelIds: string[],
+  activePanelId = panelIds[0],
+): WorkspaceDocument {
+  const validPanels = new Set<string>();
+  const collect = (node: LayoutNode) => {
+    if (node.type === "panel") validPanels.add(node.id);
+    else { collect(node.first); collect(node.second); }
+  };
+  collect(document.root);
+  if (!groupId.trim() || document.tabGroups.some((group) => group.id === groupId)
+    || panelIds.length < 2 || new Set(panelIds).size !== panelIds.length
+    || panelIds.some((id) => !validPanels.has(id)) || !panelIds.includes(activePanelId)) return document;
+  const remaining = document.tabGroups.map((group) => ({
+    ...group,
+    panelIds: group.panelIds.filter((id) => !panelIds.includes(id)),
+  })).filter((group) => group.panelIds.length > 0)
+    .map((group) => ({ ...group, activePanelId: group.panelIds.includes(group.activePanelId) ? group.activePanelId : group.panelIds[0] }));
+  return {
+    ...document,
+    tabGroups: [...remaining, { id: groupId, panelIds: [...panelIds], activePanelId }],
+    activePanelId,
+  };
+}
+
+export function movePanelToTabGroup(document: WorkspaceDocument, groupId: string, panelId: string): WorkspaceDocument {
+  const group = document.tabGroups.find((item) => item.id === groupId);
+  if (!group || group.panelIds.includes(panelId)) return document;
+  const panelExists = (node: LayoutNode): boolean => node.type === "panel" ? node.id === panelId : panelExists(node.first) || panelExists(node.second);
+  if (!panelExists(document.root)) return document;
+  return {
+    ...document,
+    tabGroups: document.tabGroups.map((item) => {
+      if (item.panelIds.includes(panelId)) {
+        const members = item.panelIds.filter((id) => id !== panelId);
+        return { ...item, panelIds: members, activePanelId: members.includes(item.activePanelId) ? item.activePanelId : members[0] || "" };
+      }
+      return item;
+    }).filter((item) => item.panelIds.length > 0).map((item) =>
+      item.id === groupId ? { ...item, panelIds: [...item.panelIds, panelId] } : item),
+  };
+}
+
+export function removePanelFromTabGroup(document: WorkspaceDocument, groupId: string, panelId: string): WorkspaceDocument {
+  return {
+    ...document,
+    tabGroups: document.tabGroups.map((group) => {
+      if (group.id !== groupId) return group;
+      const panelIds = group.panelIds.filter((id) => id !== panelId);
+      return { ...group, panelIds, activePanelId: panelIds.includes(group.activePanelId) ? group.activePanelId : panelIds[0] || "" };
+    }).filter((group) => group.panelIds.length > 0),
+  };
+}
