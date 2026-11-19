@@ -84,7 +84,7 @@ export class NativeViewStackManager {
   }
 
   closeAll(): void {
-    for ( (const item of this.views.values()) ) this.detach(item);
+    for (const item of this.views.values()) this.detach(item);
     this.views.clear();
   }
 
