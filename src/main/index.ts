@@ -20,6 +20,7 @@ import path from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
 import type { AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { calculateLayout, type LayoutNode } from "./layout/layout-engine";
+import { NativeViewStackManager } from "./layout/native-view-stack";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
 import type { WorkspaceLayoutState } from "../shared/types";
 
@@ -44,6 +45,7 @@ const tabOrder: string[] = [];
 const permissionGrants = new Map<string, Set<string>>();
 
 let mainWindow: BrowserWindow | null = null;
+const nativeViewStack = new NativeViewStackManager(() => mainWindow);
 let agentSettingsWindow: BrowserWindow | null = null;
 let browserSession: Session;
 let activeTabId: string | null = null;
@@ -217,11 +219,9 @@ function updateActiveBounds(): void {
     attachedView.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     return;
   }
-  attachedView.setBounds({
-    x: Math.round(browserBounds.x),
-    y: Math.round(browserBounds.y),
-    width: Math.round(browserBounds.width),
-    height: Math.round(browserBounds.height),
+  nativeViewStack.setBounds("browser:" + activeTabId, {
+    x: browserBounds.x, y: browserBounds.y,
+    width: browserBounds.width, height: browserBounds.height,
   });
 }
 
@@ -229,13 +229,11 @@ function activateTab(id: string): void {
   const nextTab = tabs.get(id);
   if (!nextTab || !mainWindow || mainWindow.isDestroyed()) return;
 
-  if (attachedView) {
-    mainWindow.contentView.removeChildView(attachedView);
-  }
+  if (attachedView && activeTabId) nativeViewStack.hide("browser:" + activeTabId);
 
   activeTabId = id;
   attachedView = nextTab.view;
-  mainWindow.contentView.addChildView(nextTab.view);
+  nativeViewStack.show("browser:" + id);
   updateActiveBounds();
   sendState();
 }
@@ -443,6 +441,7 @@ async function createTab(url = HOME_URL): Promise<string> {
   };
 
   tabs.set(id, tab);
+  nativeViewStack.register("browser:" + id, view, "browser");
   tabOrder.push(id);
   attachTabEvents(tab);
   activateTab(id);
@@ -468,10 +467,8 @@ function closeTab(id: string): void {
   const tab = tabs.get(id);
   if (!tab || index < 0) return;
 
-  if (attachedView === tab.view && mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.contentView.removeChildView(tab.view);
-    attachedView = null;
-  }
+  if (attachedView === tab.view) attachedView = null;
+  nativeViewStack.unregister("browser:" + id, false);
 
   tabs.delete(id);
   tabOrder.splice(index, 1);
@@ -707,6 +704,7 @@ function createMainWindow(): void {
   }
 
   mainWindow.on("closed", () => {
+    nativeViewStack.closeAll();
     for (const tab of tabs.values()) {
       if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
     }
