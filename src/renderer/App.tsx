@@ -39,6 +39,7 @@ function App() {
 
   const workspaceGroup = useMemo(() => workspaceDocument.tabGroups.find((group) => group.panelIds.includes("browser") && group.panelIds.includes("agent")) ?? null, [workspaceDocument]);
   const groupedWorkspace = Boolean(workspaceGroup);
+  const agentIsFloating = workspaceDocument.floating.some((item) => item.panelId === "agent");
   const activeWorkspacePanel = workspaceDocument.activePanelId;
 
   const activeTab = useMemo(
@@ -312,7 +313,7 @@ function App() {
 
           <div className="toolbar-actions">
             {!groupedWorkspace && <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => { if (!agentOpen) { void window.browser.redockAgentPanel(); return; } setAgentOpen(false); saveWorkspaceLayout(false); }} /></Tooltip>}
-            {!groupedWorkspace && <Button size="small" type="text" onClick={groupAgentWithBrowser}>Tab Agent</Button>}
+            {!groupedWorkspace && <Button size="small" type="text" disabled={agentIsFloating} onClick={groupAgentWithBrowser}>Tab Agent</Button>}
             {groupedWorkspace && <div className="workspace-tab-group">
               <Button size="small" type={activeWorkspacePanel === "browser" ? "primary" : "text"} onClick={() => activateWorkspacePanel("browser")}>Browser</Button>
               <Button size="small" type={activeWorkspacePanel === "agent" ? "primary" : "text"} onClick={() => activateWorkspacePanel("agent")}>Agent</Button>
