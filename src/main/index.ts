@@ -1314,6 +1314,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-data:select-directory", async (event) => {
     assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等待当前请求结束后再切换 Agent Data 目录。");
     const { canceled, filePaths } = await dialog.showOpenDialog({ title: "选择 Agent Data 目录", properties: ["openDirectory", "createDirectory"] });
     if (canceled || !filePaths[0]) return agentTraceStore.getDirectory();
     const directory = path.resolve(filePaths[0]);
