@@ -73,6 +73,18 @@ export class AgentTraceStore {
       CREATE INDEX IF NOT EXISTS idx_agent_events_session_time ON agent_events(session_id, timestamp);
       CREATE INDEX IF NOT EXISTS idx_agent_events_trace_sequence ON agent_events(trace_id, sequence);
       CREATE INDEX IF NOT EXISTS idx_agent_events_type_time ON agent_events(type, timestamp);
+      CREATE TABLE IF NOT EXISTS session_messages (
+        session_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tool_name TEXT,
+        tool_state TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, created_at, id);
     `);
     try { chmodSync(filename, 0o600); } catch { /* Platform permissions may differ. */ }
   }
@@ -139,10 +151,57 @@ export class AgentTraceStore {
     return rows.map((row) => ({ ...row, payloadComplete: row.payloadComplete === 1, data: JSON.parse(String(row.dataJson)), dataJson: undefined }));
   }
 
+  saveSessionItems(sessionId: string, workspacePath: string | null, items: Array<{ id: string; kind: string; content: string; toolName?: string; toolState?: string; createdAt: number }>): void {
+    if (!this.database) throw new Error("Agent trace store is closed.");
+    const timestamp = new Date().toISOString();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(`
+        INSERT INTO sessions (id, workspace_path, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET workspace_path=excluded.workspace_path, updated_at=excluded.updated_at
+      `).run(sessionId, workspacePath, timestamp, timestamp);
+      const upsert = this.database.prepare(`
+        INSERT INTO session_messages (session_id, id, kind, content, tool_name, tool_state, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, id) DO UPDATE SET
+          kind=excluded.kind, content=excluded.content, tool_name=excluded.tool_name,
+          tool_state=excluded.tool_state, created_at=excluded.created_at, updated_at=excluded.updated_at
+      `);
+      for (const item of items) {
+        upsert.run(sessionId, item.id, item.kind, String(redact(item.content)), item.toolName ?? null,
+          item.toolState ?? null, item.createdAt, timestamp);
+      }
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listSessionItems(sessionId: string, limit = 50000): Array<Record<string, unknown>> {
+    if (!this.database) throw new Error("Agent trace store is closed.");
+    const safeLimit = Math.max(1, Math.min(50000, Math.floor(limit)));
+    return this.database.prepare(`
+      SELECT id, kind, content, tool_name AS toolName, tool_state AS toolState, created_at AS createdAt
+      FROM session_messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC LIMIT ?
+    `).all(sessionId, safeLimit) as Array<Record<string, unknown>>;
+  }
+
+  clearSessionItems(sessionId: string): void {
+    if (!this.database) throw new Error("Agent trace store is closed.");
+    this.database.prepare("DELETE FROM session_messages WHERE session_id = ?").run(sessionId);
+  }
+
   listSessions(limit = 100): Array<Record<string, unknown>> {
     if (!this.database) throw new Error("Agent trace store is closed.");
     const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
-    return this.database.prepare("SELECT id, workspace_path AS workspacePath, created_at AS createdAt, updated_at AS updatedAt FROM sessions ORDER BY updated_at DESC LIMIT ?").all(safeLimit) as Array<Record<string, unknown>>;
+    return this.database.prepare(`
+      SELECT s.id, s.workspace_path AS workspacePath, s.created_at AS createdAt, s.updated_at AS updatedAt,
+        (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.id) AS messageCount,
+        (SELECT COUNT(*) FROM agent_events e WHERE e.session_id = s.id) AS eventCount
+      FROM sessions s ORDER BY s.updated_at DESC LIMIT ?
+    `).all(safeLimit) as Array<Record<string, unknown>>;
   }
 
   close(): void {
