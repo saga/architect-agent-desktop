@@ -159,10 +159,10 @@ export function createWorkspaceTabGroup(
     else { collect(node.first); collect(node.second); }
   };
   collect(document.root);
-  if (!groupId.trim() || document.tabGroups.some((group) => group.id === groupId)
+  if (!groupId.trim()
     || panelIds.length < 2 || new Set(panelIds).size !== panelIds.length
     || panelIds.some((id) => !validPanels.has(id)) || !panelIds.includes(activePanelId)) return document;
-  const remaining = document.tabGroups.map((group) => ({
+  const remaining = document.tabGroups.filter((group) => group.id !== groupId).map((group) => ({
     ...group,
     panelIds: group.panelIds.filter((id) => !panelIds.includes(id)),
   })).filter((group) => group.panelIds.length > 0)
