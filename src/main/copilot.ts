@@ -25,7 +25,7 @@ function normalizeModelInfo(provider: AgentProvider, raw: unknown): AgentModelIn
  const cw = asRecord(item.contextWindow), rawLengths = cw.supportedLengths;
  const lengths = Array.isArray(rawLengths) ? rawLengths.map(positiveTokens) : [];
  const validLengths = [...new Set(lengths.filter((v): v is number => v !== undefined && (!maxInputTokens || v <= maxInputTokens)))].sort((a,b)=>a-b);
- const contextWindowOptions = validLengths.length >= 2 ? validLengths.map(v=>({value:v,label:v%1000000===0?(v/1000000)+"M":v%1000===0?(v/1000)+"K":v.toLocaleString("en-US")+" tokens"})) : undefined;
+ const contextWindowOptions = provider === "codebuddy" && validLengths.length >= 2 ? validLengths.map(v=>({value:v,label:v%1000000===0?(v/1000000)+"M":v%1000===0?(v/1000)+"K":v.toLocaleString("en-US")+" tokens"})) : undefined;
  return { provider, id, name: typeof item.name === "string" && item.name.trim() ? item.name : id,
   ...(typeof item.description === "string" ? {description:item.description} : {}),
   ...(efforts.length ? {effortOptions:efforts} : {}), ...(contextWindowOptions ? {contextWindowOptions} : {}),
@@ -123,7 +123,7 @@ export class CopilotDesktopAgent {
   try{for await(const item of query){const m=item as{type?:string;message?:{content?:Array<{type?:string;text?:string}>};subtype?:string;error?:unknown};if(m.type==="assistant"&&Array.isArray(m.message?.content)){for(const part of m.message.content)if(part.type==="text"&&part.text){answer+=part.text;this.publish({type:"delta",text:part.text});}}if(m.type==="result"&&m.subtype&&m.subtype!=="success")throw new Error("CodeBuddy 执行失败："+String(m.error||m.subtype));}if(answer.trim())this.publish({type:"message",text:answer.trim()});else throw new Error("CodeBuddy 已结束但没有返回文本，请确认 CodeBuddy 登录状态和模型权限。");}
   finally{this.codeBuddyQuery=null;cleanup?.();}
  }
- async send(prompt:string):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt);else await this.sendCopilot(prompt);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"\n\nCodeBuddy 登录：在系统终端运行 codebuddy，按 CLI 提示完成登录；登录后回到应用重试。":"\n\nGitHub Copilot CLI 登录：在系统终端运行 copilot login，选择 GitHub.com 和浏览器登录，完成授权后回到终端。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
+ async send(prompt:string):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt);else await this.sendCopilot(prompt);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"\n\n请检查 CodeBuddy 是否已完成账号授权，以及本机模型目录是否可读取。":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
  async cancel():Promise<void>{if(this.settings.provider==="codebuddy"&&this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();else if(this.active&&this.session)await this.session.abort();}
  async stop():Promise<void>{const client=this.client;this.client=null;this.session=null;if(client)await client.stop();}
 }
