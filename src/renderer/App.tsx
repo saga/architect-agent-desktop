@@ -325,7 +325,7 @@ function App() {
       {agentOpen && <div className={"workspace-splitter" + (horizontalDock ? " vertical" : " horizontal")} style={splitterPlacement} role="separator" aria-orientation={horizontalDock ? "vertical" : "horizontal"} aria-label="Resize Agent panel" tabIndex={0}
         onPointerDown={onSplitterPointerDown} onPointerMove={onSplitterPointerMove} onPointerUp={onSplitterPointerUp} onPointerCancel={onSplitterPointerUp}
         onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { const next = Math.max(280, Math.min(720, agentWidth + (event.key === "ArrowLeft" ? 16 : -16))); setAgentWidth(next); saveWorkspaceLayout(true, next); } }} />}
-      {agentOpen && <div style={agentPlacement}><AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} onFloat={() => { void window.browser.floatAgentPanel(); }} onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }} /></div>}
+      {agentOpen && <div className="agent-panel-slot" style={agentPlacement}><AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} onFloat={() => { void window.browser.floatAgentPanel(); }} onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }} /></div>}
     </div>
   );
 }
