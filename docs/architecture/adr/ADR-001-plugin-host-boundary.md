@@ -1,35 +1,23 @@
-# ADR-001: Host-Owned Plugin Lifecycle and Extension Contracts
+# ADR-001: Declarative Plugin Packages Owned by the Host
 
 **Status:** Proposed  
 **Date:** 2026-11-19
 
 ## Context
 
-Different teams need different capabilities and UI contributions. Implementing each request directly in core application code creates a growing set of team-specific branches and tightly coupled features. At the same time, arbitrary plugin code must not gain control of Electron internals or the application lifecycle.
+Teams need different combinations of skills, tools, workflows and workspace views. Hard-coded team modes or separate application builds would make these differences expensive to maintain. A general-purpose executable plugin runtime would add substantial security and lifecycle complexity before it is needed.
 
 ## Decision
 
-Introduce a host-owned plugin model with explicit manifests, contribution contracts, registry and lifecycle.
+Use local, declarative plugin packages. A package contains a small manifest and optional resource files, and may contribute skills, references to host-supported tools, workflow definitions and host-supported view declarations.
 
-The host owns discovery, validation, dependency resolution, registration, authorization, activation, deactivation, failure handling and uninstall. Plugins declare contributions and request permissions; they do not control host lifecycle.
+The Host owns package import, validation, registration, enable/disable and removal. Plugins do not run arbitrary code, patch host internals or control Electron objects.
 
-A plugin may contribute one or more of Agent, Tool, Skill, Workflow, UI, Context, Provider or Integration capabilities. These contribution types are independently identifiable and do not imply that every plugin has a UI or executable component.
+Tool references resolve to existing host tools. All execution and permission checks remain in the application's existing host-controlled path; the plugin system does not introduce a second tool runtime or authorization framework.
 
 ## Consequences
 
-Positive:
-- Team-specific capabilities can be packaged and reused.
-- The host has one place to validate compatibility and observe plugin health.
-- Built-in features can migrate incrementally without a wholesale rewrite.
-
-Trade-offs:
-- Manifest and lifecycle contracts require versioning and compatibility management.
-- Extension failures and dependency conflicts need explicit UX and diagnostics.
-- The host must maintain stable APIs for supported contributions.
-
-## Constraints
-
-- Plugins cannot patch host internals or directly invoke arbitrary Electron APIs.
-- Plugin metadata is validated before registration.
-- Failure of one plugin must not terminate the entire workspace.
-- No public marketplace is required by this decision.
+- Teams can share capability bundles without separate application builds.
+- The initial implementation is limited to manifest validation and local package management.
+- Arbitrary executable plugins, dependency resolution, event hooks and marketplace infrastructure are explicitly out of scope until justified by a concrete requirement.
+- Existing features are migrated only when doing so provides a practical benefit.
