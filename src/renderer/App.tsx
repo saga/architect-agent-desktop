@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import type { BrowserDownloadEvent, BrowserState, BrowserTabState, WorkspaceDocument } from "../shared/types";
 import { activateWorkspaceTab, createWorkspaceTabGroup, DEFAULT_WORKSPACE_DOCUMENT, setWorkspacePanelVisibility, ungroupWorkspacePanel } from "../shared/workspace-document";
 import AgentPanel from "./AgentPanel";
-import { Button, Tooltip } from "antd";
-import { RobotOutlined } from "@ant-design/icons";
+import { Button } from "antd";
 
 const EMPTY_STATE: BrowserState = { tabs: [], activeTabId: null };
 
@@ -40,7 +39,6 @@ function App() {
 
   const workspaceGroup = useMemo(() => workspaceDocument.tabGroups.find((group) => group.panelIds.includes("browser") && group.panelIds.includes("agent")) ?? null, [workspaceDocument]);
   const groupedWorkspace = Boolean(workspaceGroup);
-  const agentIsFloating = workspaceDocument.floating.some((item) => item.panelId === "agent");
   const activeWorkspacePanel = workspaceDocument.activePanelId;
 
   const activeTab = useMemo(
@@ -327,16 +325,11 @@ function App() {
           </form>
 
           <div className="toolbar-actions">
-            {!groupedWorkspace && <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => { if (!agentOpen) { void window.browser.redockAgentPanel(); return; } setAgentOpen(false); saveWorkspaceLayout(false); }} /></Tooltip>}
-            {!groupedWorkspace && <Button size="small" type="text" disabled={agentIsFloating} onClick={() => groupAgentWithBrowser()}>Tab Agent</Button>}
             {groupedWorkspace && <div className="workspace-tab-group">
               <Button size="small" type={activeWorkspacePanel === "browser" ? "primary" : "text"} onClick={() => activateWorkspacePanel("browser")}>Browser</Button>
               <Button size="small" type={activeWorkspacePanel === "agent" ? "primary" : "text"} onClick={() => activateWorkspacePanel("agent")}>Agent</Button>
               <Button size="small" type="text" onClick={splitAgentFromBrowser}>Split</Button>
             </div>}
-            <button className={"toolbar-button" + (snapshotMode ? " snapshot-active" : "")} type="button" disabled={groupedWorkspace && activeWorkspacePanel === "agent"} aria-label={snapshotMode ? "Return to live page" : "Capture page snapshot"} title={snapshotMode ? "Return to live page" : "Capture page snapshot"} onClick={() => { void window.browser.toggleSnapshot().then(setSnapshotMode).catch((error: unknown) => console.error("Snapshot failed", error)); }}>
-              {snapshotMode ? "Live" : "Snapshot"}
-            </button>
             <button className="toolbar-button download-button" type="button"
               aria-label="Dismiss recent download status"
               title={latestDownload ? latestDownload.fileName : "Downloads"}
@@ -391,7 +384,15 @@ function App() {
       {agentOpen && !groupedWorkspace && <div className={"workspace-splitter" + (horizontalDock ? " vertical" : " horizontal")} style={splitterPlacement} role="separator" aria-orientation={horizontalDock ? "vertical" : "horizontal"} aria-label="Resize Agent panel" tabIndex={0}
         onPointerDown={onSplitterPointerDown} onPointerMove={onSplitterPointerMove} onPointerUp={onSplitterPointerUp} onPointerCancel={onSplitterPointerUp}
         onKeyDown={(event) => { const keys = horizontalDock ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"]; if (keys.includes(event.key)) { event.preventDefault(); const increase = agentPosition === "left" || agentPosition === "top" ? (event.key === "ArrowRight" || event.key === "ArrowDown") : (event.key === "ArrowLeft" || event.key === "ArrowUp"); const next = Math.max(280, Math.min(720, agentWidth + (increase ? 16 : -16))); setAgentWidth(next); saveWorkspaceLayout(true, next); } }} />}
-      {agentOpen && !groupedWorkspace && <div className="agent-panel-slot" style={agentPlacement}><AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} onFloat={() => { void window.browser.floatAgentPanel(); }} onDragState={setDockDragActive} onMaximize={() => groupAgentWithBrowser("agent")} onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }} /></div>}
+      {agentOpen && !groupedWorkspace && <div className="agent-panel-slot" style={agentPlacement}><AgentPanel
+        onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }}
+        onFloat={() => { void window.browser.floatAgentPanel(); }}
+        onDragState={setDockDragActive}
+        onMaximize={() => groupAgentWithBrowser("agent")}
+        onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }}
+        snapshotMode={snapshotMode}
+        onToggleSnapshot={() => { void window.browser.toggleSnapshot().then(setSnapshotMode).catch((error: unknown) => console.error("Snapshot failed", error)); }}
+      /></div>}
       {groupedWorkspace && activeWorkspacePanel === "agent" && <div className="agent-group-content" style={{ top: chromeHeight }}><AgentPanel onClose={() => activateWorkspacePanel("browser")} onFloat={() => { void window.browser.floatAgentPanel(); }} onDragState={setDockDragActive} onRestore={splitAgentFromBrowser} onDock={(position) => { splitAgentFromBrowser(); setAgentPosition(position); saveWorkspaceLayout(true, agentWidth, position); }} /></div>}
     </div>
   );

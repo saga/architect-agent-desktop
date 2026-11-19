@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Dropdown, Popconfirm, Tag, message, Tooltip } from "antd";
-import { AppstoreOutlined, DeleteOutlined, FolderOpenOutlined, SettingOutlined } from "@ant-design/icons";
+import { AppstoreOutlined, CameraOutlined, DeleteOutlined, FolderOpenOutlined, SettingOutlined } from "@ant-design/icons";
 import { Bubble, Sender } from "@ant-design/x";
 import XMarkdown from "@ant-design/x-markdown";
 import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } from "../shared/types";
@@ -80,7 +80,7 @@ const bubbleRoles = {
   },
 };
 
-export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMaximize, onRestore }: { onClose: () => void; onDock: (position: "left" | "right" | "top" | "bottom") => void; onFloat?: () => void; onDragState?: (active: boolean) => void; onMaximize?: () => void; onRestore?: () => void }) {
+export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMaximize, onRestore, onGroupWithBrowser, snapshotMode, onToggleSnapshot }: { onClose: () => void; onDock: (position: "left" | "right" | "top" | "bottom") => void; onFloat?: () => void; onDragState?: (active: boolean) => void; onMaximize?: () => void; onRestore?: () => void; onGroupWithBrowser?: () => void; snapshotMode?: boolean; onToggleSnapshot?: () => void }) {
   const [status, setStatus] = useState("checking");
   const [statusMessage, setStatusMessage] = useState("");
   const [settings, setSettings] = useState<AgentSettings>(EMPTY_SETTINGS);
@@ -237,6 +237,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     { key: "right", label: "靠右停靠" },
     { key: "top", label: "靠上停靠" },
     { key: "bottom", label: "靠下停靠" },
+    ...(onGroupWithBrowser ? [{ type: "divider" as const }, { key: "group", label: "与浏览器合并为标签组" }] : []),
   ];
 
   return <aside className="agent-panel">
@@ -266,8 +267,14 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
         <Popconfirm title="清空当前会话？" description="本地保存的 Agent 对话记录会被删除。" okText="清空" cancelText="取消" onConfirm={() => void clearSession()}>
           <Tooltip title="清空会话"><Button type="text" size="small" aria-label="清空会话" icon={<DeleteOutlined />} /></Tooltip>
         </Popconfirm>
+        {onToggleSnapshot && <Tooltip title={snapshotMode ? "返回实时页面" : "冻结当前页面快照"}>
+          <Button type={snapshotMode ? "primary" : "text"} size="small" aria-label={snapshotMode ? "返回实时页面" : "冻结当前页面快照"} icon={<CameraOutlined />} onClick={onToggleSnapshot} />
+        </Tooltip>}
         <Tooltip title="选择停靠位置">
-          <Dropdown trigger={["click"]} menu={{ items: dockItems, onClick: ({ key }) => onDock(key as "left" | "right" | "top" | "bottom") }} placement="bottomRight">
+          <Dropdown trigger={["click"]} menu={{ items: dockItems, onClick: ({ key }) => {
+            if (key === "group") { onGroupWithBrowser?.(); return; }
+            onDock(key as "left" | "right" | "top" | "bottom");
+          } }} placement="bottomRight">
             <Button type="text" size="small" aria-label="选择停靠位置" icon={<AppstoreOutlined />} />
           </Dropdown>
         </Tooltip>
