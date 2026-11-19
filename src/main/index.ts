@@ -22,7 +22,7 @@ import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
 import { readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
-import { MAX_AGENT_SESSION_ITEMS, parseAgentSessionItems } from "./agent-session";
+import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
 import { writeJsonAtomic } from "./json-store";
 import { exportPlugin, importPlugin, listPlugins, readEnabledPluginInstructions, removePlugin, setPluginEnabled } from "./plugins/plugin-registry";
@@ -136,6 +136,8 @@ function loadAgentSettings(): AgentSettings {
   try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" || raw.thinkingLevel === "xhigh" ? raw.thinkingLevel : "medium", toolPermission: raw.toolPermission === "assisted" || raw.toolPermission === "allow-all" ? raw.toolPermission : "browser-only", contextWindow: typeof raw.contextWindow === "number" && Number.isSafeInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined, copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? (raw.systemPrompt.trim() ? raw.systemPrompt.slice(0, 12000) : DEFAULT_SETTINGS.systemPrompt) : DEFAULT_SETTINGS.systemPrompt }; } catch { return { ...DEFAULT_SETTINGS }; }
 }
 function loadAgentSession(): AgentSessionItem[] {
+  const stored = agentTraceStore.listSessionItems(currentTraceSessionId());
+  if (stored.length) return parseAgentSessionItems(stored);
   try {
     const parsed = JSON.parse(readFileSync(currentAgentSessionPath(), "utf8")) as { items?: unknown };
     return parseAgentSessionItems(parsed.items);
@@ -150,11 +152,13 @@ function loadAgentSession(): AgentSessionItem[] {
   }
 }
 function saveAgentSession(items: AgentSessionItem[]): void {
-  const trimmed = parseAgentSessionItems(items).slice(-MAX_AGENT_SESSION_ITEMS);
+  const complete = parseAgentSessionItems(items);
   try {
-    writeJsonAtomic(currentAgentSessionPath(), { version: 1, updatedAt: Date.now(), items: trimmed });
+    agentTraceStore.saveSessionItems(currentTraceSessionId(), workspaceProject.path, complete);
+    writeJsonAtomic(currentAgentSessionPath(), { version: 2, updatedAt: Date.now(), items: complete });
   } catch (error) {
     recordOperation("session", "save failed: " + (error instanceof Error ? error.message : String(error)));
+    throw error;
   }
 }
 let agentSettings = loadAgentSettings();
@@ -1467,7 +1471,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("agent:load-session", (event) => {
     assertTrustedSender(event);
     const items = loadAgentSession();
-    recordAgentTrace("session.loaded", { itemCount: items.length, items }, "completed");
+    recordAgentTrace("session.loaded", { itemCount: items.length, storage: "sqlite-session-messages" }, "completed");
     return items;
   });
   ipcMain.handle("agent:save-session", (event, input: unknown) => {
@@ -1475,11 +1479,12 @@ function registerIpcHandlers(): void {
     if (!Array.isArray(input)) throw new Error("Invalid Agent session.");
     const items = parseAgentSessionItems(input);
     saveAgentSession(items);
-    recordAgentTrace("session.saved", { itemCount: items.length, items }, "completed");
+    recordAgentTrace("session.saved", { itemCount: items.length, storage: "sqlite-session-messages" }, "completed");
   });
   ipcMain.handle("agent:clear-session", (event) => {
     assertTrustedSender(event);
-    recordAgentTrace("session.cleared", { workspacePath: workspaceProject.path, previousItems: loadAgentSession() }, "completed");
+    recordAgentTrace("session.cleared", { workspacePath: workspaceProject.path, previousItemCount: loadAgentSession().length }, "completed");
+    agentTraceStore.clearSessionItems(currentTraceSessionId());
     rmSync(currentAgentSessionPath(), { force: true });
     if (!workspaceProject.path) rmSync(LEGACY_AGENT_SESSION_PATH, { force: true });
   });
