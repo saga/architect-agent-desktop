@@ -55,6 +55,7 @@ function App() {
     }).catch((error: unknown) => console.error("Unable to load workspace layout", error));
     const unsubscribeState = window.browser.onState(setBrowserState);
     const unsubscribeLayout = window.browser.onWorkspaceLayoutUpdated((layout) => {
+      void window.browser.getWorkspaceDocument().then(setWorkspaceDocument).catch((error: unknown) => console.error("Unable to refresh workspace document", error));
       setAgentOpen(layout.agentPanelVisible);
       setAgentWidth(layout.agentPanelWidth);
       setAgentPosition(layout.agentPanelPosition);
