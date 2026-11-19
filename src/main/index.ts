@@ -250,6 +250,7 @@ function hideSnapshot(): void {
   nativeViewStack.unregister("snapshot", true);
   snapshotView = null;
   snapshotActive = false;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("browser:snapshot-state", false);
 }
 
 async function toggleSnapshot(): Promise<boolean> {
@@ -271,6 +272,7 @@ async function toggleSnapshot(): Promise<boolean> {
     await view.webContents.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
     snapshotActive = true;
     nativeViewStack.show("snapshot");
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("browser:snapshot-state", true);
     if (currentBrowserBounds) nativeViewStack.setBounds("snapshot", currentBrowserBounds);
     return true;
   } catch (error) {
