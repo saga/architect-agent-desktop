@@ -1,6 +1,6 @@
 # Layout Engine Architecture
 
-Status: implementation foundation / incremental rollout  
+Status: functional first release / advanced interactions in progress  
 Target: Electron 45 + React 19 + TypeScript
 
 ## Decision
@@ -73,7 +73,7 @@ All coordinates are logical pixels (DIP). The main process clamps rectangles to 
 
 The existing toolbar and tab chrome remain in the renderer. Renderer reports the content viewport rectangle. The main process passes that rectangle through the layout engine and applies the resulting `browser` rectangle to the active WebContentsView.
 
-This preserves the current UI while replacing ad-hoc bounds arithmetic with a deterministic engine. Subsequent phases move the Agent panel and overlay into the shared tree and let the engine compute both rectangles.
+The main process computes the native Browser rectangle from the same split model that positions the React Agent panel. The Snapshot overlay is a separate native layer managed by the stack manager; it does not participate in split geometry.
 
 ## Phased implementation
 
@@ -88,12 +88,13 @@ This preserves the current UI while replacing ad-hoc bounds arithmetic with a de
 - diagnostics for layout version, duration and overflow
 
 ### Phase 3 — Workspace interactions
-- [x] persist Agent panel width and visibility (version 1)
-- [x] draggable splitter, keyboard resize, visibility toggle
+- [x] persist Agent panel size, visibility and four-way dock position
+- [x] orientation-aware splitter and keyboard resize
 - [x] pure split-ratio, dock, remove/collapse, visibility and normalization operations
-- [ ] renderer drag/drop targets and docking preview
-- [ ] persist the complete nested tree and restore/migrate it
-- [ ] keyboard focus order and panel activation
+- [x] version-2 workspace document with nested tree, tab-group metadata and floating roots
+- [x] validate and migrate legacy version-1 panel preferences
+- [ ] free-form drag/drop targets and docking preview
+- [ ] panel Tab Group selection UI and focus order
 
 ### Phase 4 — Native view composition
 - [x] centralized native child-view registry, bounds clamping, visibility and layer ordering
@@ -102,9 +103,11 @@ This preserves the current UI while replacing ad-hoc bounds arithmetic with a de
 - [ ] move AgentPanel React UI into a native WebContentsView (not required for current composition)
 
 ### Phase 5 — Advanced workspace
-- [ ] workspace Tab Groups (distinct from the browser's web-tab strip)
-- [ ] floating roots, detached BrowserWindows, redocking, maximize/restore
-- [ ] migration and recovery for full-tree persisted layouts
+- [x] floating Agent root, detached BrowserWindow, redocking and bounds restore
+- [x] workspace Tab Group data model and membership operations
+- [ ] Tab Group UI that switches active panel content
+- [ ] floating roots for arbitrary panels, not only Agent
+- [ ] maximize/restore policy for docked panels
 - [ ] cross-platform interaction and performance tests
 
 ## Invariants
