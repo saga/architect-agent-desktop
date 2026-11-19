@@ -255,7 +255,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const text=typeof result === "string" ? result : JSON.stringify(result);
     return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
-}, agentSettings, () => readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH), workspaceProject.path);
+}, agentSettings, () => readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH), workspaceProject.path, (type, data, status) => recordAgentTrace(type, data, status));
 let downloadSequence = 0;
 
 function safeWebUrl(value: string): boolean {
