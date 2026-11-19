@@ -256,7 +256,7 @@ async function toggleSnapshot(): Promise<boolean> {
     return false;
   }
   const tab = activeTabId ? tabs.get(activeTabId) : null;
-  if (!tab || !mainWindow || mainWindow.isDestroyed()) return false;
+  if (!tab || !mainWindow || mainWindow.isDestroyed() || !currentBrowserBounds || currentBrowserBounds.width <= 0 || currentBrowserBounds.height <= 0) return false;
   snapshotCapturing = true;
   try {
     const tabId = tab.id;
