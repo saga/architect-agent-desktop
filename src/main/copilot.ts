@@ -1,4 +1,4 @@
-import { CopilotClient, defineTool, type CopilotSession } from "@github/copilot-sdk";
+import type { CopilotClient, CopilotSession } from "@github/copilot-sdk";
 import { z } from "zod";
 
 export interface BrowserAgentTools {
@@ -36,7 +36,8 @@ export class CopilotDesktopAgent {
     catch (error) { return { status: "unauthenticated", message: error instanceof Error ? error.message : String(error) }; }
   }
 
-  private browserTools() {
+  private async browserTools() {
+    const { defineTool } = await import("@github/copilot-sdk");
     const browser = this.browser;
     const report = (name: string, detail: string) => {
       const summary = name === "Read current page" ? "Page content read" : detail.slice(0, 180);
@@ -99,12 +100,13 @@ export class CopilotDesktopAgent {
     if (this.session) return this.session;
     if (!this.starting) {
       this.starting = (async () => {
+        const { CopilotClient } = await import("@github/copilot-sdk");
         const client = new CopilotClient({ useLoggedInUser: true, mode: "empty" });
         this.client = client;
         await client.start();
         this.session = await client.createSession({
           streaming: true,
-          tools: this.browserTools(),
+          tools: await this.browserTools(),
           onPermissionRequest: async () => ({ kind: "user-not-available" } as never),
           onMcpAuthRequest: async () => ({ kind: "cancelled" } as never),
         });
