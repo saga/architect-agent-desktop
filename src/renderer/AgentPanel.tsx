@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Dropdown, Popconfirm, message, Tooltip } from "antd";
-import { AppstoreOutlined, CameraOutlined, DeleteOutlined, FolderOpenOutlined, SettingOutlined } from "@ant-design/icons";
+import { Alert, App as AntApp, Button, Dropdown, Popconfirm, message, Tooltip } from "antd";
+import { FolderOpenOutlined, MoreOutlined, SettingOutlined } from "@ant-design/icons";
 import { Bubble, Sender } from "@ant-design/x";
 import XMarkdown from "@ant-design/x-markdown";
 import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } from "../shared/types";
@@ -80,7 +80,8 @@ const bubbleRoles = {
   },
 };
 
-export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMaximize, onRestore, onGroupWithBrowser, snapshotMode, onToggleSnapshot }: { onClose: () => void; onDock: (position: "left" | "right" | "top" | "bottom") => void; onFloat?: () => void; onDragState?: (active: boolean) => void; onMaximize?: () => void; onRestore?: () => void; onGroupWithBrowser?: () => void; snapshotMode?: boolean; onToggleSnapshot?: () => void }) {
+export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMaximize, onRestore }: { onClose: () => void; onDock: (position: "left" | "right" | "top" | "bottom") => void; onFloat?: () => void; onDragState?: (active: boolean) => void; onMaximize?: () => void; onRestore?: () => void }) {
+  const { modal } = AntApp.useApp();
   const [status, setStatus] = useState("checking");
   const [statusMessage, setStatusMessage] = useState("");
   const [settings, setSettings] = useState<AgentSettings>(EMPTY_SETTINGS);
@@ -233,12 +234,35 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const fileAccess = settings.toolPermission === "browser-only" ? "文件访问关闭" : settings.toolPermission === "assisted" ? "只读" : "可读写";
   const workspaceLabel = workspaceProject.name ? "工作区：" + workspaceProject.name + " · " + fileAccess : "未选择工作区 · 选择项目目录";
   const dockItems = [
-    { key: "left", label: "靠左停靠" },
-    { key: "right", label: "靠右停靠" },
-    { key: "top", label: "靠上停靠" },
-    { key: "bottom", label: "靠下停靠" },
-    ...(onGroupWithBrowser ? [{ type: "divider" as const }, { key: "group", label: "与浏览器合并为标签组" }] : []),
+    { key: "left", label: "靠左" },
+    { key: "right", label: "靠右" },
+    { key: "top", label: "靠上" },
+    { key: "bottom", label: "靠下" },
   ];
+  const moreItems = [
+    { key: "clear", label: "新建会话" },
+    { type: "divider" as const },
+    { key: "dock", label: "停靠位置", children: dockItems },
+    ...(onMaximize ? [{ key: "maximize", label: "合并为浏览器标签" }] : []),
+    ...(onRestore ? [{ key: "restore", label: "恢复分栏" }] : []),
+    ...(onFloat ? [{ key: "float", label: "在独立窗口打开" }] : []),
+  ];
+  const onMoreClick = ({ key }: { key: string }) => {
+    if (key === "clear") {
+      modal.confirm({
+        title: "新建会话",
+        content: "当前对话记录会从本机删除。",
+        okText: "新建",
+        cancelText: "取消",
+        onOk: () => void clearSession(),
+      });
+      return;
+    }
+    if (key === "maximize") { onMaximize?.(); return; }
+    if (key === "restore") { onRestore?.(); return; }
+    if (key === "float") { onFloat?.(); return; }
+    onDock(key as "left" | "right" | "top" | "bottom");
+  };
 
   return <aside className="agent-panel">
     <header className="agent-panel-header">
@@ -263,25 +287,11 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
         </div>
       </div>
       <div className="agent-panel-toolbar">
-        <Popconfirm title="清空当前会话？" description="本地保存的 Agent 对话记录会被删除。" okText="清空" cancelText="取消" onConfirm={() => void clearSession()}>
-          <Tooltip title="清空会话"><Button type="text" size="small" aria-label="清空会话" icon={<DeleteOutlined />} /></Tooltip>
-        </Popconfirm>
-        {onToggleSnapshot && <Tooltip title={snapshotMode ? "返回实时页面" : "冻结当前页面快照"}>
-          <Button type={snapshotMode ? "primary" : "text"} size="small" aria-label={snapshotMode ? "返回实时页面" : "冻结当前页面快照"} icon={<CameraOutlined />} onClick={onToggleSnapshot} />
-        </Tooltip>}
-        <Tooltip title="选择停靠位置">
-          <Dropdown trigger={["click"]} menu={{ items: dockItems, onClick: ({ key }) => {
-            if (key === "group") { onGroupWithBrowser?.(); return; }
-            onDock(key as "left" | "right" | "top" | "bottom");
-          } }} placement="bottomRight">
-            <Button type="text" size="small" aria-label="选择停靠位置" icon={<AppstoreOutlined />} />
-          </Dropdown>
-        </Tooltip>
-        {onMaximize && <Tooltip title="最大化到工作区"><Button type="text" size="small" onClick={onMaximize}>□</Button></Tooltip>}
-        {onRestore && <Tooltip title="恢复分栏布局"><Button type="text" size="small" onClick={onRestore}>▣</Button></Tooltip>}
-        {onFloat && <Tooltip title="浮动为独立窗口"><Button type="text" size="small" onClick={onFloat}>↗</Button></Tooltip>}
-        <Tooltip title="Agent 配置"><Button type="text" size="small" icon={<SettingOutlined />} onClick={() => void openSettings()} /></Tooltip>
-        <Tooltip title="关闭面板"><Button type="text" size="small" onClick={onClose}>×</Button></Tooltip>
+        <Tooltip title="Agent 配置"><Button type="text" size="small" aria-label="Agent 配置" icon={<SettingOutlined />} onClick={() => void openSettings()} /></Tooltip>
+        <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: moreItems, onClick: onMoreClick }}>
+          <Button type="text" size="small" aria-label="更多操作" icon={<MoreOutlined />} />
+        </Dropdown>
+        <Tooltip title="关闭"><Button type="text" size="small" aria-label="关闭面板" onClick={onClose}>×</Button></Tooltip>
       </div>
     </header>
     {status === "error" && settings.provider === "copilot" && <Alert type="error" showIcon message="GitHub Copilot Agent 初始化失败" description={<div>{statusMessage}<p>这通常是 SDK 配置或运行时问题，不代表 CLI 一定未登录。请检查应用版本和运行日志。</p></div>} />}

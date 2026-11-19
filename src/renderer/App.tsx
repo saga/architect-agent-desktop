@@ -24,7 +24,6 @@ function App() {
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState("");
   const [latestDownload, setLatestDownload] = useState<BrowserDownloadEvent | null>(null);
-  const [snapshotMode, setSnapshotMode] = useState(false);
   const [agentOpen, setAgentOpen] = useState(true);
   const [agentWidth, setAgentWidth] = useState(390);
   const [agentPosition, setAgentPosition] = useState<"left" | "right" | "top" | "bottom">("right");
@@ -70,7 +69,6 @@ function App() {
       window.setTimeout(() => findRef.current?.focus(), 0);
     });
     const unsubscribeDownload = window.browser.onDownload(setLatestDownload);
-    const unsubscribeSnapshot = window.browser.onSnapshotState(setSnapshotMode);
     const unsubscribeAgentToggle = window.browser.onToggleAgent(() => {
       void window.browser.getWorkspaceDocument().then(async (document) => {
         const group = document.tabGroups.find((item) => item.panelIds.includes("browser") && item.panelIds.includes("agent"));
@@ -99,7 +97,6 @@ function App() {
       unsubscribeFocus();
       unsubscribeFind();
       unsubscribeDownload();
-      unsubscribeSnapshot();
       unsubscribeAgentToggle();
     };
   }, []);
@@ -391,8 +388,6 @@ function App() {
         onDragState={setDockDragActive}
         onMaximize={() => groupAgentWithBrowser("agent")}
         onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }}
-        snapshotMode={snapshotMode}
-        onToggleSnapshot={() => { void window.browser.toggleSnapshot().then(setSnapshotMode).catch((error: unknown) => console.error("Snapshot failed", error)); }}
       /></div>}
       {groupedWorkspace && activeWorkspacePanel === "agent" && <div className="agent-group-content" style={{ top: chromeHeight }}><AgentPanel onClose={() => activateWorkspacePanel("browser")} onFloat={() => { void window.browser.floatAgentPanel(); }} onDragState={setDockDragActive} onRestore={splitAgentFromBrowser} onDock={(position) => { splitAgentFromBrowser(); setAgentPosition(position); saveWorkspaceLayout(true, agentWidth, position); }} /></div>}
     </div>
