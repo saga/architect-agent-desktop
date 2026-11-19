@@ -767,9 +767,10 @@ function floatAgentPanel(): void {
   });
   agentPanelWindow = window;
   window.on("closed", () => {
-    if (agentPanelWindow !== window) return;
-    agentPanelWindow = null;
-    if (!closingAgentPanelForRedock) {
+    if (agentPanelWindow === window) agentPanelWindow = null;
+    const wasRedocking = closingAgentPanelForRedock;
+    closingAgentPanelForRedock = false;
+    if (!wasRedocking) {
       workspaceLayout = { ...workspaceLayout, agentPanelVisible: true };
       writeFileSync(WORKSPACE_LAYOUT_PATH, JSON.stringify(workspaceLayout, null, 2), { encoding: "utf8", mode: 0o600 });
       publishWorkspaceLayout();
