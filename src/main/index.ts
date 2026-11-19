@@ -14,12 +14,12 @@ import {
   type Session,
   type WebContents,
 } from "electron";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CopilotDesktopAgent } from "./copilot";
 import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { MAX_AGENT_SESSION_ITEMS, parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
@@ -30,7 +30,7 @@ import { calculateLayout } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { findPanel, setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
-import type { WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
+import type { WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
 import { parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel } from "../shared/workspace-document";
 
 const APP_ID = "com.saga.architectagentdesktop";
@@ -71,12 +71,28 @@ let contentTop = DEFAULT_CONTENT_TOP;
 let contentLeft = 0;
 let contentWidth: number | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
-const AGENT_SESSION_PATH = path.join(app.getPath("userData"), "agent-session.json");
+const AGENT_SESSION_ROOT = path.join(app.getPath("userData"), "agent-sessions");
+const WORKSPACE_PROJECT_PATH = path.join(app.getPath("userData"), "workspace-project.json");
 const WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
 const WORKSPACE_DOCUMENT_PATH = path.join(app.getPath("userData"), "workspace-document.json");
 const WINDOW_STATE_PATH = path.join(app.getPath("userData"), "window-state.json");
 const PLUGIN_ROOT = path.join(app.getPath("userData"), "plugins");
 const PLUGIN_REGISTRY_PATH = path.join(app.getPath("userData"), "plugins.json");
+function loadWorkspaceProject(): WorkspaceProject {
+  try {
+    const raw = JSON.parse(readFileSync(WORKSPACE_PROJECT_PATH, "utf8")) as { path?: unknown };
+    if (typeof raw.path !== "string" || !raw.path.trim()) return { path: null, name: null };
+    const selected = realpathSync(raw.path);
+    if (!statSync(selected).isDirectory()) return { path: null, name: null };
+    return { path: selected, name: path.basename(selected) || selected };
+  } catch { return { path: null, name: null }; }
+}
+let workspaceProject = loadWorkspaceProject();
+function currentAgentSessionPath(): string {
+  const identity = workspaceProject.path ?? "__default_workspace__";
+  const key = createHash("sha256").update(identity).digest("hex").slice(0, 32);
+  return path.join(AGENT_SESSION_ROOT, key + ".json");
+}
 function loadWorkspaceLayout(): WorkspaceLayoutState {
   try { return parseWorkspaceLayout(JSON.parse(readFileSync(WORKSPACE_LAYOUT_PATH, "utf8"))); }
   catch { return { ...DEFAULT_WORKSPACE_LAYOUT }; }
@@ -93,7 +109,7 @@ function loadAgentSettings(): AgentSettings {
 }
 function loadAgentSession(): AgentSessionItem[] {
   try {
-    const parsed = JSON.parse(readFileSync(AGENT_SESSION_PATH, "utf8")) as { items?: unknown };
+    const parsed = JSON.parse(readFileSync(currentAgentSessionPath(), "utf8")) as { items?: unknown };
     return parseAgentSessionItems(parsed.items);
   } catch {
     return [];
@@ -102,7 +118,7 @@ function loadAgentSession(): AgentSessionItem[] {
 function saveAgentSession(items: AgentSessionItem[]): void {
   const trimmed = parseAgentSessionItems(items).slice(-MAX_AGENT_SESSION_ITEMS);
   try {
-    writeJsonAtomic(AGENT_SESSION_PATH, { version: 1, updatedAt: Date.now(), items: trimmed });
+    writeJsonAtomic(currentAgentSessionPath(), { version: 1, updatedAt: Date.now(), items: trimmed });
   } catch (error) {
     recordOperation("session", "save failed: " + (error instanceof Error ? error.message : String(error)));
   }
@@ -205,7 +221,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const text=typeof result === "string" ? result : JSON.stringify(result);
     return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
-}, agentSettings, () => readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH));
+}, agentSettings, () => readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH), workspaceProject.path);
 let downloadSequence = 0;
 
 function safeWebUrl(value: string): boolean {
@@ -297,8 +313,7 @@ function updateActiveBounds(): void {
       const agentSize = workspaceLayout.agentPanelVisible ? Math.min(workspaceLayout.agentPanelWidth, available - 320) : 0;
       const browserSize = Math.max(0, available - agentSize);
       const browserNode = layoutTree.first.id === "browser" ? layoutTree.first : layoutTree.second;
-      const agentNode = layoutTree.first.id === "agent" ? layoutTree.first : layoutTree.second;
-      layoutTree = {
+      const agentNode = layoutTree.first.id === "agent" ? layoutTree.first : layoutTree.second;      layoutTree = {
         ...layoutTree,
         axis: isHorizontal ? "horizontal" : "vertical",
         splitterSize: workspaceLayout.agentPanelVisible ? 6 : 0,
@@ -597,8 +612,7 @@ async function createTab(url = HOME_URL): Promise<string> {
     },
   });
 
-  const tab: BrowserTab = {
-    id,
+  const tab: BrowserTab = {    id,
     view,
     cdp: new BrowserCdp(),
     title: "New tab",
@@ -898,7 +912,6 @@ async function recoverWindowRenderer(window: BrowserWindow, details: Electron.Re
   }
   app.quit();
 }
-
 function attachWindowDiagnostics(window: BrowserWindow, label: string, recoverWithDialog = false): void {
   window.webContents.on("preload-error", (_event, preloadPath, error) => {
     recordCrash(`${label}-preload-error`, new Error(`${preloadPath}: ${error.message}`));
@@ -976,6 +989,12 @@ function createMainWindow(): void {
 
 function isTrustedAppSender(webContents: WebContents): boolean {
   return Boolean((mainWindow && !mainWindow.isDestroyed() && webContents === mainWindow.webContents) || (agentSettingsWindow && !agentSettingsWindow.isDestroyed() && webContents === agentSettingsWindow.webContents) || (agentPanelWindow && !agentPanelWindow.isDestroyed() && webContents === agentPanelWindow.webContents));
+}
+
+function publishWorkspaceProject(): void {
+  for (const window of [mainWindow, agentPanelWindow]) {
+    if (window && !window.isDestroyed()) window.webContents.send("workspace:project-updated", { ...workspaceProject });
+  }
 }
 
 function publishWorkspaceLayout(): void {
@@ -1132,6 +1151,31 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.handle("workspace:get-project", (event) => { assertTrustedSender(event); return { ...workspaceProject }; });
+  ipcMain.handle("workspace:select-project", async (event) => {
+    assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再切换工作区。");
+    const { canceled, filePaths } = await dialog.showOpenDialog({ title: "选择本地工作区", properties: ["openDirectory"] });
+    if (canceled || !filePaths[0]) return null;
+    const selected = realpathSync(filePaths[0]);
+    if (!statSync(selected).isDirectory()) throw new Error("所选路径不是目录。");
+    await copilotAgent.setWorkspacePath(selected);
+    workspaceProject = { path: selected, name: path.basename(selected) || selected };
+    writeJsonAtomic(WORKSPACE_PROJECT_PATH, workspaceProject);
+    recordOperation("workspace", "select " + selected);
+    publishWorkspaceProject();
+    return { ...workspaceProject };
+  });
+  ipcMain.handle("workspace:clear-project", async (event) => {
+    assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再清除工作区。");
+    await copilotAgent.setWorkspacePath(null);
+    workspaceProject = { path: null, name: null };
+    writeJsonAtomic(WORKSPACE_PROJECT_PATH, workspaceProject);
+    recordOperation("workspace", "clear");
+    publishWorkspaceProject();
+    return { ...workspaceProject };
+  });
   ipcMain.handle("workspace:get-layout", (event) => { assertTrustedSender(event); return { ...workspaceLayout }; });
   ipcMain.handle("workspace:float-agent", (event) => { assertTrustedSender(event); floatAgentPanel(); });
   ipcMain.handle("workspace:redock-agent", (event, position?: unknown) => { assertTrustedSender(event); if (position !== undefined && position !== "left" && position !== "right" && position !== "top" && position !== "bottom") throw new Error("Invalid dock position."); redockAgentPanel(position as "left" | "right" | "top" | "bottom" | undefined); });
@@ -1197,8 +1241,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("plugin:set-enabled", (event, input: unknown) => {
     assertTrustedSender(event);
-    const parsed = z.object({ id: z.string().min(3).max(100), enabled: z.boolean() }).safeParse(input);
-    if (!parsed.success) throw new Error("无效的插件状态请求。");
+    const parsed = z.object({ id: z.string().min(3).max(100), enabled: z.boolean() }).safeParse(input);    if (!parsed.success) throw new Error("无效的插件状态请求。");
     const plugins = setPluginEnabled(parsed.data.id, parsed.data.enabled, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", (parsed.data.enabled ? "enable " : "disable ") + parsed.data.id);
     return plugins;
@@ -1367,7 +1410,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:clear-session", (event) => {
     assertTrustedSender(event);
-    rmSync(AGENT_SESSION_PATH, { force: true });
+    rmSync(currentAgentSessionPath(), { force: true });
   });
 
   ipcMain.on("browser:set-content-top", (event, height: number) => {
