@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CopilotDesktopAgent } from "./copilot";
 import path from "node:path";
-import type { BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import type { AgentProvider, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 
 const APP_ID = "com.saga.architectagentdesktop";
 const HOME_URL = "https://www.google.com/";
@@ -771,6 +771,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle("copilot:status", async (event) => {
     assertTrustedSender(event);
     return await copilotAgent.status();
+  });
+  ipcMain.handle("agent:set-provider", async (event, provider: unknown) => {
+    assertTrustedSender(event);
+    if (provider !== "copilot" && provider !== "codebuddy") throw new Error("Unsupported Agent provider.");
+    await copilotAgent.setProvider(provider as AgentProvider);
   });
   ipcMain.handle("copilot:send", async (event, input: unknown) => {
     assertTrustedSender(event);
