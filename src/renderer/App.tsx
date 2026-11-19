@@ -73,7 +73,7 @@ function App() {
     updateHeight();
 
     return () => observer.disconnect();
-  }, []);
+  }, [agentOpen]);
 
   useEffect(() => {
     if (showFind) {
