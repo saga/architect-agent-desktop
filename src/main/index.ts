@@ -1305,6 +1305,13 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
   ipcMain.handle("agent-data:get-directory", (event) => { assertTrustedSender(event); return agentTraceStore.getDirectory(); });
+  ipcMain.handle("agent-trace:list-sessions", (event) => { assertTrustedSender(event); return agentTraceStore.listSessions(); });
+  ipcMain.handle("agent-trace:query", (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.object({ sessionId: z.string().max(100).optional(), traceId: z.string().max(100).optional(), type: z.string().max(160).optional(), limit: z.number().int().min(1).max(1000).optional() }).safeParse(input ?? {});
+    if (!parsed.success) throw new Error("Invalid Agent trace query.");
+    return agentTraceStore.query(parsed.data);
+  });
   ipcMain.handle("agent-data:select-directory", async (event) => {
     assertTrustedSender(event);
     const { canceled, filePaths } = await dialog.showOpenDialog({ title: "选择 Agent Data 目录", properties: ["openDirectory", "createDirectory"] });
