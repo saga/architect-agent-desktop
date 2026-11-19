@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { homedir, tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
 import path from "node:path";
+import { UtilityProcessAgentRuntime } from "./runtime/utility-process-runtime";
 import { detachedCliOptions, isManagedSession, parseCredits } from "./agent-runtime.js";
 import { agentProcessEnvironment } from "./login-shell-env.js";
 import { listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, writeWorkspaceFile } from "./workspace-files.js";
@@ -115,7 +116,7 @@ function historyPrompt(history: AgentChatMessage[] | undefined, prompt: string):
 }
 export class CopilotDesktopAgent {
  private workspacePath:string|null;
- private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null;
+ private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null; private readonly codeRuntime = new UtilityProcessAgentRuntime();
  constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:()=>string=()=>"",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string)=>void=()=>{}){this.settings=settings;this.workspacePath=workspacePath;}
  async setWorkspacePath(workspacePath:string|null):Promise<void>{if(workspacePath===this.workspacePath)return;if(this.active)throw new Error("Wait for the current Agent request to finish before changing the workspace.");await this.stop();this.workspacePath=workspacePath;}
  private workspaceInstructions():string{return this.workspacePath?"Current local project workspace root: "+this.workspacePath+". Treat this as the project root. Use relative paths for workspace file tools and do not access files outside this directory.":"No local project workspace is selected. Do not attempt local project file operations until the user selects a workspace."; }
@@ -166,6 +167,21 @@ export class CopilotDesktopAgent {
    {name:"browser_inject_css",description:"Inject CSS into the active tab to change page styling, for example the background color. Only available with Allow all.",schema:z.object({css:z.string().min(1).max(20000)}),handler:({css}:{css:string})=>report("Inject CSS",()=>b.injectCss(css))},
    {name:"browser_cdp",description:"Send an allowlisted Chrome DevTools Protocol command to the active tab for diagnostics. Only available with Allow all. Prefer browser_snapshot, browser_click and browser_fill for normal interaction.",schema:z.object({method:z.string().min(1).max(200),params:z.record(z.string(),z.unknown()).optional()}),handler:({method,params}:{method:string;params?:Record<string,unknown>})=>report("CDP "+method,()=>b.cdp(method,params))}
   );
+  const callableTools = tools.filter(tool => this.settings.toolPermission === "allow-all" || tool.name.startsWith("browser_") || (this.settings.toolPermission === "assisted" && tool.name.startsWith("workspace_")));
+  tools.push({
+   name:"execute_code",
+   description:"Execute JavaScript in a dedicated Electron UtilityProcess for multi-step tasks. Use tools.call(name, input) to invoke the same permission-checked desktop tools available to you. The code process is not a security sandbox; do not use it to bypass tool permissions. Return only compact results.",
+   schema:z.object({code:z.string().min(1).max(100000)}),
+   handler:async({code}:{code:string})=>{
+    const allowed=new Map(callableTools.map(tool=>[tool.name,tool]));
+    const result=await this.codeRuntime.executeGeneratedCode({
+     mode:"generated-code",code,workspaceRoot:this.workspacePath??undefined,
+     capabilities:["tools.call"],limits:{timeoutMs:30000,maxOutputBytes:256*1024,maxLogEntries:200}
+    });
+    if(result.status!=="completed") throw new Error(result.error??"Code Mode execution failed.");
+    return JSON.stringify({result:result.result,logs:result.logs});
+   }
+  });
   return tools;
  }
  private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{if(this.settings.copilotModel.trim()&&!this.inspectedModels.has("copilot:"+this.settings.copilotModel))await this.inspectModels("copilot");const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=this.workspacePath??path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory,env:await agentProcessEnvironment()});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),...((this.inspectedModels.get("copilot:"+this.settings.copilotModel)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),...(this.settings.systemPrompt.trim()?{systemMessage:{mode:"append",content:this.settings.systemPrompt.trim()}}:{}),tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{this.recordTrace("tool.call",{name,input},"running");try{const result=await handler(input);this.recordTrace("tool.result",{name,input,result:typeof result==="string"?result:result.text},"completed");if(typeof result==="string")return result;return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};}catch(error){this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error)},"failed");throw error;}}} as never)),onPermissionRequest:async(request)=>{this.recordTrace("permission.requested",request,"waiting");return{kind:"user-not-available"} as never;},onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
