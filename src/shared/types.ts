@@ -69,12 +69,17 @@ export interface AgentSessionItem {
   createdAt: number;
 }
 
+export interface WorkspaceProject { path: string | null; name: string | null; }
 export interface WorkspaceLayoutState { version: 1; agentPanelWidth: number; agentPanelVisible: boolean; agentPanelPosition: "left" | "right" | "top" | "bottom"; }
 export interface WorkspaceDocument { version: 2; root: import("./workspace-document").WorkspaceDocument["root"]; tabGroups: import("./workspace-document").WorkspaceTabGroup[]; floating: import("./workspace-document").FloatingPanelRoot[]; activePanelId: string; }
 
 export interface PluginSummary { manifestVersion: 1; id: string; name: string; version: string; description?: string; skills: string[]; tools: string[]; workflows: string[]; views: string[]; enabled: boolean; }
 
 export interface BrowserApi {
+  getWorkspaceProject(): Promise<WorkspaceProject>;
+  selectWorkspace(): Promise<WorkspaceProject | null>;
+  clearWorkspace(): Promise<WorkspaceProject>;
+  onWorkspaceProjectUpdated(listener: (workspace: WorkspaceProject) => void): () => void;
   getWorkspaceLayout(): Promise<WorkspaceLayoutState>;
   saveWorkspaceLayout(layout: WorkspaceLayoutState): Promise<WorkspaceLayoutState>;
   getWorkspaceDocument(): Promise<WorkspaceDocument>;
