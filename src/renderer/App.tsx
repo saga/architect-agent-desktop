@@ -23,6 +23,7 @@ function App() {
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState("");
   const [latestDownload, setLatestDownload] = useState<BrowserDownloadEvent | null>(null);
+  const [snapshotMode, setSnapshotMode] = useState(false);
   const [agentOpen, setAgentOpen] = useState(true);
   const [agentWidth, setAgentWidth] = useState(390);
   const [agentPosition, setAgentPosition] = useState<"left" | "right" | "top" | "bottom">("right");
@@ -59,6 +60,7 @@ function App() {
       window.setTimeout(() => findRef.current?.focus(), 0);
     });
     const unsubscribeDownload = window.browser.onDownload(setLatestDownload);
+    const unsubscribeSnapshot = window.browser.onSnapshotState(setSnapshotMode);
     const unsubscribeAgentToggle = window.browser.onToggleAgent(() => {
       void window.browser.getWorkspaceLayout().then((layout) => {
         if (!layout.agentPanelVisible) { void window.browser.redockAgentPanel(); return; }
@@ -77,6 +79,7 @@ function App() {
       unsubscribeFocus();
       unsubscribeFind();
       unsubscribeDownload();
+      unsubscribeSnapshot();
       unsubscribeAgentToggle();
     };
   }, []);
@@ -274,6 +277,9 @@ function App() {
 
           <div className="toolbar-actions">
             <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => { if (!agentOpen) { void window.browser.redockAgentPanel(); return; } setAgentOpen(false); saveWorkspaceLayout(false); }} /></Tooltip>
+            <button className={"toolbar-button" + (snapshotMode ? " snapshot-active" : "")} type="button" aria-label={snapshotMode ? "Return to live page" : "Capture page snapshot"} title={snapshotMode ? "Return to live page" : "Capture page snapshot"} onClick={() => { void window.browser.toggleSnapshot().then(setSnapshotMode).catch((error: unknown) => console.error("Snapshot failed", error)); }}>
+              {snapshotMode ? "Live" : "Snapshot"}
+            </button>
             <button className="toolbar-button download-button" type="button"
               aria-label="Dismiss recent download status"
               title={latestDownload ? latestDownload.fileName : "Downloads"}
