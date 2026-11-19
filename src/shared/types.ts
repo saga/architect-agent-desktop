@@ -108,6 +108,7 @@ export interface BrowserApi {
   agentDataGetDirectory(): Promise<string>;
   agentDataSelectDirectory(): Promise<string>;
   agentTraceListSessions(): Promise<Array<Record<string, unknown>>>;
+  agentTraceListSessionItems(sessionId: string): Promise<AgentSessionItem[]>;
   agentTraceQuery(query?: AgentTraceQuery): Promise<Array<Record<string, unknown>>>;
   pluginList(): Promise<PluginSummary[]>;
   pluginImport(): Promise<PluginSummary | null>;
