@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, BrowserApi, BrowserDownloadEvent, PluginSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState } from "../shared/types";
+import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, BrowserApi, BrowserDownloadEvent, PluginSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
 
 const api: BrowserApi = {
   getWorkspaceLayout: () => ipcRenderer.invoke("workspace:get-layout"),
