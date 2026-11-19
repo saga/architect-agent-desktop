@@ -319,7 +319,7 @@ function App() {
               <Button size="small" type={activeWorkspacePanel === "agent" ? "primary" : "text"} onClick={() => activateWorkspacePanel("agent")}>Agent</Button>
               <Button size="small" type="text" onClick={splitAgentFromBrowser}>Split</Button>
             </div>}
-            <button className={"toolbar-button" + (snapshotMode ? " snapshot-active" : "")} type="button" aria-label={snapshotMode ? "Return to live page" : "Capture page snapshot"} title={snapshotMode ? "Return to live page" : "Capture page snapshot"} onClick={() => { void window.browser.toggleSnapshot().then(setSnapshotMode).catch((error: unknown) => console.error("Snapshot failed", error)); }}>
+            <button className={"toolbar-button" + (snapshotMode ? " snapshot-active" : "")} type="button" disabled={groupedWorkspace && activeWorkspacePanel === "agent"} aria-label={snapshotMode ? "Return to live page" : "Capture page snapshot"} title={snapshotMode ? "Return to live page" : "Capture page snapshot"} onClick={() => { void window.browser.toggleSnapshot().then(setSnapshotMode).catch((error: unknown) => console.error("Snapshot failed", error)); }}>
               {snapshotMode ? "Live" : "Snapshot"}
             </button>
             <button className="toolbar-button download-button" type="button"
