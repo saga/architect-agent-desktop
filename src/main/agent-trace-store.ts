@@ -124,6 +124,27 @@ export class AgentTraceStore {
     }
   }
 
+  query(input: { sessionId?: string; traceId?: string; type?: string; limit?: number } = {}): Array<Record<string, unknown>> {
+    if (!this.database) throw new Error("Agent trace store is closed.");
+    const clauses: string[] = [];
+    const values: Array<string | number> = [];
+    if (input.sessionId) { clauses.push("session_id = ?"); values.push(input.sessionId); }
+    if (input.traceId) { clauses.push("trace_id = ?"); values.push(input.traceId); }
+    if (input.type) { clauses.push("type = ?"); values.push(input.type); }
+    const limit = Math.max(1, Math.min(1000, Math.floor(input.limit ?? 200)));
+    const rows = this.database.prepare(
+      "SELECT id, session_id AS sessionId, trace_id AS traceId, sequence, timestamp, workspace_path AS workspacePath, provider, model, type, status, payload_complete AS payloadComplete, data_json AS dataJson FROM agent_events " +
+      (clauses.length ? "WHERE " + clauses.join(" AND ") + " " : "") + "ORDER BY timestamp DESC, sequence DESC LIMIT ?"
+    ).all(...values, limit) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({ ...row, payloadComplete: row.payloadComplete === 1, data: JSON.parse(String(row.dataJson)), dataJson: undefined }));
+  }
+
+  listSessions(limit = 100): Array<Record<string, unknown>> {
+    if (!this.database) throw new Error("Agent trace store is closed.");
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    return this.database.prepare("SELECT id, workspace_path AS workspacePath, created_at AS createdAt, updated_at AS updatedAt FROM sessions ORDER BY updated_at DESC LIMIT ?").all(safeLimit) as Array<Record<string, unknown>>;
+  }
+
   close(): void {
     this.database?.close();
     this.database = null;
