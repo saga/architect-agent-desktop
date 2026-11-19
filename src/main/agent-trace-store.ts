@@ -19,12 +19,18 @@ const SECRET_KEY = /authorization|(^|[_-])token($|[_-])|api[_-]?key|password|sec
 const BEARER = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
 
-function redact(value: unknown, key = ""): unknown {
+function redact(value: unknown, key = "", seen = new WeakSet<object>()): unknown {
   if (SECRET_KEY.test(key)) return "[REDACTED]";
   if (typeof value === "string") return value.replace(BEARER, "Bearer [REDACTED]");
-  if (Array.isArray(value)) return value.map((item) => redact(item));
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return "[Circular]";
+    seen.add(value);
+    return value.map((item) => redact(item, "", seen));
+  }
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([name, item]) => [name, redact(item, name)]));
+    if (seen.has(value)) return "[Circular]";
+    seen.add(value);
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([name, item]) => [name, redact(item, name, seen)]));
   }
   return value;
 }
@@ -85,7 +91,7 @@ export class AgentTraceStore {
     if (!this.database) throw new Error("Agent trace store is closed.");
     const timestamp = input.timestamp ?? new Date().toISOString();
     const safe = redact(input.data ?? null);
-    let serialized = JSON.stringify(safe);
+    let serialized: string;\n    try { serialized = JSON.stringify(safe) ?? "null"; }\n    catch { serialized = JSON.stringify({ payloadOmitted: true, reason: "event payload could not be serialized" }); }
     let payloadComplete = true;
     if (Buffer.byteLength(serialized, "utf8") > MAX_PAYLOAD_BYTES) {
       serialized = JSON.stringify({
