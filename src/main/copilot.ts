@@ -173,38 +173,37 @@ export class CopilotDesktopAgent {
    tool.name.startsWith("browser_") ||
    (this.settings.toolPermission === "assisted" && tool.name.startsWith("workspace_"))
   );
+  const brokerTools = callableTools.map(tool => ({
+   ...tool,
+   schema: { toJSONSchema: () => z.toJSONSchema(tool.schema) },
+   handler: async (input: unknown) => {
+    this.recordTrace("tool.call",{name:tool.name,input,source:"code-mode"},"running");
+    const parsed=tool.schema.safeParse(input ?? {});
+    if(!parsed.success) {
+     this.recordTrace("tool.failed",{name:tool.name,input,error:parsed.error.message,source:"code-mode"},"failed");
+     throw new Error("Invalid tool input: "+parsed.error.message);
+    }
+    try {
+     const value=await tool.handler(parsed.data);
+     const output=typeof value==="string"?value:JSON.stringify(value)??String(value);
+     this.recordTrace("tool.result",{name:tool.name,input,result:output.slice(0,10000),source:"code-mode"},"completed");
+     return value;
+    } catch(error) {
+     this.recordTrace("tool.failed",{name:tool.name,input,error:error instanceof Error?error.message:String(error),source:"code-mode"},"failed");
+     throw error;
+    }
+   }
+  }));
+  const resolvedProviders=createToolProviders(brokerTools).map(resolveProvider);
+  const providerMethods=new Map<string,(input?:unknown)=>Promise<unknown>>();
+  for(const provider of resolvedProviders) {
+   for(const [method,fn] of Object.entries(provider.fns)) providerMethods.set(provider.name+"."+method,fn);
+  }
   tools.push({
    name:"execute_code",
-   description:"Execute JavaScript in a dedicated Electron UtilityProcess to orchestrate multiple tools. The tool description contains the typed browser and workspace APIs available in the current permission mode.",
+   description:createCodeModeDescription(resolvedProviders),
    schema:z.object({code:z.string().min(1).max(100000)}),
    handler:async({code}:{code:string})=>{
-    const brokerTools = callableTools.map(tool => ({
-     ...tool,
-     schema: { toJSONSchema: () => z.toJSONSchema(tool.schema) },
-     handler: async (input: unknown) => {
-      this.recordTrace("tool.call",{name:tool.name,input,source:"code-mode"},"running");
-      const parsed=tool.schema.safeParse(input ?? {});
-      if(!parsed.success) {
-       this.recordTrace("tool.failed",{name:tool.name,input,error:parsed.error.message,source:"code-mode"},"failed");
-       throw new Error("Invalid tool input: "+parsed.error.message);
-      }
-      try {
-       const value=await tool.handler(parsed.data);
-       const output=typeof value==="string"?value:JSON.stringify(value)??String(value);
-       this.recordTrace("tool.result",{name:tool.name,input,result:output.slice(0,10000),source:"code-mode"},"completed");
-       return value;
-      } catch(error) {
-       this.recordTrace("tool.failed",{name:tool.name,input,error:error instanceof Error?error.message:String(error),source:"code-mode"},"failed");
-       throw error;
-      }
-     }
-    }));
-    const providers=createToolProviders(brokerTools);
-    const resolvedProviders=providers.map(resolveProvider);
-    const providerMethods=new Map<string,(input?:unknown)=>Promise<unknown>>();
-    for(const provider of resolvedProviders) {
-     for(const [method,fn] of Object.entries(provider.fns)) providerMethods.set(provider.name+"."+method,fn);
-    }
     const abortController=new AbortController();
     this.codeRuntimeAbortController=abortController;
     this.codeRuntime.setToolCallHandler(async(name,input)=>{
@@ -220,7 +219,7 @@ export class CopilotDesktopAgent {
      });
      if(result.status!=="completed") throw new Error(result.error??"Code Mode execution failed.");
      return JSON.stringify({result:result.result,logs:result.logs});
-    }finally{
+    } finally {
      this.codeRuntimeAbortController=null;
      this.codeRuntime.setToolCallHandler(null);
     }
