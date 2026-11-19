@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { calculateLayout, validateLayout } = require("../dist/main/layout/layout-engine.js");
 const { dockPanel, removePanel, collectPanelIds, normalizeLayout } = require("../dist/main/layout/layout-tree.js");
-const { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, activateWorkspaceTab, createWorkspaceTabGroup, movePanelToTabGroup, removePanelFromTabGroup } = require("../dist/shared/workspace-document.js");
+const { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, activateWorkspaceTab, createWorkspaceTabGroup, movePanelToTabGroup, removePanelFromTabGroup, ungroupWorkspacePanel } = require("../dist/shared/workspace-document.js");
 const { NativeViewStackManager } = require("../dist/main/layout/native-view-stack.js");
 
 const base = {
@@ -182,4 +182,16 @@ test("native view stack manages visibility, layers, bounds and disposal", () => 
   assert.equal(nextBrowser.webContents.closed, true);
   assert.equal(manager.getFocusedViewId(), null);
   assert.deepEqual(children, []);
+});
+
+test("ungrouping restores both panels to the split tree", () => {
+  const grouped = createWorkspaceTabGroup({
+    ...DEFAULT_WORKSPACE_DOCUMENT,
+    root: { type: "split", id: "root", axis: "horizontal", ratio: 0.5,
+      first: { type: "panel", id: "browser" }, second: { type: "panel", id: "agent", visible: false } },
+  }, "browser-agent", ["browser", "agent"]);
+  const ungrouped = ungroupWorkspacePanel(grouped, "browser-agent", "agent");
+  assert.equal(ungrouped.root.second.visible, true);
+  assert.equal(ungrouped.tabGroups.some((group) => group.panelIds.includes("agent")), false);
+  assert.equal(ungrouped.activePanelId, "browser");
 });
