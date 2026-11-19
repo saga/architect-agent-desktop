@@ -54,7 +54,9 @@ export interface BrowserApi {
   setContentBounds(bounds: { top: number; left: number; width: number }): void;
   onToggleAgent(listener: () => void): () => void;
   copilotStatus(): Promise<{ status: string; message?: string; provider: AgentProvider }>;
+  openAgentSettings(): Promise<void>;
   agentGetSettings(): Promise<AgentSettings>;
+  onAgentSettingsUpdated(listener: (settings: AgentSettings) => void): () => void;
   agentSaveSettings(settings: AgentSettings): Promise<AgentSettings>;
   copilotSend(prompt: string): Promise<void>;
   copilotCancel(): Promise<void>;
