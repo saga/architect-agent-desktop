@@ -59,7 +59,7 @@ describe("Code Mode provider composition", () => {
       handler: async () => "ok",
     }]);
     expect(generateTypesFromJsonSchema([resolveProvider(provider)]))
-      .toContain('"options": { "query"?: string }');
+      .toContain('"options": { "query": string }');
   });
 
   it("executes a resolved provider method through its descriptor", async () => {
