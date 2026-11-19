@@ -23,12 +23,22 @@ export interface BrowserDownloadEvent {
 }
 
 export type AgentProvider = "copilot" | "codebuddy";
+export interface AgentModelInfo {
+  provider: AgentProvider;
+  id: string;
+  name: string;
+  description?: string;
+  effortOptions?: string[];
+  contextWindowOptions?: Array<{ value: number; label: string }>;
+  maxInputTokens?: number;
+}
 export type AgentThinkingLevel = "low" | "medium" | "high";
 export interface AgentSettings {
   provider: AgentProvider;
   copilotModel: string;
   codebuddyModel: string;
   thinkingLevel: AgentThinkingLevel;
+  contextWindow?: number;
   systemPrompt: string;
 }
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -68,6 +78,7 @@ export interface BrowserApi {
   copilotStatus(): Promise<{ status: string; message?: string; provider: AgentProvider }>;
   openAgentSettings(): Promise<void>;
   agentGetSettings(): Promise<AgentSettings>;
+  agentInspectModels(provider: AgentProvider): Promise<AgentModelInfo[]>;
   onAgentSettingsUpdated(listener: (settings: AgentSettings) => void): () => void;
   agentSaveSettings(settings: AgentSettings): Promise<AgentSettings>;
   copilotSend(prompt: string): Promise<void>;
