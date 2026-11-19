@@ -420,36 +420,35 @@ button { color: inherit; }
 .agent-settings-form>label { margin-top:8px; color:#343b46; font-size:12px; font-weight:600; }
 .agent-settings-help { margin-top:-3px; color:#858e9b; font-size:11px; line-height:1.55; }
 
-/* Settings stay inside the Agent pane: Electron WebContentsView always paints
-   above renderer DOM, so a viewport-centered AntD Modal can be obscured. */
-.agent-settings-overlay {
-  position: absolute;
-  z-index: 20;
-  inset: 0;
+
+.settings-window {
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  width: 100%;
+  height: 100vh;
   min-height: 0;
-  padding: 14px;
   background: #fff;
-  border-left: 1px solid #e5e7eb;
+  color: #20242b;
 }
-.agent-settings-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+.settings-window-header {
   flex: 0 0 auto;
-  gap: 8px;
-  padding-bottom: 12px;
+  padding: 22px 26px 16px;
   border-bottom: 1px solid #edf0f4;
 }
-.agent-settings-scroll { min-height: 0; flex: 1; overflow: auto; }
-.agent-settings-footer {
+.settings-window-header h1 { margin: 0; font-size: 18px; font-weight: 650; }
+.settings-window-header p { margin: 5px 0 0; color: #7b8492; font-size: 12px; }
+.settings-window-content { min-height: 0; flex: 1; overflow: auto; padding: 20px 26px; }
+.settings-window-content .ant-form-item { margin-bottom: 18px; }
+.settings-window-content .ant-input,
+.settings-window-content .ant-select { width: 100%; }
+.settings-field-help { margin-top: 5px; color: #858e9b; font-size: 11px; line-height: 1.5; }
+.settings-window-footer {
   display: flex;
   flex: 0 0 auto;
   justify-content: flex-end;
   gap: 8px;
-  padding-top: 12px;
+  padding: 14px 26px;
   border-top: 1px solid #edf0f4;
+  background: #fff;
 }
-.agent-settings-form { padding-top: 8px; }
+.settings-window-loading { display: grid; width: 100%; height: 100vh; place-items: center; background: #fff; }
