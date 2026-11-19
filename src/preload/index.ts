@@ -12,6 +12,11 @@ const api: BrowserApi = {
   reload: (id) => ipcRenderer.invoke("browser:reload", id),
   stop: (id) => ipcRenderer.invoke("browser:stop", id),
   setContentBounds: (bounds) => ipcRenderer.send("browser:set-content-bounds", bounds),
+  onToggleAgent: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on("agent:toggle-panel", handler);
+    return () => ipcRenderer.removeListener("agent:toggle-panel", handler);
+  },
   copilotStatus: () => ipcRenderer.invoke("copilot:status"),
   agentGetSettings: () => ipcRenderer.invoke("agent:get-settings"),
   agentSaveSettings: (settings: AgentSettings) => ipcRenderer.invoke("agent:save-settings", settings),
