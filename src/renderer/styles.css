@@ -33,8 +33,12 @@ button { color: inherit; }
 }
 
  .app-shell.agent-grouped { grid-template-columns: minmax(0, 1fr); }
-.workspace-dock-targets { position:absolute; inset:0; z-index:20; display:grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap:4px; padding:6px; background:rgba(30,42,60,.12); }
+.workspace-dock-targets { position:absolute; inset:0; z-index:20; display:grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr 1fr; gap:4px; padding:6px; background:rgba(30,42,60,.12); }
 .workspace-dock-targets button { border:1px dashed #4b79b9; border-radius:8px; color:#23456f; background:rgba(255,255,255,.92); font-weight:600; text-transform:capitalize; cursor:copy; }
+.workspace-dock-targets .dock-left { grid-area:2 / 1; }
+.workspace-dock-targets .dock-right { grid-area:2 / 3; }
+.workspace-dock-targets .dock-top { grid-area:1 / 2; }
+.workspace-dock-targets .dock-bottom { grid-area:3 / 2; }
 .workspace-dock-targets button:hover { background:#eaf2ff; }
 .workspace-tab-group { display:flex; align-items:center; gap:2px; flex:0 0 auto; }
 .agent-group-content { position:absolute; left:0; right:0; bottom:0; z-index:3; overflow:hidden; background:#fff; }
