@@ -76,6 +76,11 @@ export function calculateLayout(
     height: nonNegative(finite(viewport.height, 0)),
   };
 
+  const markHidden = (node: LayoutNode): void => {
+    if (node.type === "panel") hidden.push(node.id);
+    else { markHidden(node.first); markHidden(node.second); }
+  };
+
   const visit = (node: LayoutNode, rect: LayoutRect): void => {
     if (node.type === "panel") {
       if (node.visible === false) { hidden.push(node.id); return; }
@@ -92,8 +97,8 @@ export function calculateLayout(
 
     const firstVisible = panelVisible(node.first);
     const secondVisible = panelVisible(node.second);
-    if (!firstVisible) { visit(node.second, rect); return; }
-    if (!secondVisible) { visit(node.first, rect); return; }
+    if (!firstVisible) { markHidden(node.first); visit(node.second, rect); return; }
+    if (!secondVisible) { markHidden(node.second); visit(node.first, rect); return; }
 
     const axisSize = node.axis === "horizontal" ? rect.width : rect.height;
     const gap = Math.min(nonNegative(node.splitterSize ?? splitter), axisSize);
