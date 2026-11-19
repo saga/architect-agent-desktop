@@ -3,6 +3,7 @@ import type { BrowserDownloadEvent, BrowserState, BrowserTabState, WorkspaceDocu
 import { activateWorkspaceTab, createWorkspaceTabGroup, DEFAULT_WORKSPACE_DOCUMENT, setWorkspacePanelVisibility, ungroupWorkspacePanel } from "../shared/workspace-document";
 import AgentPanel from "./AgentPanel";
 import { Button } from "antd";
+import { RobotOutlined } from "@ant-design/icons";
 
 const EMPTY_STATE: BrowserState = { tabs: [], activeTabId: null };
 const IS_MAC = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || navigator.userAgent);
@@ -265,6 +266,11 @@ function App() {
           <button className="new-tab-button" type="button" aria-label="New tab" title="New tab" onClick={createTab}>
             +
           </button>
+          {!agentOpen && !groupedWorkspace && <button className="agent-launch-button" type="button"
+            aria-label="打开 Agent 面板" title="打开 Agent 面板"
+            onClick={() => { void window.browser.redockAgentPanel(); }}>
+            <RobotOutlined />
+          </button>}
         </div>
 
         <div className="toolbar">

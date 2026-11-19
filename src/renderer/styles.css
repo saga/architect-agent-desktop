@@ -199,6 +199,29 @@ button { color: inherit; }
   font-size: 19px;
 }
 
+.agent-launch-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #5d6470;
+  cursor: default;
+}
+
+.agent-launch-button:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #1f2328;
+}
+
+.agent-launch-button .anticon { font-size: 15px; }
+
 .toolbar {
   display: flex;
   align-items: center;
