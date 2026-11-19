@@ -60,11 +60,78 @@ export class UtilityProcessAgentRuntime {
     this.handlers = { ...createWorkspaceCapabilityHandlers(), ...handlers };
   }
 
-  async executeGeneratedCode(_request: CodeModeRequest): Promise<never> {
-    throw new Error(
-      "Code Mode is disabled: generated code requires an OS-isolated Sandbox Runtime. " +
-      "UtilityProcess and Node.js VM contexts are not security sandboxes."
-    );
+  async executeGeneratedCode(request: CodeModeRequest): Promise<RuntimeExecutionResult> {
+    if (request.mode !== "generated-code" || !request.code.trim()) throw new Error("Generated code is required.");
+    if (request.code.length > 100_000) throw new Error("Generated code exceeds the 100 KB limit.");
+    const id = randomUUID();
+    const startedAt = Date.now();
+    const limits = { ...DEFAULT_LIMITS, ...request.limits };
+    const capabilities = new Set<RuntimeCapability>(request.capabilities);
+    const context: RuntimeCapabilityContext = { workspaceRoot: request.workspaceRoot, capabilities };
+    const logs: RuntimeExecutionResult["logs"] = [];
+    let outputBytes = 0;
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let abortHandler: (() => void) | undefined;
+    let child: UtilityProcess | undefined;
+    return new Promise<RuntimeExecutionResult>((resolve) => {
+      const finish = (status: RuntimeExecutionResult["status"], result?: unknown, error?: string) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (abortHandler) request.signal?.removeEventListener("abort", abortHandler);
+        if (child) { child.removeAllListeners(); child.kill(); }
+        this.active.delete(id);
+        resolve({ id, status, ...(result !== undefined ? { result } : {}), ...(error ? { error } : {}), logs, durationMs: Date.now() - startedAt });
+      };
+      if (request.signal?.aborted) { finish("cancelled", undefined, "Execution cancelled."); return; }
+      try {
+        if (!existsSync(this.workerPath)) throw new Error("Runtime worker is missing: " + this.workerPath);
+        const env: Record<string, string> = {};
+        for (const key of ["PATH", "HOME", "USERPROFILE", "TMPDIR", "TMP", "TEMP", "SystemRoot", "WINDIR"]) {
+          const value = process.env[key]; if (value) env[key] = value;
+        }
+        child = utilityProcess.fork(this.workerPath, [], { serviceName: "Agent Code Mode", cwd: request.workspaceRoot || process.cwd(), env });
+        this.active.set(id, child);
+      } catch (error) { finish("failed", undefined, error instanceof Error ? error.message : String(error)); return; }
+      timer = setTimeout(() => finish("timed-out", undefined, "Execution timed out after " + limits.timeoutMs + " ms."), limits.timeoutMs);
+      abortHandler = () => finish("cancelled", undefined, "Execution cancelled.");
+      request.signal?.addEventListener("abort", abortHandler, { once: true });
+      child.on("message", (event) => {
+        const message = event.data as Record<string, unknown>;
+        if (!message || message.executionId !== id) return;
+        if (message.type === "log") {
+          const level = message.level === "warn" || message.level === "error" ? message.level : "info";
+          if (logs.length < limits.maxLogEntries) logs.push({ level, message: String(message.message ?? "").slice(0, 4_000), timestamp: Date.now() });
+          return;
+        }
+        if (message.type === "capability.request" && typeof message.requestId === "string" && typeof message.capability === "string") {
+          void (async () => {
+            try {
+              const capability = message.capability as RuntimeCapability;
+              if (!capabilities.has(capability)) throw new Error("Capability not granted: " + capability);
+              const handler = this.handlers[capability];
+              if (!handler) throw new Error("Capability is not implemented: " + capability);
+              const value = await handler(context, message.args);
+              const serialized = JSON.stringify(value);
+              outputBytes += Buffer.byteLength(serialized ?? "null", "utf8");
+              if (outputBytes > limits.maxOutputBytes) throw new Error("Execution output limit exceeded.");
+              child?.postMessage({ type: "capability.response", executionId: id, requestId: message.requestId, ok: true, value });
+            } catch (error) {
+              child?.postMessage({ type: "capability.response", executionId: id, requestId: message.requestId, ok: false, error: error instanceof Error ? error.message : String(error) });
+            }
+          })();
+          return;
+        }
+        if (message.type === "result") {
+          const serialized = JSON.stringify(message.value);
+          if (Buffer.byteLength(serialized ?? "null", "utf8") > limits.maxOutputBytes) finish("failed", undefined, "Execution result exceeds the output limit.");
+          else finish("completed", message.value);
+        } else if (message.type === "error") finish("failed", undefined, String(message.error ?? "Code execution failed."));
+      });
+      child.once("exit", (code) => { if (!settled) finish("failed", undefined, "Runtime process exited before returning a result (code " + code + ")."); });
+      child.postMessage({ type: "execute-code", executionId: id, code: request.code });
+    });
   }
 
   async executeSkill(request: SkillExecutionRequest): Promise<RuntimeExecutionResult> {
