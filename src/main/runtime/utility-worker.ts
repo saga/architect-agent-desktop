@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { pathToFileURL } from "node:url";
 
 type ParentPort = {
   on(event: "message", listener: (event: { data: unknown }) => void): void;
@@ -55,7 +56,7 @@ parentPort.on("message", (event) => {
     currentExecutionId = message.executionId;
     void (async () => {
       try {
-        const module = await import(new URL("file://" + message.entry).href);
+        const module = await import(pathToFileURL(message.entry as string).href);
         const run = typeof module.run === "function" ? module.run : typeof module.default === "function" ? module.default : null;
         if (!run) throw new Error("Skill module must export a run(args, api) function or a default function.");
         send({ type: "result", value: await run(message.args, api) });
