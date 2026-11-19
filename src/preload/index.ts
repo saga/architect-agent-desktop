@@ -18,7 +18,13 @@ const api: BrowserApi = {
     return () => ipcRenderer.removeListener("agent:toggle-panel", handler);
   },
   copilotStatus: () => ipcRenderer.invoke("copilot:status"),
+  openAgentSettings: () => ipcRenderer.invoke("agent:open-settings"),
   agentGetSettings: () => ipcRenderer.invoke("agent:get-settings"),
+  onAgentSettingsUpdated: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, settings: AgentSettings) => listener(settings);
+    ipcRenderer.on("agent:settings-updated", handler);
+    return () => ipcRenderer.removeListener("agent:settings-updated", handler);
+  },
   agentSaveSettings: (settings: AgentSettings) => ipcRenderer.invoke("agent:save-settings", settings),
   copilotSend: (prompt) => ipcRenderer.invoke("copilot:send", { prompt }),
   copilotCancel: () => ipcRenderer.invoke("copilot:cancel"),
