@@ -22,7 +22,7 @@ function App() {
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState("");
   const [latestDownload, setLatestDownload] = useState<BrowserDownloadEvent | null>(null);
-  const [agentOpen, setAgentOpen] = useState(true);
+  const [agentOpen, setAgentOpen] = useState(true);\n  const [agentWidth, setAgentWidth] = useState(390);\n  const splitterDrag = useRef<{ startX: number; startWidth: number } | null>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
   const browserWorkspaceRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
@@ -34,7 +34,7 @@ function App() {
   );
 
   useEffect(() => {
-    const unsubscribeState = window.browser.onState(setBrowserState);
+    void window.browser.getWorkspaceLayout().then((layout) => {\n      setAgentWidth(layout.agentPanelWidth);\n      setAgentOpen(layout.agentPanelVisible);\n    }).catch((error: unknown) => console.error("Unable to load workspace layout", error));\n    const unsubscribeState = window.browser.onState(setBrowserState);
     const unsubscribeFocus = window.browser.onFocusAddress(() => {
       addressRef.current?.focus();
       addressRef.current?.select();
@@ -83,7 +83,7 @@ function App() {
     updateBounds();
 
     return () => observer.disconnect();
-  }, [agentOpen]);
+  }, [agentOpen, agentWidth]);
 
   useEffect(() => {
     if (showFind) {
@@ -115,10 +115,10 @@ function App() {
     }
   }, [activeTab]);
 
-  const isSecure = activeTab?.url.startsWith("https://") ?? false;
+  const isSecure = activeTab?.url.startsWith("https://") ?? false;\n\n  const saveWorkspaceLayout = (visible = agentOpen, width = agentWidth) => {\n    void window.browser.saveWorkspaceLayout({ version: 1, agentPanelWidth: width, agentPanelVisible: visible }).catch((error: unknown) => console.error("Unable to save workspace layout", error));\n  };\n  const onSplitterPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {\n    event.currentTarget.setPointerCapture(event.pointerId);\n    splitterDrag.current = { startX: event.clientX, startWidth: agentWidth };\n  };\n  const onSplitterPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {\n    if (!splitterDrag.current) return;\n    setAgentWidth(Math.max(280, Math.min(720, splitterDrag.current.startWidth + splitterDrag.current.startX - event.clientX)));\n  };\n  const onSplitterPointerUp = () => {\n    if (!splitterDrag.current) return;\n    splitterDrag.current = null;\n    saveWorkspaceLayout(agentOpen, agentWidth);\n  };
 
   return (
-    <div className={"app-shell" + (agentOpen ? " agent-open" : "")}>
+    <div className={"app-shell" + (agentOpen ? " agent-open" : "")} style={{ gridTemplateColumns: agentOpen ? `minmax(0, 1fr) 6px ${agentWidth}px` : "minmax(0, 1fr)" }}>
       <div className="browser-workspace" ref={browserWorkspaceRef}>
       <div className="browser-chrome" ref={chromeRef}>
         <div className="tab-strip">
@@ -219,7 +219,7 @@ function App() {
           </form>
 
           <div className="toolbar-actions">
-            <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => setAgentOpen((open) => !open)} /></Tooltip>
+            <Tooltip title="Copilot Agent"><Button type={agentOpen ? "primary" : "text"} icon={<RobotOutlined />} onClick={() => setAgentOpen((open) => { const next = !open; saveWorkspaceLayout(next); return next; })} /></Tooltip>
             <button className="toolbar-button download-button" type="button"
               aria-label="Dismiss recent download status"
               title={latestDownload ? latestDownload.fileName : "Downloads"}
@@ -268,7 +268,7 @@ function App() {
         )}
       </div>
       </div>
-      {agentOpen && <AgentPanel onClose={() => setAgentOpen(false)} />}
+      {agentOpen && <div className="workspace-splitter" role="separator" aria-orientation="vertical" aria-label="Resize Agent panel" tabIndex={0}\n        onPointerDown={onSplitterPointerDown} onPointerMove={onSplitterPointerMove} onPointerUp={onSplitterPointerUp} onPointerCancel={onSplitterPointerUp}\n        onKeyDown={(event) => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { const next = Math.max(280, Math.min(720, agentWidth + (event.key === "ArrowLeft" ? 16 : -16))); setAgentWidth(next); saveWorkspaceLayout(true, next); } }} />}\n      {agentOpen && <AgentPanel onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }} />}
     </div>
   );
 }
