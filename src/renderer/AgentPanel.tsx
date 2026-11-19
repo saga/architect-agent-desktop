@@ -7,7 +7,7 @@ import type { AgentSettings, CopilotEvent } from "../shared/types";
 type ChatItem = { key: string; role: "user" | "assistant"; content: string; loading?: boolean };
 const EMPTY_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", systemPrompt: "" };
 
-export default function AgentPanel({ onClose }: { onClose: () => void }) {
+export default function AgentPanel({ onClose, onDock }: { onClose: () => void; onDock: (position: "left" | "right" | "top" | "bottom") => void }) {
   const [status, setStatus] = useState("checking");
   const [statusMessage, setStatusMessage] = useState("");
   const [settings, setSettings] = useState<AgentSettings>(EMPTY_SETTINGS);
@@ -74,6 +74,12 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
   return <aside className="agent-panel">
     <header className="agent-panel-header">
       <div><strong>Browser Agent</strong><div className="agent-subtitle">{providerName} · {modelName || "使用 CLI 默认模型"} · {settings.thinkingLevel} thinking</div></div>
+      <div className="agent-dock-actions" aria-label="Dock Agent panel">
+        <Tooltip title="Dock left"><Button size="small" type="text" aria-label="Dock left" onClick={() => onDock("left")}>⇤</Button></Tooltip>
+        <Tooltip title="Dock right"><Button size="small" type="text" aria-label="Dock right" onClick={() => onDock("right")}>⇥</Button></Tooltip>
+        <Tooltip title="Dock top"><Button size="small" type="text" aria-label="Dock top" onClick={() => onDock("top")}>⇡</Button></Tooltip>
+        <Tooltip title="Dock bottom"><Button size="small" type="text" aria-label="Dock bottom" onClick={() => onDock("bottom")}>⇣</Button></Tooltip>
+      </div>
       <Tag color={status === "ready" ? "success" : "default"}>{status}</Tag>
       <Tooltip title="Agent 配置"><Button type="text" size="small" icon={<SettingOutlined />} onClick={() => void openSettings()} /></Tooltip>
       <Button type="text" size="small" onClick={onClose}>×</Button>
