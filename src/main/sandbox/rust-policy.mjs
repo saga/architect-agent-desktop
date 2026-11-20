@@ -2,7 +2,6 @@ export const RUST_SOURCE_LIMIT = 64 * 1024;
 export const RUST_INPUT_LIMIT = 64 * 1024;
 export const SNAPSHOT_FILE_LIMIT = 5000;
 export const SNAPSHOT_BYTE_LIMIT = 100 * 1024 * 1024;
-export const WASM_FUEL_LIMIT = 100_000_000;
 export const WASM_MEMORY_LIMIT = 256 * 1024 * 1024;
 export const WASM_RUN_TIMEOUT_MS = 60_000;
 export const RUST_BUILD_TIMEOUT_MS = 180_000;
@@ -69,43 +68,15 @@ export function isExcludedWorkspaceEntry(name, isDirectory) {
   return false;
 }
 
-export function buildWasmtimeArgs(wasmtimePath, workspacePath, componentPath) {
+export function buildWasmerArgs(wasmerPath, workspacePath, wasmPath) {
   return [
-    wasmtimePath,
+    wasmerPath,
     "run",
-    "--optimize", "pooling-allocator=true",
-    "--optimize", "pooling-total-core-instances=4",
-    "--optimize", "pooling-total-component-instances=1",
-    "--optimize", "pooling-total-memories=1",
-    "--optimize", "pooling-total-tables=2",
-    "--optimize", "pooling-max-memory-size=" + WASM_MEMORY_LIMIT,
-    "--optimize", "pooling-table-elements=100000",
-    "--optimize", "pooling-max-component-instance-size=8388608",
-    "--optimize", "pooling-max-core-instance-size=8388608",
-    "--optimize", "pooling-max-core-instances-per-component=4",
-    "--optimize", "pooling-max-memories-per-component=1",
-    "--optimize", "pooling-max-tables-per-component=2",
-    "--wasm", "fuel=" + WASM_FUEL_LIMIT,
-    "--wasm", "max-memory-size=" + WASM_MEMORY_LIMIT,
-    "--wasm", "max-instances=4",
-    "--wasm", "max-memories=1",
-    "--wasm", "max-tables=2",
-    "--wasm", "max-table-elements=100000",
-    "--wasm", "max-wasm-stack=1048576",
-    "--wasm", "timeout=60s",
-    "--wasi", "inherit-env=false",
-    "--wasi", "inherit-stdin=false",
-    "--wasi", "inherit-network=false",
-    "--wasi", "allow-ip-name-lookup=false",
-    "--wasi", "tcp=false",
-    "--wasi", "udp=false",
-    "--wasi", "http=false",
-    "--wasi", "max-resources=256",
-    "--wasi", "hostcall-fuel=10000000",
-    "--wasi", "max-component-handles=10000",
-    "--wasi", "cwd=/workspace",
-    "--dir", workspacePath + "::/workspace",
-    componentPath,
+    "--singlepass",
+    "--disable-cache",
+    "--stack-size", "1048576",
+    "--volume", workspacePath + ":/workspace",
+    wasmPath,
   ];
 }
 

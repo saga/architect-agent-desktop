@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { findExecutable, discoverRustToolchain, discoverWasmtime } from "../scripts/rust-toolchain-discovery.mjs";
+import { findExecutable, discoverRustToolchain, discoverWasmer } from "../scripts/rust-toolchain-discovery.mjs";
 
 const temporary = [];
 function tempDir() {
@@ -24,21 +24,21 @@ describe("Rust/WASM toolchain discovery", () => {
     expect(found).toBe(path.join(cargoHome, "bin", "rustc"));
   });
 
-  it("finds Wasmtime under WASMTIME_HOME", () => {
+  it("finds Wasmer under WASMER_HOME", () => {
     const home = tempDir();
-    const wasmtimeHome = path.join(home, "wasmtime");
-    fs.mkdirSync(path.join(wasmtimeHome, "bin"), { recursive: true });
-    fs.writeFileSync(path.join(wasmtimeHome, "bin", "wasmtime"), "");
-    expect(discoverWasmtime({ home, env: { WASMTIME_HOME: wasmtimeHome, PATH: "" }, platform: "linux" }))
-      .toBe(path.join(wasmtimeHome, "bin", "wasmtime"));
+    const wasmerHome = path.join(home, "wasmer");
+    fs.mkdirSync(path.join(wasmerHome, "bin"), { recursive: true });
+    fs.writeFileSync(path.join(wasmerHome, "bin", "wasmer"), "");
+    expect(discoverWasmer({ home, env: { WASMER_HOME: wasmerHome, PATH: "" }, platform: "linux" }))
+      .toBe(path.join(wasmerHome, "bin", "wasmer"));
   });
 
-  it("uses the active rustc sysroot and verifies wasm32-wasip2", () => {
+  it("uses the active rustc sysroot and verifies wasm32-wasip1", () => {
     const home = tempDir();
     const cargoHome = path.join(home, "cargo");
     const shimDir = path.join(cargoHome, "bin");
     const sysroot = path.join(home, "toolchain");
-    const targetLibrary = path.join(sysroot, "lib", "rustlib", "wasm32-wasip2", "lib");
+    const targetLibrary = path.join(sysroot, "lib", "rustlib", "wasm32-wasip1", "lib");
     fs.mkdirSync(shimDir, { recursive: true });
     fs.mkdirSync(path.join(sysroot, "bin"), { recursive: true });
     fs.mkdirSync(targetLibrary, { recursive: true });

@@ -15,10 +15,9 @@
     "package:mac": "npm run typecheck && npm test && npm run build && npm run package:rust-sandbox && electron-builder --mac dmg zip --publish never",
     "package:win": "npm run typecheck && npm test && npm run build && npm run package:rust-sandbox && electron-builder --win nsis --publish never",
     "test:layout": "npm run build && node --test tests/layout-engine.test.mjs",
-    "test": "node --check scripts/rust-toolchain-discovery.mjs && node --check scripts/build-wasmtime.mjs && node --check scripts/package-rust-sandbox.mjs && node --check src/main/sandbox/mcp-server.mjs && node --check src/main/sandbox/rust-execution.mjs && node --check src/main/sandbox/rust-policy.mjs && vitest run",
+    "test": "node --check scripts/rust-toolchain-discovery.mjs && node --check scripts/package-rust-sandbox.mjs && node --check src/main/sandbox/mcp-server.mjs && node --check src/main/sandbox/rust-execution.mjs && node --check src/main/sandbox/rust-policy.mjs && vitest run",
     "package:rust-sandbox": "node scripts/package-rust-sandbox.mjs --require",
-    "package": "npm run typecheck && npm test && npm run build && npm run package:rust-sandbox && electron-builder --publish never",
-    "build:wasmtime": "node scripts/build-wasmtime.mjs"
+    "package": "npm run typecheck && npm test && npm run build && npm run package:rust-sandbox && electron-builder --publish never"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
@@ -68,7 +67,7 @@
         "Contents/Resources/rust-sandbox/rust-toolchain/bin/cargo",
         "Contents/Resources/rust-sandbox/rust-toolchain/lib/**/*.dylib",
         "Contents/Resources/rust-sandbox/rust-toolchain/lib/rustlib/**/bin/rust-lld",
-        "Contents/Resources/rust-sandbox/wasmtime/wasmtime"
+        "Contents/Resources/rust-sandbox/wasmer/wasmer"
       ]
     },
     "dmg": {

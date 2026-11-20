@@ -56,7 +56,7 @@ function resourceRoot(): string {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { enabled?: boolean; platform?: string; arch?: string; files?: Record<string, string> };
     if (manifest.enabled !== true || manifest.platform !== process.platform || manifest.arch !== process.arch) continue;
     const executable = process.platform === "win32" ? ".exe" : "";
-    const required = ["rust-toolchain/bin/rustc" + executable, "rust-toolchain/bin/cargo" + executable, "wasmtime/wasmtime" + executable, "sdk/Cargo.toml", "template/Cargo.toml", "template/Cargo.lock", "template/src/main.rs"];
+    const required = ["rust-toolchain/bin/rustc" + executable, "rust-toolchain/bin/cargo" + executable, "wasmer/wasmer" + executable, "sdk/Cargo.toml", "template/Cargo.toml", "template/Cargo.lock", "template/src/main.rs"];
     let valid = true;
     for (const relative of required) {
       const absolute = path.join(root, ...relative.split("/"));
@@ -79,16 +79,16 @@ function configFor(workspaceValue: string): SandboxConfig {
   const toolchain = path.join(root, "rust-toolchain");
   const sdk = path.join(root, "sdk");
   const template = path.join(root, "template");
-  const wasmtime = path.join(root, "wasmtime", "wasmtime" + executable);
+  const wasmer = path.join(root, "wasmer", "wasmer" + executable);
   const node = resolveNode24();
   const env: Record<string, string> = {
-    PATH: [path.dirname(node), path.join(toolchain, "bin"), path.dirname(wasmtime), process.env.PATH ?? ""].filter(Boolean).join(path.delimiter),
+    PATH: [path.dirname(node), path.join(toolchain, "bin"), path.dirname(wasmer), process.env.PATH ?? ""].filter(Boolean).join(path.delimiter),
     WORKSPACE_DIR: workspace,
     HOST_PLATFORM: process.platform,
     RUST_TOOLCHAIN_DIR: toolchain,
     RUST_SDK_DIR: sdk,
     RUST_TEMPLATE_DIR: template,
-    WASMTIME_BIN: wasmtime,
+    WASMER_BIN: wasmer,
     NODE_NO_WARNINGS: "1",
     NODE_USE_SYSTEM_CA: "1",
     NODE_USE_ENV_PROXY: "1",

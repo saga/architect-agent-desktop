@@ -23,7 +23,7 @@ This is the browser foundation, not a complete replacement for Chrome, Edge or F
 
 - Node.js 22.13 or newer.
 - npm.
-- Git and Rust 1.97+ with Cargo for building the pinned Wasmtime runtime.
+- Git, Rust 1.85+ with Cargo, and Wasmer CLI 7.3.0+ for packaging the Rust/WASM execution runtime.
 - macOS or Windows for native packaging. Development can also run on Linux.
 
 ## Development
@@ -42,11 +42,11 @@ The compiled application is written to the dist/ directory.
 
 ## Package for desktop
 
-Build the pinned Wasmtime runtime first (Rust 1.97+ and Git are required):
+Install Wasmer CLI 7.3.0+ and the Rust WASI target before packaging:
 
-    npm run build:wasmtime
+    rustup target add wasm32-wasip1
 
-This builds Wasmtime 50.0.2 from the official source tag using its upstream Cargo.lock, which pins `cranelift-frontend` to 0.137.2. The executable and build manifest are written to `.cache/wasmtime/` and are discovered by the packaging scripts.
+The packaging script bundles the active Rust compiler/Cargo toolchain and the Wasmer CLI. WASM execution uses Wasmer's Singlepass backend; it does not build or link Cranelift/Wasmer from source.
 
 On macOS:
 

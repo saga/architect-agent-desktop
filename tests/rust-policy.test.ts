@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   RUST_SOURCE_LIMIT,
   WASM_FUEL_LIMIT,
-  WASM_MEMORY_LIMIT,
   buildWasmtimeArgs,
   compareFileHashes,
   isExcludedWorkspaceEntry,

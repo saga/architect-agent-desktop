@@ -8,7 +8,8 @@ import {
   SNAPSHOT_BYTE_LIMIT,
   SNAPSHOT_FILE_LIMIT,
   WASM_RUN_TIMEOUT_MS,
-  buildWasmtimeArgs,
+  WASM_MEMORY_LIMIT,
+  buildWasmerArgs,
   compareFileHashes,
   isExcludedWorkspaceEntry,
   isSafeRelativePath,
@@ -130,7 +131,7 @@ export function createRustExecutionService(options) {
     rustToolchainDirectory,
     rustSdkDirectory,
     rustTemplateDirectory,
-    wasmtimePath,
+    wasmerPath,
     spawn,
     activeProcesses,
     cancelledRequests,
@@ -144,7 +145,7 @@ export function createRustExecutionService(options) {
   const cargoPath = path.join(rustToolchainDirectory, "bin", platform === "win32" ? "cargo.exe" : "cargo");
   const toolPathEntries = [
     path.join(rustToolchainDirectory, "bin"),
-    path.dirname(wasmtimePath),
+    path.dirname(wasmerPath),
     ...(platform === "win32" ? [
       process.env.SystemRoot ? path.join(process.env.SystemRoot, "System32") : "",
       process.env.SystemRoot ?? "",
@@ -158,7 +159,7 @@ export function createRustExecutionService(options) {
     ...systemReadonlyPaths.filter(Boolean),
     rustToolchainDirectory,
     rustSdkDirectory,
-    path.dirname(wasmtimePath),
+    path.dirname(wasmerPath),
   ])];
 
   async function runMxc(requestId, command, runDirectory, timeoutMs) {
@@ -166,10 +167,12 @@ export function createRustExecutionService(options) {
     const homeDirectory = path.join(runDirectory, "home");
     const tempPath = path.join(runDirectory, "tmp");
     const cargoHome = path.join(runDirectory, "cargo-home");
+    const wasmerHome = path.join(runDirectory, "wasmer-home");
     await Promise.all([
       fs.mkdir(homeDirectory, { recursive: true }),
       fs.mkdir(tempPath, { recursive: true }),
       fs.mkdir(cargoHome, { recursive: true }),
+      fs.mkdir(wasmerHome, { recursive: true }),
     ]);
 
     const request = {
@@ -194,9 +197,10 @@ export function createRustExecutionService(options) {
         TMP: tempPath,
         CARGO_HOME: cargoHome,
         CARGO_NET_OFFLINE: "true",
+        WASMER_DIR: wasmerHome,
         CARGO_TERM_COLOR: "never",
         RUSTC: rustcPath,
-        RUSTFLAGS: "-C panic=abort",
+        RUSTFLAGS: "-C panic=abort -C link-arg=--max-memory=" + WASM_MEMORY_LIMIT,
         NODE_NO_WARNINGS: "1",
         ...(platform === "win32" ? {
           SystemRoot: process.env.SystemRoot ?? "",
@@ -276,7 +280,7 @@ export function createRustExecutionService(options) {
       ]);
 
       const cargoCommand = commandPath(cargoPath, platform)
-        + " build --offline --locked --release --target wasm32-wasip2 --manifest-path "
+        + " build --offline --locked --release --target wasm32-wasip1 --manifest-path "
         + commandPath(path.join(projectDirectory, "Cargo.toml"), platform);
       const build = await runMxc(requestId, cargoCommand, runDirectory, RUST_BUILD_TIMEOUT_MS);
       if (build.exitCode !== 0 || build.timedOut) {
@@ -284,14 +288,14 @@ export function createRustExecutionService(options) {
         throw new Error("Rust compilation failed" + (build.timedOut ? " (timeout)" : "") + ".\n" + details);
       }
 
-      const componentPath = path.join(projectDirectory, "target", "wasm32-wasip2", "release", "desktop_agent_task.wasm");
-      const componentInfo = await fs.stat(componentPath);
+      const wasmPath = path.join(projectDirectory, "target", "wasm32-wasip1", "release", "desktop_agent_task.wasm");
+      const componentInfo = await fs.stat(wasmPath);
       if (!componentInfo.isFile() || componentInfo.size === 0 || componentInfo.size > 32 * 1024 * 1024) {
-        throw new Error("Rust compiler produced an invalid or oversized WASM component.");
+        throw new Error("Rust compiler produced an invalid or oversized WASM module.");
       }
 
-      const wasmtimeArgs = buildWasmtimeArgs(wasmtimePath, stagedWorkspace, componentPath);
-      const runCommand = wasmtimeArgs.map((value) => commandPath(value, platform)).join(" ");
+      const wasmerArgs = buildWasmerArgs(wasmerPath, stagedWorkspace, wasmPath);
+      const runCommand = wasmerArgs.map((value) => commandPath(value, platform)).join(" ");
       const execution = await runMxc(requestId, runCommand, runDirectory, WASM_RUN_TIMEOUT_MS);
       if (cancelledRequests.has(requestId)) throw new Error("Rust execution was cancelled.");
       if (execution.exitCode !== 0 || execution.timedOut) {
@@ -491,7 +495,7 @@ export function createRustExecutionService(options) {
   const tools = [
     {
       name: "execute_rust",
-      description: "Compile and run one LLM-generated Rust module as a WASI Preview 2 component. The host supplies a fixed manifest and SDK; the guest sees only a staged workspace at /workspace. Changes are not applied to the real workspace by this tool.",
+      description: "Compile and run one LLM-generated Rust module as a WASI Preview 1 module. The host supplies a fixed manifest and SDK; the guest sees only a staged workspace at /workspace. Changes are not applied to the real workspace by this tool.",
       inputSchema: {
         type: "object",
         properties: {

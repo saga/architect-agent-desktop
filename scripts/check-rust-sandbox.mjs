@@ -16,8 +16,8 @@ if (manifest.enabled !== true || manifest.platform !== process.platform || manif
 const packagedToolchain = path.join(packagedRoot, "rust-toolchain");
 const cargo = path.join(packagedToolchain, "bin", "cargo" + executable);
 const rustc = path.join(packagedToolchain, "bin", "rustc" + executable);
-const wasmtime = path.join(packagedRoot, "wasmtime", "wasmtime" + executable);
-await Promise.all([fs.access(cargo), fs.access(rustc), fs.access(wasmtime)]);
+const wasmer = path.join(packagedRoot, "wasmer", "wasmer" + executable);
+await Promise.all([fs.access(cargo), fs.access(rustc), fs.access(wasmer)]);
 const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "architect-agent-rust-check-"));
 const workspace = path.join(temporaryRoot, "workspace");
 const executionTemp = path.join(temporaryRoot, "execution-temp");
@@ -84,7 +84,7 @@ const service = createRustExecutionService({
   rustToolchainDirectory: packagedToolchain,
   rustSdkDirectory: sdk,
   rustTemplateDirectory: path.join(packagedRoot, "template"),
-  wasmtimePath: wasmtime,
+  wasmerPath: wasmer,
   spawn: spawnForTest,
   activeProcesses: new Map(),
   cancelledRequests: new Set(),

@@ -38,22 +38,24 @@ jobs:
           node-version: 24
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-wasip2
+          targets: wasm32-wasip1
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-      - name: Build Wasmtime from pinned source
+      - name: Install Wasmer
         shell: bash
         run: |
-          node scripts/build-wasmtime.mjs --output "$RUNNER_TEMP/wasmtime"
-          echo "$RUNNER_TEMP/wasmtime/bin" >> "$GITHUB_PATH"
-          echo "WASMTIME_HOME=$RUNNER_TEMP/wasmtime" >> "$GITHUB_ENV"
-      - name: Verify Wasmtime build manifest
-        shell: bash
-        run: |
-          cat "$RUNNER_TEMP/wasmtime/build-manifest.json"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            iwr https://win.wasmer.io -useb | iex
+            $wasmerBin = Join-Path $env:USERPROFILE '.wasmer\bin'
+            $env:PATH += ";$wasmerBin"
+            $wasmerBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          else
+            curl https://get.wasmer.io -sSfL | sh -s "v 7.3.0"
+            echo "$HOME/.wasmer/bin" >> "$GITHUB_PATH"
+          fi
       - name: Build installer and package Rust/WASI runtime
         run: npm run package
-      - name: Verify packaged resources
+      - name: Verify packaged Rust/WASM resources
         shell: bash
         run: node scripts/check-rust-sandbox.mjs
       - name: Report installer size and signing state

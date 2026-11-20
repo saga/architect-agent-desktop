@@ -38,7 +38,7 @@ for (const entry of [
   process.env.RUST_TOOLCHAIN_DIR,
   process.env.RUST_SDK_DIR,
   process.env.RUST_TEMPLATE_DIR,
-  process.env.WASMTIME_BIN ? path.dirname(process.env.WASMTIME_BIN) : '',
+  process.env.WASMER_BIN ? path.dirname(process.env.WASMER_BIN) : '',
 ]) {
   if (entry && !readonlyPaths.includes(entry)) readonlyPaths.push(entry);
 }
@@ -99,15 +99,15 @@ const rustResourcesAvailable = Boolean(
   process.env.RUST_TOOLCHAIN_DIR
   && process.env.RUST_SDK_DIR
   && process.env.RUST_TEMPLATE_DIR
-  && process.env.WASMTIME_BIN
+  && process.env.WASMER_BIN
   && fs.existsSync(path.join(process.env.RUST_TOOLCHAIN_DIR, 'bin', platform === 'win32' ? 'cargo.exe' : 'cargo'))
   && fs.existsSync(path.join(process.env.RUST_TOOLCHAIN_DIR, 'bin', platform === 'win32' ? 'rustc.exe' : 'rustc'))
-  && fs.existsSync(path.join(process.env.RUST_TOOLCHAIN_DIR, 'lib', 'rustlib', 'wasm32-wasip2', 'lib'))
+  && fs.existsSync(path.join(process.env.RUST_TOOLCHAIN_DIR, 'lib', 'rustlib', 'wasm32-wasip1', 'lib'))
   && fs.existsSync(path.join(process.env.RUST_SDK_DIR, 'Cargo.toml'))
   && fs.existsSync(path.join(process.env.RUST_TEMPLATE_DIR ?? '', 'Cargo.toml'))
   && fs.existsSync(path.join(process.env.RUST_TEMPLATE_DIR ?? '', 'Cargo.lock'))
   && fs.existsSync(path.join(process.env.RUST_TEMPLATE_DIR ?? '', 'src', 'main.rs'))
-  && fs.existsSync(process.env.WASMTIME_BIN)
+  && fs.existsSync(process.env.WASMER_BIN)
 );
 
 const rustTempDirectory = rustResourcesAvailable
@@ -123,7 +123,7 @@ const rustExecution = rustResourcesAvailable
       rustToolchainDirectory: process.env.RUST_TOOLCHAIN_DIR,
       rustSdkDirectory: process.env.RUST_SDK_DIR,
       rustTemplateDirectory: process.env.RUST_TEMPLATE_DIR,
-      wasmtimePath: process.env.WASMTIME_BIN,
+      wasmerPath: process.env.WASMER_BIN,
       spawn,
       activeProcesses,
       cancelledRequests,
