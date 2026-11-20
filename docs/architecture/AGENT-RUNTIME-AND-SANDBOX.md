@@ -19,7 +19,7 @@ Electron 内置 Node.js 可以执行本地 JavaScript/TypeScript 编译产物，
 
 1. **trusted-skill**：由用户明确认可、来源可信的本地 Skill 脚本，继续使用 Electron UtilityProcess 中的 Node.js 执行。它只提供故障隔离，不提供恶意代码隔离保证。
 2. **JavaScript execute_code**：现有 Code Mode 用于组合 Agent 暴露的工具 API，继续保留在 UtilityProcess 中以兼容现有工作流。UtilityProcess 可直接访问 Node.js API，因此这条路径不是安全沙箱，不应承载需要抵御恶意代码的任务。
-3. **Rust execute_rust**：LLM 生成的 Rust 代码通过固定 Cargo Template 编译为 WASI Preview 1 Component，再由 Wasmer 在 MXC 隔离环境中执行。它只在 Allow all、工作区和平台资源均满足条件时开放；执行结果先形成 Snapshot/Diff，之后才可应用。
+3. **Rust execute_rust**：LLM 生成的 Rust 代码通过固定 Cargo Template 编译为 WASI Preview 1 module，再由 Wasmer 在 MXC 隔离环境中执行。它只在 Allow all、工作区和平台资源均满足条件时开放；执行结果先形成 Snapshot/Diff，之后才可应用。
 
 不能把 UtilityProcess、node:vm、Worker Thread 或 Prompt 约束描述成不可信代码的安全边界。
 
@@ -216,7 +216,7 @@ JavaScript `execute_code` 仍然是现有工具编排路径，不会因为 Rust/
 
 ## 9. Rust/WASI Generated Code Backend
 
-Generated Rust is executed through a separate MXC helper process, not through the Electron UtilityProcess. The helper uses `@microsoft/mxc-sdk` with the macOS Seatbelt or Windows ProcessContainer backend, then compiles a fixed Cargo project for `wasm32-wasip1` and runs the resulting component with Wasmer.
+Generated Rust is executed through a separate MXC helper process, not through the Electron UtilityProcess. The helper uses `@microsoft/mxc-sdk` with the macOS Seatbelt or Windows ProcessContainer backend, then compiles a fixed Cargo project for `wasm32-wasip1` and runs the resulting WASI module with Wasmer.
 
 The implementation is deliberately additive:
 
@@ -234,8 +234,8 @@ The apply operation is guarded by the app's Allow all permission mode. It is not
 ### Packaging and validation
 
 - `npm run build` copies the MCP helper and Rust execution modules into the Electron build output.
-- `npm run package:rust-sandbox` requires platform-native Rust 1.85+ with `wasm32-wasip1` and Wasmer 50.0.2+.
-  The packaging script discovers the active Rust toolchain from `rustc` and `cargo` on `PATH`, including the standard `CARGO_HOME/bin` and `~/.cargo/bin` locations. It resolves the sysroot and checks that `wasm32-wasip1` is installed. Wasmer is discovered from `PATH`, `WASMTIME_HOME`, or the standard `~/.wasmer/bin` location. Normally no project-specific environment variables are required. For non-standard installations, set the conventional `RUSTC`, `CARGO_HOME`, or `WASMTIME_HOME` variables, or add the executable directories to `PATH`. Install the target once with `rustup target add wasm32-wasip1` if it is missing.
+- `npm run package:rust-sandbox` requires platform-native Rust 1.85+ with `wasm32-wasip1` and Wasmer CLI 7.3.0+.
+  The packaging script discovers the active Rust toolchain from `rustc` and `cargo` on `PATH`, including the standard `CARGO_HOME/bin` and `~/.cargo/bin` locations. It resolves the sysroot and checks that `wasm32-wasip1` is installed. Wasmer is discovered from `PATH`, `WASMER_HOME`, or the standard `~/.wasmer/bin` location. Normally no project-specific environment variables are required. For non-standard installations, set the conventional `RUSTC`, `CARGO_HOME`, or `WASMER_HOME` variables, or add the executable directories to `PATH`. Install the target once with `rustup target add wasm32-wasip1` if it is missing.
 - `npm run package` builds the app, prepares Rust resources and invokes Electron Builder.
 - CI has native macOS ARM64, macOS x64 and Windows x64 package jobs. CI artifacts are unsigned unless signing credentials are configured separately.
 - The resource smoke test validates the packaged compiler/runtime and executes the SDK guest through Wasmer Singlepass. It does not replace an end-to-end MXC escape-resistance test on a user's actual OS installation.
