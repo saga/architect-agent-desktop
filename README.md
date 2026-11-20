@@ -97,7 +97,7 @@ Task、对话、Expert 和 Schedule 均保存在本机。Expert 可为任务指�
 
 ## Agent Runtime 与 Code Mode
 
-Runtime 基础设计、可信 Skill 的 UtilityProcess 执行、Capability API，以及 LLM 动态代码的安全边界见 [Agent Runtime、Code Mode 与安全沙箱设计](docs/architecture/AGENT-RUNTIME-AND-SANDBOX.md)。当前 Native Runtime 仅面向可信本地脚本；LLM 生成代码在 OS 级 Sandbox Backend 落地前保持禁用。现有插件仍是声明式资源，不会因导入而执行 JavaScript。
+Runtime 基础设计、Code Mode 执行链路、Capability API，以及 LLM 动态代码的安全边界见 [Agent Runtime、Code Mode 与安全沙箱设计](docs/architecture/AGENT-RUNTIME-AND-SANDBOX.md)。当前 Code Mode 使用独立 Electron UtilityProcess 执行模型生成的 JavaScript，但 UtilityProcess 不是安全沙箱；生成代码在第一阶段仍可能使用当前用户权限访问 Node.js API 和本机资源。Main Process Tool Broker 只对声明 API 的调用实施权限校验，不能约束生成代码直接调用 Node.js API。该限制是当前接受的风险，不应将 UtilityProcess 描述为 OS 级隔离。现有插件仍是声明式资源，不会因导入而执行 JavaScript。
 
 ## Plugins
 
