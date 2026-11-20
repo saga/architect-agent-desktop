@@ -3,31 +3,37 @@ import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { discoverRustToolchain, discoverWasmtime } from "./rust-toolchain-discovery.mjs";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const destination = path.join(root, "resources", "rust-sandbox");
 const staging = destination + ".staging-" + process.pid;
-const toolchainSource = process.env.ARCHITECT_AGENT_RUST_TOOLCHAIN_DIR;
-const wasmtimeSource = process.env.ARCHITECT_AGENT_WASMTIME_BIN;
 const required = process.argv.includes("--require");
+let discovered;
+let toolchainSource;
+let wasmtimeSource;
+try {
+  discovered = discoverRustToolchain();
+  toolchainSource = discovered.toolchain;
+  wasmtimeSource = discoverWasmtime();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (required) throw new Error(message);
+  console.warn("[rust-sandbox] " + message);
+  process.exit(0);
+}
 const supported = new Set(["darwin:arm64", "darwin:x64", "win32:x64"]);
 const platformKey = process.platform + ":" + process.arch;
 if (!supported.has(platformKey)) {
   throw new Error("Rust sandbox release packaging supports macOS arm64/x64 and Windows x64 only; got " + platformKey);
 }
-if (!toolchainSource || !wasmtimeSource) {
-  const message = "Set ARCHITECT_AGENT_RUST_TOOLCHAIN_DIR and ARCHITECT_AGENT_WASMTIME_BIN to platform-native toolchain paths.";
-  if (required) throw new Error(message);
-  console.warn("[rust-sandbox] " + message);
-  process.exit(0);
-}
 const toolchain = path.resolve(toolchainSource);
 const wasmtime = path.resolve(wasmtimeSource);
 const executable = process.platform === "win32" ? ".exe" : "";
-const rustc = path.join(toolchain, "bin", "rustc" + executable);
-const cargo = path.join(toolchain, "bin", "cargo" + executable);
-const targetLibrary = path.join(toolchain, "lib", "rustlib", "wasm32-wasip2", "lib");
+const rustc = discovered.rustc;
+const cargo = discovered.cargo;
+const targetLibrary = discovered.targetLibrary;
 for (const candidate of [rustc, cargo, targetLibrary, wasmtime]) {
   await fs.access(candidate).catch(() => { throw new Error("Required Rust/WASM resource is missing: " + candidate); });
 }
@@ -67,7 +73,8 @@ await fs.mkdir(staging, { recursive: true });
 try {
   const toolchainOut = path.join(staging, "rust-toolchain");
   await fs.mkdir(path.join(toolchainOut, "bin"), { recursive: true });
-  for (const name of ["rustc" + executable, "cargo" + executable]) await fs.copyFile(path.join(toolchain, "bin", name), path.join(toolchainOut, "bin", name));
+  await fs.copyFile(rustc, path.join(toolchainOut, "bin", "rustc" + executable));
+  await fs.copyFile(cargo, path.join(toolchainOut, "bin", "cargo" + executable));
   await fs.cp(path.join(toolchain, "lib"), path.join(toolchainOut, "lib"), { recursive: true, dereference: true });
   const wasmtimeOut = path.join(staging, "wasmtime");
   await fs.mkdir(wasmtimeOut, { recursive: true });

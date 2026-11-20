@@ -63,8 +63,8 @@ jobs:
           fi
           WASMTIME_PATH="$(find "$RUNNER_TEMP/wasmtime" -type f \( -name wasmtime -o -name wasmtime.exe \) | head -n 1)"
           test -n "$WASMTIME_PATH"
-          echo "ARCHITECT_AGENT_WASMTIME_BIN=$WASMTIME_PATH" >> "$GITHUB_ENV"
-          echo "ARCHITECT_AGENT_RUST_TOOLCHAIN_DIR=$(rustc --print sysroot)" >> "$GITHUB_ENV"
+          echo "$(dirname "$WASMTIME_PATH")" >> "$GITHUB_PATH"
+          echo "WASMTIME_HOME=$(dirname "$WASMTIME_PATH")" >> "$GITHUB_ENV"
       - name: Build installer and package Rust/WASI runtime
         run: npm run package
       - name: Verify packaged resources
