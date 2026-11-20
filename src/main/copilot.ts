@@ -1,6 +1,6 @@
 import type { CopilotClient, CopilotSession } from "@github/copilot-sdk" with { "resolution-mode": "import" };
 import { z } from "zod";
-import type { AgentChatMessage, AgentModelInfo, AgentProvider, AgentSettings } from "../shared/types";
+import type { AgentChatMessage, AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission } from "../shared/types";
 import { app } from "electron";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -117,9 +117,21 @@ function historyPrompt(history: AgentChatMessage[] | undefined, prompt: string):
 }
 export class CopilotDesktopAgent {
  private workspacePath:string|null;
+ private taskContext:{systemPrompt:string;toolPermission:AgentToolPermission;skills:string[];tools:string[]}|null=null;
  private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null; private readonly codeRuntimeAbortControllers = new Set<AbortController>(); private readonly codeRuntime = new UtilityProcessAgentRuntime();
  constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:()=>string=()=>"",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string)=>void=()=>{}){this.settings=settings;this.workspacePath=workspacePath;}
  async setWorkspacePath(workspacePath:string|null):Promise<void>{if(workspacePath===this.workspacePath)return;if(this.active)throw new Error("Wait for the current Agent request to finish before changing the workspace.");await this.stop();this.workspacePath=workspacePath;}
+ async setTaskContext(context:{systemPrompt:string;toolPermission:AgentToolPermission;skills:string[];tools:string[]}|null):Promise<void>{
+  if(this.active)throw new Error("Wait for the current Agent request to finish before changing the Expert.");
+  const next=context?{systemPrompt:context.systemPrompt,toolPermission:context.toolPermission,skills:[...context.skills],tools:[...context.tools]}:null;
+  if(JSON.stringify(next)===JSON.stringify(this.taskContext))return;
+  await this.stop();this.taskContext=next;
+ }
+ private effectivePermission():AgentToolPermission{
+  const rank:Record<AgentToolPermission,number>={"browser-only":0,assisted:1,"allow-all":2};
+  const ceiling=this.taskContext?.toolPermission??"allow-all";
+  return rank[this.settings.toolPermission]<=rank[ceiling]?this.settings.toolPermission:ceiling;
+ }
  private workspaceInstructions():string{return this.workspacePath?"Current local project workspace root: "+this.workspacePath+". Treat this as the project root. Use relative paths for workspace file tools and do not access files outside this directory.":"No local project workspace is selected. Do not attempt local project file operations until the user selects a workspace."; }
  async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(!["low","medium","high","xhigh"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");if(!["browser-only","assisted","allow-all"].includes(settings.toolPermission))throw new Error("Unsupported tool permission.");const changed=settings.provider!==this.settings.provider||settings.copilotModel!==this.settings.copilotModel||settings.codebuddyModel!==this.settings.codebuddyModel||settings.thinkingLevel!==this.settings.thinkingLevel||settings.toolPermission!==this.settings.toolPermission||settings.contextWindow!==this.settings.contextWindow||settings.systemPrompt!==this.settings.systemPrompt;if(changed)await this.stop();this.settings={...settings};}
 
