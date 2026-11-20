@@ -51,6 +51,28 @@ const version = wasmMatch?.slice(1).map(Number) ?? [];
 if (version.length !== 3 || version[0] < 50 || (version[0] === 50 && version[1] === 0 && version[2] < 2)) {
   throw new Error("Wasmtime 50.0.2 or later is required.");
 }
+
+let wasmtimeBuild = null;
+const buildManifestPath = path.join(path.dirname(path.dirname(wasmtime)), "build-manifest.json");
+try {
+  const buildManifest = JSON.parse(await fs.readFile(buildManifestPath, "utf8"));
+  const binaryHash = createHash("sha256").update(await fs.readFile(wasmtime)).digest("hex");
+  if (buildManifest.wasmtimeVersion !== wasmtimeVersion.match(/(\\d+\\.\\d+\\.\\d+)/)?.[1]) {
+    throw new Error("Wasmtime build manifest version does not match the executable.");
+  }
+  if (buildManifest.binarySha256 !== binaryHash) {
+    throw new Error("Wasmtime build manifest SHA-256 does not match the executable.");
+  }
+  wasmtimeBuild = {
+    sourceRepository: buildManifest.sourceRepository,
+    sourceTag: buildManifest.sourceTag,
+    sourceCommit: buildManifest.sourceCommit,
+    craneliftFrontendVersion: buildManifest.craneliftFrontendVersion,
+    binarySha256: buildManifest.binarySha256,
+  };
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+}
 const reportedTarget = execFileSync(rustc, ["--print", "target-libdir", "--target", "wasm32-wasip2"], { encoding: "utf8" }).trim();
 if (path.resolve(reportedTarget) !== path.resolve(targetLibrary)) {
   throw new Error("Rust target-libdir does not resolve to the expected wasm32-wasip2 target directory.");
@@ -81,6 +103,7 @@ try {
   const packagedWasmtime = path.join(wasmtimeOut, "wasmtime" + executable);
   await fs.copyFile(wasmtime, packagedWasmtime);
   if (process.platform !== "win32") await fs.chmod(packagedWasmtime, 0o755);
+  if (wasmtimeBuild) await fs.copyFile(buildManifestPath, path.join(wasmtimeOut, "build-manifest.json"));
   await fs.cp(path.join(root, "src/main/sandbox/rust-sdk"), path.join(staging, "sdk"), { recursive: true });
   await fs.cp(path.join(root, "src/main/sandbox/rust-template"), path.join(staging, "template"), { recursive: true });
   const licenses = path.join(staging, "licenses");
@@ -110,7 +133,7 @@ try {
   await fs.writeFile(path.join(staging, "manifest.json"), JSON.stringify({
     schemaVersion: 1, enabled: true, platform: process.platform, arch: process.arch,
     rustcVersion, cargoVersion, wasmtimeVersion, target: "wasm32-wasip2",
-    sdkVersion: "0.1.0", templateVersion: "0.1.0", files: hashes,
+    sdkVersion: "0.1.0", templateVersion: "0.1.0", wasmtimeBuild, files: hashes,
   }, null, 2) + "\n");
   await fs.rm(destination, { recursive: true, force: true });
   await fs.rename(staging, destination);
