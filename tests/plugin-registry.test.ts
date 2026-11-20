@@ -47,6 +47,8 @@ describe("declarative plugin packages", () => {
     expect(importPlugin(source, pluginRoot, registry).enabled).toBe(true);
     expect(listPlugins(pluginRoot, registry)).toHaveLength(1);
     expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("research.md");
+    expect(readEnabledPluginInstructions(pluginRoot, registry, [], [])).not.toContain("research.md");
+    expect(readEnabledPluginInstructions(pluginRoot, registry, ["team.research:skills/research.md"], [])).toContain("research.md");
     const exported = exportPlugin("team.research", pluginRoot, path.join(root, "export"), registry);
     expect(exported).toContain("team.research");
     expect(setPluginEnabled("team.research", false, pluginRoot, registry)[0].enabled).toBe(false);
