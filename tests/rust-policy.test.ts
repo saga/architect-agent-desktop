@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   RUST_SOURCE_LIMIT,
-  WASM_FUEL_LIMIT,
-  buildWasmtimeArgs,
+  WASM_MEMORY_LIMIT,
+  buildWasmerArgs,
   compareFileHashes,
   isExcludedWorkspaceEntry,
   isSafeRelativePath,
@@ -39,22 +39,16 @@ test("snapshot excludes credentials, dependency trees and build output", () => {
   assert.equal(isExcludedWorkspaceEntry("package.json", false), false);
 });
 
-test("Wasmtime execution limits are fixed by the host, not caller input", () => {
-  const args = buildWasmtimeArgs("/bundle/wasmtime", "/tmp/run/workspace", "/tmp/run/task.wasm");
-  assert.equal(args[1], "run");
-  assert.ok(args.includes("--dir"));
-  assert.ok(args.includes("/tmp/run/workspace::/workspace"));
-  assert.ok(args.includes("fuel=" + WASM_FUEL_LIMIT));
-  assert.ok(args.includes("pooling-max-memory-size=" + WASM_MEMORY_LIMIT));
-  assert.ok(args.includes("max-memory-size=" + WASM_MEMORY_LIMIT));
-  assert.ok(args.includes("pooling-total-component-instances=1"));
-  assert.ok(args.includes("max-instances=4"));
-  assert.ok(args.includes("max-tables=2"));
-  assert.ok(args.includes("pooling-total-tables=2"));
-  assert.ok(args.includes("inherit-network=false"));
-  assert.ok(args.includes("hostcall-fuel=10000000"));
-  assert.ok(args.includes("timeout=60s"));
+test("Wasmer runs WASI Preview 1 with the Singlepass backend and a single workspace volume", () => {
+  const args = buildWasmerArgs("/bundle/wasmer", "/tmp/run/workspace", "/tmp/run/task.wasm");
+  assert.equal(args[0], "/bundle/wasmer");
+  assert.deepEqual(args.slice(1, 4), ["run", "--singlepass", "--disable-cache"]);
+  assert.ok(args.includes("--volume"));
+  assert.ok(args.includes("/tmp/run/workspace:/workspace"));
+  assert.ok(args.includes("--stack-size"));
+  assert.ok(args.includes("1048576"));
   assert.equal(args.at(-1), "/tmp/run/task.wasm");
+  assert.equal(WASM_MEMORY_LIMIT, 256 * 1024 * 1024);
 });
 
 test("file diff distinguishes added, modified and deleted paths", () => {
