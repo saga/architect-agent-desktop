@@ -29,7 +29,7 @@ function nodeCandidates(): string[] {
     candidates.unshift("/opt/homebrew/bin/node", "/usr/local/bin/node", "/opt/local/bin/node");
     candidates.push(path.join(home, ".volta/bin/node"), path.join(home, ".asdf/shims/node"), path.join(home, ".fnm/aliases/default/bin/node"), path.join(home, ".local/share/mise/shims/node"));
     for (const entry of [".nvm/versions/node", ".local/share/fnm/node-versions"]) {
-      try { for (const version of readFileSync(path.join(home, entry, "versions.txt"), "utf8").split(/\r?\n/)) candidates.push(path.join(home, entry, version, "bin/node")); } catch { /* optional version manager */ }
+      try { for (const version of readdirSync(path.join(home, entry)).sort().reverse()) candidates.push(path.join(home, entry, version, "bin", "node")); } catch { /* optional version manager */ }
     }
   } else if (process.platform === "win32" && process.env.ProgramFiles) candidates.unshift(path.join(process.env.ProgramFiles, "nodejs", executable));
   return [...new Set(candidates)];
