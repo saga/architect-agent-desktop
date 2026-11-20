@@ -59,20 +59,8 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
+        "dmg",
+        "zip"
       ],
       "binaries": [
         "Contents/Resources/rust-sandbox/rust-toolchain/bin/rustc",
@@ -122,6 +110,7 @@
   "allowScripts": {
     "koffi": true,
     "node-pty": true,
-    "semver": true
+    "semver": true,
+    "electron-winstaller": true
   }
 }
