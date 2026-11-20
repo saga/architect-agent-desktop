@@ -173,11 +173,6 @@ export function disposeLoginShellEnvironment(): void {
 }
 
 /**
- * Environment for agent CLI subprocesses: the inherited environment plus the
- * login shell's PATH and tool variables. The shell wins because it describes
- * the user's actual setup.
- */
-/**
  * Node reads these switches when the child process starts. Keep them enabled
  * for every Agent CLI/runtime process, regardless of the launcher's environment.
  */
@@ -191,6 +186,19 @@ export function withSystemNetworkEnvironment(
   };
 }
 
+/** Convert Electron's resolved HTTP(S) proxy route into a Node proxy URL. */
+export function proxyUrlFromRules(rules: string): string | undefined {
+  const route = rules.split(";").map(item => item.trim()).find(item => /^(PROXY|HTTPS)\s+/i.test(item));
+  if (!route) return undefined;
+  const match = /^(PROXY|HTTPS)\s+(.+)$/i.exec(route);
+  if (!match?.[2]) return undefined;
+  return (match[1].toUpperCase() === "HTTPS" ? "https://" : "http://") + match[2].trim();
+}
+
+/**
+ * Environment for agent CLI subprocesses: inherited/login-shell settings plus
+ * Node's system CA and environment-proxy switches.
+ */
 export async function agentProcessEnvironment(): Promise<Record<string, string | undefined>> {
   const captured = await primeLoginShellEnvironment();
   return withSystemNetworkEnvironment(captured

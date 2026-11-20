@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEnvironmentDump, readLoginShellEnvironment, withSystemNetworkEnvironment } from "../src/main/login-shell-env";
+import { parseEnvironmentDump, proxyUrlFromRules, readLoginShellEnvironment, withSystemNetworkEnvironment } from "../src/main/login-shell-env";
 
 const MARKER = "\0_ARCHITECT_SHELL_ENV_DELIMITER_\0";
 
@@ -39,6 +39,18 @@ describe("parseEnvironmentDump", () => {
 
   it("skips entries without a key", () => {
     expect(parseEnvironmentDump(`${MARKER}=broken\0NOVALUE\0OK=1\0${MARKER}`)).toEqual({ OK: "1" });
+  });
+});
+
+describe("proxyUrlFromRules", () => {
+  it("converts HTTP and HTTPS proxy routes", () => {
+    expect(proxyUrlFromRules("PROXY proxy.example:8080; DIRECT")).toBe("http://proxy.example:8080");
+    expect(proxyUrlFromRules("HTTPS secure-proxy.example:8443; DIRECT")).toBe("https://secure-proxy.example:8443");
+  });
+
+  it("does not turn direct or SOCKS-only routes into HTTP proxies", () => {
+    expect(proxyUrlFromRules("DIRECT")).toBeUndefined();
+    expect(proxyUrlFromRules("SOCKS5 socks.example:1080; DIRECT")).toBeUndefined();
   });
 });
 

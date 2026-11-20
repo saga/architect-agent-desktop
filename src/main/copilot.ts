@@ -1,7 +1,7 @@
 import type { CopilotClient, CopilotSession } from "@github/copilot-sdk" with { "resolution-mode": "import" };
 import { z } from "zod";
 import type { AgentChatMessage, AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission } from "../shared/types";
-import { app } from "electron";
+import { app, session } from "electron";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { gunzipSync } from "node:zlib";
@@ -10,11 +10,31 @@ import { UtilityProcessAgentRuntime } from "./runtime/utility-process-runtime";
 import { RustSandboxClient } from "./runtime/rust-sandbox-client";
 import { CODE_MODE_SYSTEM_INSTRUCTIONS, createCodeModeDescription, createToolProviders, normalizeCode, resolveProvider } from "./runtime/codemode";
 import { detachedCliOptions, isManagedSession, parseCredits } from "./agent-runtime.js";
-import { agentProcessEnvironment } from "./login-shell-env.js";
+import { agentProcessEnvironment, proxyUrlFromRules } from "./login-shell-env.js";
 import { listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, writeWorkspaceFile } from "./workspace-files.js";
 export * from "./agent-runtime.js";
 
 type ModelRecord = Record<string, unknown>;
+
+async function resolvedAgentProcessEnvironment(): Promise<Record<string, string | undefined>> {
+  const environment = await resolvedAgentProcessEnvironment();
+  const hasProxy = (name: string) => Boolean(environment[name] || environment[name.toLowerCase()]);
+  try {
+    if (!hasProxy("HTTPS_PROXY")) {
+      const route = await session.defaultSession.resolveProxy("https://api.github.com");
+      const proxy = proxyUrlFromRules(route);
+      if (proxy) environment.HTTPS_PROXY = proxy;
+    }
+    if (!hasProxy("HTTP_PROXY")) {
+      const route = await session.defaultSession.resolveProxy("http://api.github.com");
+      const proxy = proxyUrlFromRules(route);
+      if (proxy) environment.HTTP_PROXY = proxy;
+    }
+  } catch {
+    // Keep explicit environment proxy settings; system proxy lookup is best-effort.
+  }
+  return environment;
+}
 function asRecord(value: unknown): ModelRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as ModelRecord : {}; }
 function positiveTokens(value: unknown): number | undefined {
  const n = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value.trim()) ? Number(value) : NaN;
@@ -142,7 +162,7 @@ export class CopilotDesktopAgent {
   const { CopilotClient } = await import("@github/copilot-sdk");
   const inspectDirectory = path.join(app.getPath("userData"), "copilot-inspect");
   mkdirSync(inspectDirectory, { recursive: true });
-  const client = new CopilotClient({ useLoggedInUser: true, mode: "empty", baseDirectory: inspectDirectory, env: await agentProcessEnvironment() });
+  const client = new CopilotClient({ useLoggedInUser: true, mode: "empty", baseDirectory: inspectDirectory, env: await resolvedAgentProcessEnvironment() });
   try { await client.start(); const result = await client.listModels(); const models=(Array.isArray(result) ? result : []).map(model => normalizeModelInfo("copilot", model)).filter((m): m is AgentModelInfo => Boolean(m)); models.forEach(model=>this.inspectedModels.set("copilot:"+model.id,model)); return models; }
   finally { await client.stop().catch(() => undefined); }
  }
@@ -246,7 +266,7 @@ export class CopilotDesktopAgent {
   });
   return tools;
  }
- private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{if(this.settings.copilotModel.trim()&&!this.inspectedModels.has("copilot:"+this.settings.copilotModel))await this.inspectModels("copilot");const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=this.workspacePath??path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory,env:await agentProcessEnvironment()});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),...((this.inspectedModels.get("copilot:"+this.settings.copilotModel)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),systemMessage:{mode:"append",content:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(this.effectivePermission())].filter(Boolean).join("\n\n")},tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{this.recordTrace("tool.call",{name,input},"running");try{const result=await handler(input);this.recordTrace("tool.result",{name,input,result:typeof result==="string"?result:result.text},"completed");if(typeof result==="string")return result;return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};}catch(error){this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error)},"failed");throw error;}}} as never)),onPermissionRequest:async(request)=>{this.recordTrace("permission.requested",request,"waiting");return{kind:"user-not-available"} as never;},onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
+ private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{if(this.settings.copilotModel.trim()&&!this.inspectedModels.has("copilot:"+this.settings.copilotModel))await this.inspectModels("copilot");const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=this.workspacePath??path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory,env:await resolvedAgentProcessEnvironment()});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),...((this.inspectedModels.get("copilot:"+this.settings.copilotModel)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),systemMessage:{mode:"append",content:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(this.effectivePermission())].filter(Boolean).join("\n\n")},tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{this.recordTrace("tool.call",{name,input},"running");try{const result=await handler(input);this.recordTrace("tool.result",{name,input,result:typeof result==="string"?result:result.text},"completed");if(typeof result==="string")return result;return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};}catch(error){this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error)},"failed");throw error;}}} as never)),onPermissionRequest:async(request)=>{this.recordTrace("permission.requested",request,"waiting");return{kind:"user-not-available"} as never;},onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
  private async sendCopilot(prompt:string,history?:AgentChatMessage[]){const session=await this.ensureCopilotSession();let sawDelta=false;const effectivePrompt=historyPrompt(history,prompt);this.recordTrace("provider.request",{prompt:effectivePrompt,model:this.settings.copilotModel,captureLevel:"sdk-call-input",providerPayloadComplete:false},"started");const off=session.on("assistant.message_delta",event=>{this.recordTrace("provider.message.delta",event);const delta=(event as unknown as{data?:{deltaContent?:string}}).data?.deltaContent;if(delta){sawDelta=true;this.publish({type:"delta",text:delta});}});try{const result=await session.sendAndWait({prompt:effectivePrompt},300000);this.recordTrace("provider.response",{result,captureLevel:"sdk-response"},"completed");const text=(result as unknown as{data?:{content?:string}}|undefined)?.data?.content;if(text&&!sawDelta)this.publish({type:"message",text});}finally{off();}}
  private async sendCodeBuddy(prompt:string,history?:AgentChatMessage[]){
   const sdk=await import("@tencent-ai/agent-sdk");
@@ -294,7 +314,7 @@ export class CopilotDesktopAgent {
       ? builtinToolNames.filter(name => !allowedBuiltinTools.includes(name))
       : [];
   const detached=isManagedSession()?detachedCliOptions():null;
-  const runtimeEnv=await agentProcessEnvironment();
+  const runtimeEnv=await resolvedAgentProcessEnvironment();
   const queryOptions={
     ...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:effort?{type:"adaptive" as const}:{type:"disabled" as const},
     systemPrompt:{append:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
