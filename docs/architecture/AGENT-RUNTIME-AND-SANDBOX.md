@@ -1,6 +1,6 @@
 # Agent Runtime、Code Mode 与安全沙箱设计
 
-**状态：** 第一阶段 Runtime 基础设施实现；OS 级安全沙箱和 LLM Code Mode 暂不开放  
+**状态：** Trusted Skill Runtime 已实现；Rust/WASI + MXC 后端已接入 Allow all 工具链，仍需平台实机与安装包 CI 验证  
 **范围：** Electron 主进程、Agent Skills、本地 Workspace、后续动态代码执行  
 **目标：** 在不引入第二套 Node.js 安装的前提下，为可信 Skill 提供独立执行进程，并为未来 Code Mode 建立可替换的 Runtime 与 Capability 边界。
 
@@ -205,3 +205,30 @@ Linux 的 Bubblewrap/NSJail 不能直接解决 macOS 和 Windows。桌面应用�
 - 超时、取消和 UtilityProcess 崩溃不会使主进程挂起。
 - 结果、日志和 Capability 返回值有大小上限。
 - 文档清楚区分进程隔离、Runtime 隔离和 OS 级安全边界。
+
+
+## 9. Rust/WASI Generated Code Backend
+
+Generated Rust is executed through a separate MXC helper process, not through the Electron UtilityProcess. The helper uses `@microsoft/mxc-sdk` with the macOS Seatbelt or Windows ProcessContainer backend, then compiles a fixed Cargo project for `wasm32-wasip2` and runs the resulting component with Wasmtime.
+
+The implementation is deliberately additive:
+
+- `trusted-skill` remains on the existing Native UtilityProcess backend.
+- The existing JavaScript `execute_code` Code Mode remains unchanged for compatibility. UtilityProcess is still not a security boundary; its JavaScript is not promoted to the Rust/WASI isolation level.
+- `execute_rust` and `apply_rust_changes` are added as separate tools. They are exposed only when Allow all is selected, a workspace is selected, and platform-matched Rust/WASI resources are present.
+- The Rust guest receives a filtered workspace snapshot and task input. It cannot directly access the host filesystem or network. The result is a staged diff; applying it requires the exact run ID and diff returned by the execution tool.
+- The Rust compiler, Cargo, SDK, template and Wasmtime are packaged under `resources/rust-sandbox`. The runtime verifies platform, architecture and hashes from `manifest.json` before enabling the tools.
+- Linux is fail-closed. The supported packaging matrix is macOS ARM64, macOS x64 and Windows x64.
+
+The MXC boundary is not a VM. On Windows, ProcessContainer is not equivalent to AppContainer or a micro-VM; its effective isolation depends on the host capabilities reported by MXC. A missing backend, mismatched resource manifest, unsupported OS or missing Node.js 24+ helper runtime must fail closed rather than execute Rust on the host.
+
+The apply operation is guarded by the app's Allow all permission mode. It is not a separate per-diff confirmation dialog; do not describe it as one. Workspace hashes, path validation and staged-file hashes are rechecked before writes.
+
+### Packaging and validation
+
+- `npm run build` copies the MCP helper and Rust execution modules into the Electron build output.
+- `npm run package:rust-sandbox` requires platform-native Rust 1.85+ with `wasm32-wasip2` and Wasmtime 50.0.1+.
+- `npm run package` builds the app, prepares Rust resources and invokes Electron Builder.
+- CI has native macOS ARM64, macOS x64 and Windows x64 package jobs. CI artifacts are unsigned unless signing credentials are configured separately.
+- The resource smoke test validates the packaged compiler/runtime and executes the SDK guest. It does not replace an end-to-end MXC escape-resistance test on a user's actual OS installation.
+

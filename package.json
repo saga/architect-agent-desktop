@@ -15,7 +15,7 @@
     "package:mac": "npm run build && electron-builder --mac dmg zip",
     "package:win": "npm run build && electron-builder --win nsis portable",
     "test:layout": "npm run build && node --test tests/layout-engine.test.mjs",
-    "test": "vitest run"
+    "test": "node --check src/main/sandbox/mcp-server.mjs && node --check src/main/sandbox/rust-execution.mjs && node --check src/main/sandbox/rust-policy.mjs && vitest run"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
