@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Button, Select, message } from "antd";
-import { EyeOutlined, EyeInvisibleOutlined, PlusOutlined, SettingOutlined } from "@ant-design/icons";
-import type { AgentTask, AgentWorkspacePreferences, AgentWorkspaceRightTab, AgentWorkspaceSnapshot, BrowserState } from "../shared/types";
+import { EyeOutlined, EyeInvisibleOutlined } from "@ant-design/icons";
+import type { AgentWorkspacePreferences, AgentWorkspaceRightTab, AgentWorkspaceSnapshot, BrowserState } from "../shared/types";
 import AgentPanel from "./AgentPanel";
 import ExpertManager from "./ExpertManager";
 import PureAgentRightPanel from "./PureAgentRightPanel";
