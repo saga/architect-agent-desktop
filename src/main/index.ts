@@ -1349,6 +1349,76 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
   }
 }
 
+let scheduleRunnerActive = false;
+async function processDueAgentSchedules(): Promise<void> {
+  if (scheduleRunnerActive || copilotAgent.isBusy()) return;
+  scheduleRunnerActive = true;
+  try {
+    const due = agentSchedules.filter(item => item.enabled && Date.parse(item.runAt) <= Date.now()).sort((a, b) => Date.parse(a.runAt) - Date.parse(b.runAt));
+    for (const schedule of due) {
+      if (copilotAgent.isBusy()) break;
+      const previousTaskId = activeAgentTaskId;
+      const runStartedAt = Date.now();
+      let runTask: AgentTask | null = null;
+      let succeeded = false;
+      let failure = "";
+      try {
+        runTask = createAgentTaskRecord({
+          title: ("Schedule · " + schedule.title + " · " + new Date(runStartedAt).toLocaleString()).slice(0, 120),
+          workspacePath: schedule.workspacePath,
+          expertId: schedule.expertId,
+        });
+        await activateAgentTask(runTask.id, false);
+        activeAgentTraceId = randomUUID();
+        scheduledCapture = { taskId: runTask.id, answer: "" };
+        recordAgentTrace("schedule.started", { scheduleId: schedule.id, title: schedule.title, prompt: schedule.prompt }, "running");
+        await copilotAgent.send(schedule.prompt, []);
+        succeeded = true;
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+        recordAgentTrace("schedule.failed", { scheduleId: schedule.id, error: failure }, "failed");
+      } finally {
+        const captured = scheduledCapture;
+        scheduledCapture = null;
+        if (runTask) {
+          const messages: AgentSessionItem[] = [
+            { id: randomUUID(), kind: "user", content: schedule.prompt, createdAt: runStartedAt },
+          ];
+          if (captured?.answer.trim()) messages.push({ id: randomUUID(), kind: "assistant", content: captured.answer.trim(), createdAt: Date.now() });
+          if (captured?.error || failure) messages.push({ id: randomUUID(), kind: "error", content: captured.error || failure, createdAt: Date.now() });
+          agentTraceStore.saveSessionItems(runTask.sessionId, runTask.workspacePath, messages);
+          writeJsonAtomic(currentAgentSessionPath(runTask.sessionId), { version: 1, updatedAt: Date.now(), items: messages });
+          runTask.lastRunAt = Date.now();
+          runTask.updatedAt = Date.now();
+          persistAgentTasks();
+        }
+        const current = agentSchedules.find(item => item.id === schedule.id);
+        if (current) {
+          current.lastRunAt = Date.now();
+          current.lastRunStatus = succeeded ? "success" : "error";
+          current.lastError = failure ? failure.slice(0, 2000) : undefined;
+          if (current.repeat === "none") current.enabled = false;
+          else {
+            const next = nextScheduleRunAt(current.runAt, current.repeat, Date.now());
+            if (next) current.runAt = next;
+            else current.enabled = false;
+          }
+          current.updatedAt = Date.now();
+          persistAgentSchedules();
+        }
+        activeAgentTraceId = null;
+        if (agentTasks.some(item => item.id === previousTaskId)) {
+          try { await activateAgentTask(previousTaskId, false); }
+          catch (error) { recordOperation("schedule", "failed to restore Task: " + (error instanceof Error ? error.message : String(error))); }
+        }
+        publishAgentWorkspaceSnapshot();
+      }
+    }
+  } finally {
+    scheduleRunnerActive = false;
+  }
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle("workspace:get-project", (event) => { assertTrustedSender(event); return { ...workspaceProject }; });
   ipcMain.handle("workspace:select-project", async (event) => {
