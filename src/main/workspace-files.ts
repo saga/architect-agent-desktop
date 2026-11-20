@@ -1,5 +1,5 @@
 import {
-  closeSync, constants as fsConstants, existsSync, fstatSync, ftruncateSync,
+  closeSync, constants as fsConstants, fstatSync, ftruncateSync,
   lstatSync, openSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync,
 } from "node:fs";
 import path from "node:path";
