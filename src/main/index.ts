@@ -485,6 +485,17 @@ function updateActiveBounds(): void {
     width: Math.max(0, Math.min(contentWidth ?? (width - left), width - left)),
     height,
   };
+  if (agentWorkspacePreferences.mode === "pure") {
+    const visible = agentWorkspacePreferences.rightPanelVisible && agentWorkspacePreferences.rightPanelTab === "browser";
+    const pureBounds = visible
+      ? { x: left, y: top, width: viewport.width, height: Math.max(0, height - top) }
+      : { x: 0, y: 0, width: 0, height: 0 };
+    currentBrowserBounds = visible ? pureBounds : null;
+    if (!visible) hideSnapshot();
+    if (activeTabId) nativeViewStack.setBounds("browser:" + activeTabId, pureBounds);
+    if (snapshotActive && currentBrowserBounds) nativeViewStack.setBounds("snapshot", currentBrowserBounds);
+    return;
+  }
   const panelGroup = workspaceDocument.tabGroups.find((group) => group.panelIds.includes("browser") && group.panelIds.includes("agent"));
   let layoutTree = workspaceDocument.root;
   if (panelGroup) {
