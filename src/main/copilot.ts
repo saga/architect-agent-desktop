@@ -17,7 +17,7 @@ export * from "./agent-runtime.js";
 type ModelRecord = Record<string, unknown>;
 
 async function resolvedAgentProcessEnvironment(): Promise<Record<string, string | undefined>> {
-  const environment = await resolvedAgentProcessEnvironment();
+  const environment = await agentProcessEnvironment();
   const hasProxy = (name: string) => Boolean(environment[name] || environment[name.toLowerCase()]);
   try {
     if (!hasProxy("HTTPS_PROXY")) {
