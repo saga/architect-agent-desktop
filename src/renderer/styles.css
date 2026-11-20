@@ -817,7 +817,7 @@ button { color: inherit; }
 .pure-result-item .ant-x-markdown { color:#4a5665; font-size:10px; line-height:1.6; }
 .pure-muted { padding:8px; color:#9aa3ae; font-size:10px; }
 @media (max-width: 1080px) {
-  .pure-agent-shell { grid-template-columns:220px 6px minmax(360px,1fr) !important; }
+  .pure-agent-shell { grid-template-columns:220px 6px minmax(360px,1fr) 0 0 !important; }
   .pure-right-panel,.pure-right-splitter { display:none; }
   .pure-management-page { padding:20px; }
   .pure-chat-context { padding-inline:10px; }
@@ -830,6 +830,6 @@ button { color: inherit; }
   .pure-expert-list { max-height:140px; padding:0 0 8px; border:0; border-bottom:1px solid #edf0f4; overflow:auto; }
 }
 
-.app-shell.is-mac .pure-sidebar-brand { padding-left: 84px; -webkit-app-region: drag; }
-.pure-sidebar-brand button { -webkit-app-region: no-drag; }
-.pure-sidebar-brand .pure-brand-mark,.pure-sidebar-brand .pure-brand-copy { -webkit-app-region: drag; }
+.pure-agent-shell.is-mac .pure-sidebar-brand { padding-left: 84px; -webkit-app-region: drag; }
+.pure-agent-shell.is-mac .pure-sidebar-brand button { -webkit-app-region: no-drag; }
+.pure-agent-shell.is-mac .pure-sidebar-brand .pure-brand-mark,.pure-agent-shell.is-mac .pure-sidebar-brand .pure-brand-copy { -webkit-app-region: drag; }
