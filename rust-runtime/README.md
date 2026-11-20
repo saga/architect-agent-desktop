@@ -6,6 +6,7 @@ The build therefore uses the official Wasmtime source workspace as the Cargo pro
 
 - Source repository: `https://github.com/bytecodealliance/wasmtime`
 - Tag: `v50.0.2`
+- Source commit: `f9a93b049a23bef9a33cfa3888f32af33a178749`
 - Wasmtime version: `50.0.2`
 - Locked `cranelift-frontend`: `0.137.2`
 
