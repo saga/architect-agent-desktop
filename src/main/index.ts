@@ -168,14 +168,20 @@ const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "",
 function loadAgentSettings(): AgentSettings {
   try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" || raw.thinkingLevel === "xhigh" ? raw.thinkingLevel : "medium", toolPermission: raw.toolPermission === "assisted" || raw.toolPermission === "allow-all" ? raw.toolPermission : "browser-only", contextWindow: typeof raw.contextWindow === "number" && Number.isSafeInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined, copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? (raw.systemPrompt.trim() ? raw.systemPrompt.slice(0, 12000) : DEFAULT_SETTINGS.systemPrompt) : DEFAULT_SETTINGS.systemPrompt }; } catch { return { ...DEFAULT_SETTINGS }; }
 }
-function loadAgentSession(): AgentSessionItem[] {
-  const stored = agentTraceStore.listSessionItems(currentTraceSessionId());
+function taskForId(taskId?: string): AgentTask {
+  const task = agentTasks.find(item => item.id === (taskId ?? activeAgentTaskId));
+  if (!task) throw new Error("Agent Task 不存在。");
+  return task;
+}
+function loadAgentSession(taskId?: string): AgentSessionItem[] {
+  const task = taskForId(taskId);
+  const stored = agentTraceStore.listSessionItems(task.sessionId);
   if (stored.length) return parseAgentSessionItems(stored);
   try {
-    const parsed = JSON.parse(readFileSync(currentAgentSessionPath(), "utf8")) as { items?: unknown };
+    const parsed = JSON.parse(readFileSync(currentAgentSessionPath(task.sessionId), "utf8")) as { items?: unknown };
     return parseAgentSessionItems(parsed.items);
   } catch {
-    if (!workspaceProject.path) {
+    if (!task.workspacePath && task.sessionId === initialSessionId) {
       try {
         const legacy = JSON.parse(readFileSync(LEGACY_AGENT_SESSION_PATH, "utf8")) as { items?: unknown };
         return parseAgentSessionItems(legacy.items);
@@ -184,11 +190,14 @@ function loadAgentSession(): AgentSessionItem[] {
     return [];
   }
 }
-function saveAgentSession(items: AgentSessionItem[]): void {
+function saveAgentSession(items: AgentSessionItem[], taskId?: string): void {
+  const task = taskForId(taskId);
   const complete = parseAgentSessionItems(items);
   try {
-    agentTraceStore.saveSessionItems(currentTraceSessionId(), workspaceProject.path, complete);
-    writeJsonAtomic(currentAgentSessionPath(), { version: 1, updatedAt: Date.now(), items: complete.slice(-LEGACY_AGENT_SESSION_ITEMS) });
+    agentTraceStore.saveSessionItems(task.sessionId, task.workspacePath, complete);
+    writeJsonAtomic(currentAgentSessionPath(task.sessionId), { version: 1, updatedAt: Date.now(), items: complete.slice(-LEGACY_AGENT_SESSION_ITEMS) });
+    task.updatedAt = Date.now();
+    writeJsonAtomic(AGENT_TASKS_PATH, agentTasks);
   } catch (error) {
     recordOperation("session", "save failed: " + (error instanceof Error ? error.message : String(error)));
     throw error;
