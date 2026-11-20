@@ -235,7 +235,7 @@ The apply operation is guarded by the app's Allow all permission mode. It is not
 
 - `npm run build` copies the MCP helper and Rust execution modules into the Electron build output.
 - `npm run package:rust-sandbox` requires platform-native Rust 1.85+ with `wasm32-wasip2` and Wasmtime 50.0.1+.
-  Set `DESKTOP_AGENT_RUST_TOOLCHAIN_DIR` to `rustc --print sysroot` and `DESKTOP_AGENT_WASMTIME_BIN` to the platform-native Wasmtime executable; install the target with `rustup target add wasm32-wasip2` first.
+  Set `ARCHITECT_AGENT_RUST_TOOLCHAIN_DIR` to `rustc --print sysroot` and `ARCHITECT_AGENT_WASMTIME_BIN` to the platform-native Wasmtime executable; install the target with `rustup target add wasm32-wasip2` first.
 - `npm run package` builds the app, prepares Rust resources and invokes Electron Builder.
 - CI has native macOS ARM64, macOS x64 and Windows x64 package jobs. CI artifacts are unsigned unless signing credentials are configured separately.
 - The resource smoke test validates the packaged compiler/runtime and executes the SDK guest. It does not replace an end-to-end MXC escape-resistance test on a user's actual OS installation.

@@ -11,7 +11,7 @@ import {
 
 const workspace = fs.realpathSync(process.env.WORKSPACE_DIR ?? '');
 const platform = process.env.HOST_PLATFORM ?? process.platform;
-const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-agent-mxc-'));
+const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'architect-agent-mxc-'));
 const home = path.resolve(os.homedir());
 const secretDirectories = new Set(['.ssh', '.aws', '.azure', '.kube', '.docker', '.gnupg']);
 const pathEntries = (process.env.PATH ?? '').split(path.delimiter).filter((entry) => {
@@ -111,7 +111,7 @@ const rustResourcesAvailable = Boolean(
 );
 
 const rustTempDirectory = rustResourcesAvailable
-  ? fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-agent-rust-'))
+  ? fs.mkdtempSync(path.join(os.tmpdir(), 'architect-agent-rust-'))
   : null;
 
 const rustExecution = rustResourcesAvailable
@@ -249,7 +249,7 @@ input.on('line', (line) => {
         result: {
           protocolVersion: message.params?.protocolVersion ?? '2024-11-05',
           capabilities: { tools: {} },
-          serverInfo: { name: 'desktop-agent-mxc-sandbox', version: '1.1.0' },
+          serverInfo: { name: 'architect-agent-mxc-sandbox', version: '1.1.0' },
         },
       });
       return;

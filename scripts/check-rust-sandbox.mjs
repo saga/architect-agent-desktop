@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 import { createRustExecutionService } from "../src/main/sandbox/rust-execution.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const packagedRoot = process.env.DESKTOP_AGENT_RUST_SANDBOX_DIR
-  ? path.resolve(process.env.DESKTOP_AGENT_RUST_SANDBOX_DIR)
+const packagedRoot = process.env.ARCHITECT_AGENT_RUST_SANDBOX_DIR
+  ? path.resolve(process.env.ARCHITECT_AGENT_RUST_SANDBOX_DIR)
   : path.join(root, "resources", "rust-sandbox");
 const sdk = path.join(packagedRoot, "sdk");
 const executable = process.platform === "win32" ? ".exe" : "";
@@ -18,7 +18,7 @@ const cargo = path.join(packagedToolchain, "bin", "cargo" + executable);
 const rustc = path.join(packagedToolchain, "bin", "rustc" + executable);
 const wasmtime = path.join(packagedRoot, "wasmtime", "wasmtime" + executable);
 await Promise.all([fs.access(cargo), fs.access(rustc), fs.access(wasmtime)]);
-const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "desktop-agent-rust-check-"));
+const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "architect-agent-rust-check-"));
 const workspace = path.join(temporaryRoot, "workspace");
 const executionTemp = path.join(temporaryRoot, "execution-temp");
 await fs.mkdir(workspace, { recursive: true });

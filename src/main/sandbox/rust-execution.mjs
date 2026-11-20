@@ -138,7 +138,7 @@ export function createRustExecutionService(options) {
   } = options;
 
   const snapshots = new Map();
-  const snapshotRoot = path.join(os.tmpdir(), "desktop-agent-rust-snapshots-" + randomUUID());
+  const snapshotRoot = path.join(os.tmpdir(), "architect-agent-rust-snapshots-" + randomUUID());
   let mutationInProgress = false;
   const rustcPath = path.join(rustToolchainDirectory, "bin", platform === "win32" ? "rustc.exe" : "rustc");
   const cargoPath = path.join(rustToolchainDirectory, "bin", platform === "win32" ? "cargo.exe" : "cargo");
