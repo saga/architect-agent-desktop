@@ -107,6 +107,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const [items, setItems] = useState<ChatItem[]>([]);
   const [sessionReady, setSessionReady] = useState(false);
   const latestItems = useRef<ChatItem[]>([]);
+  const loadedTaskId = useRef<string | undefined>(undefined);
   const sessionReadyRef = useRef(false);
 
   const refreshStatus = async () => {
@@ -135,6 +136,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
         // A missing or unreadable session file starts an empty conversation.
       }
       if (cancelled) return;
+      loadedTaskId.current = taskId;
       setSessionReady(true);
       const off = window.browser.onCopilotEvent((event: CopilotEvent) => {
         if (event.taskId && taskId && event.taskId !== taskId) return;
@@ -192,7 +194,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   }, [taskId]);
 
   useEffect(() => {
-    if (!sessionReady || typeof window.browser.agentSaveSession !== "function") return;
+    if (!sessionReady || loadedTaskId.current !== taskId || typeof window.browser.agentSaveSession !== "function") return;
     const timer = setTimeout(() => {
       void window.browser.agentSaveSession(toSessionItems(items), taskId).catch(() => undefined);
     }, SESSION_SAVE_DELAY_MS);
@@ -202,9 +204,9 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   useEffect(() => { latestItems.current = items; }, [items]);
   useEffect(() => { sessionReadyRef.current = sessionReady; }, [sessionReady]);
   useEffect(() => () => {
-    if (!sessionReadyRef.current || typeof window.browser.agentSaveSession !== "function") return;
+    if (!sessionReadyRef.current || loadedTaskId.current !== taskId || typeof window.browser.agentSaveSession !== "function") return;
     void window.browser.agentSaveSession(toSessionItems(latestItems.current), taskId).catch(() => undefined);
-  }, []);
+  }, [taskId]);
 
   const openSettings = async () => {
     try { await window.browser.openAgentSettings(); }
@@ -225,7 +227,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
 
   const clearSession = async () => {
     try {
-      if (typeof window.browser.agentClearSession === "function") await window.browser.agentClearSession();
+      if (typeof window.browser.agentClearSession === "function") await window.browser.agentClearSession(taskId);
       setItems([]);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
