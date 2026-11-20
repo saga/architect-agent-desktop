@@ -111,13 +111,13 @@ describe("normalizeCode", () => {
   });
 
   it("wraps a function declaration followed by statements as one async body", () => {
-    const code = "async function main() { return 1; }\\nreturn await main();";
-    expect(normalizeCode(code)).toBe("async () => {\\n" + code + "\\n}");
+    const code = "async function main() { return 1; }\nreturn await main();";
+    expect(normalizeCode(code)).toBe("async () => {\n" + code + "\n}");
   });
 
   it("wraps ordinary function declarations and calls as statements", () => {
-    const code = "function main() { return 1; }\\nreturn main();";
-    expect(normalizeCode(code)).toBe("async () => {\\n" + code + "\\n}");
+    const code = "function main() { return 1; }\nreturn main();";
+    expect(normalizeCode(code)).toBe("async () => {\n" + code + "\n}");
   });
 
   it("keeps a non-function expression as an expression", () => {

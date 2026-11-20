@@ -38,8 +38,11 @@ function redactString(value: string): string {
 }
 
 function redact(value: unknown, key = "", ancestors = new WeakSet<object>()): unknown {
+  if (typeof value === "string") {
+    const sanitized = redactString(value);
+    return SECRET_KEY.test(key) && sanitized === value ? "[REDACTED]" : sanitized;
+  }
   if (SECRET_KEY.test(key)) return "[REDACTED]";
-  if (typeof value === "string") return redactString(value);
   if (Array.isArray(value)) {
     if (ancestors.has(value)) return "[Circular]";
     ancestors.add(value);
