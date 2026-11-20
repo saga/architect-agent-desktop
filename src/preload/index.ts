@@ -6,6 +6,11 @@ const api: BrowserApi = {
   selectWorkspace: () => ipcRenderer.invoke("workspace:select-project"),
   clearWorkspace: () => ipcRenderer.invoke("workspace:clear-project"),
   getAgentWorkspaceSnapshot: (): Promise<AgentWorkspaceSnapshot> => ipcRenderer.invoke("agent-workspace:get-snapshot"),
+  onAgentWorkspaceUpdated: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: AgentWorkspaceSnapshot) => listener(snapshot);
+    ipcRenderer.on("agent-workspace:updated", handler);
+    return () => ipcRenderer.removeListener("agent-workspace:updated", handler);
+  },
   createAgentTask: (input) => ipcRenderer.invoke("agent-task:create", input),
   activateAgentTask: (taskId: string): Promise<AgentTask> => ipcRenderer.invoke("agent-task:activate", taskId),
   setAgentTaskExpert: (taskId: string, expertId: string | null): Promise<AgentTask> => ipcRenderer.invoke("agent-task:set-expert", { taskId, expertId }),
