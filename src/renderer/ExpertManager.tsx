@@ -31,11 +31,11 @@ export default function ExpertManager({ onChanged }: ExpertManagerProps) {
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const refresh = async () => {
+  const refresh = async (preferredId?: string) => {
     try {
       const snapshot = await window.browser.getAgentWorkspaceSnapshot();
       setExperts(snapshot.experts);
-      setSelectedId(current => current && snapshot.experts.some(item => item.id === current) ? current : snapshot.experts[0]?.id ?? null);
+      setSelectedId(current => preferredId && snapshot.experts.some(item => item.id === preferredId) ? preferredId : current && snapshot.experts.some(item => item.id === current) ? current : snapshot.experts[0]?.id ?? null);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     }
@@ -89,7 +89,7 @@ export default function ExpertManager({ onChanged }: ExpertManagerProps) {
       setExperts(updated);
       setSelectedId(id);
       setCreating(false);
-      await refresh();
+      await refresh(id);
       onChanged();
       message.success("Expert 已保存。");
     } catch (error) {
