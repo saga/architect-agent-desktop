@@ -20,7 +20,7 @@ Generated Rust needs a distinct execution path. The existing Rust/WASI design co
 
 ## Consequences
 
-The Rust compiler, Cargo, SDK and template remain packaged under `resources/rust-sandbox`. The runtime and its platform-specific N-API binary are pinned npm dependencies and unpacked from ASAR. The runtime package exposes a synchronous `run()` API, so A separate child process is required for responsive cancellation and output capture.
+The Rust compiler, Cargo, SDK and template remain packaged under `resources/rust-sandbox`. The runtime and its platform-specific N-API binary are pinned npm dependencies and unpacked from ASAR. The runtime package exposes a synchronous `run()` API, so a separate child process is required for responsive cancellation and output capture.
 
 The native package is young and its public repository currently publishes platform binaries and JavaScript wrappers without the Rust implementation source. This limits independent review of the native sandbox implementation and is a supply-chain/auditability risk. Pin the exact version and npm integrity, retain MXC as an outer boundary, and do not treat package documentation alone as proof of escape resistance.
 
