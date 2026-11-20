@@ -829,3 +829,7 @@ button { color: inherit; }
   .pure-expert-layout { grid-template-columns:1fr; }
   .pure-expert-list { max-height:140px; padding:0 0 8px; border:0; border-bottom:1px solid #edf0f4; overflow:auto; }
 }
+
+.app-shell.is-mac .pure-sidebar-brand { padding-left: 84px; -webkit-app-region: drag; }
+.pure-sidebar-brand button { -webkit-app-region: no-drag; }
+.pure-sidebar-brand .pure-brand-mark,.pure-sidebar-brand .pure-brand-copy { -webkit-app-region: drag; }
