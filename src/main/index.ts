@@ -1809,7 +1809,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.on("browser:set-content-bounds", (event, bounds: unknown) => {
     if (!isTrustedAppSender(event.sender)) return;
-    const parsed = z.object({ top: z.number().finite().min(0).max(300), left: z.number().finite().min(0).max(900), width: z.number().finite().min(0).max(3000) }).safeParse(bounds);
+    const parsed = z.object({ top: z.number().finite().min(0).max(300), left: z.number().finite().min(0).max(10000), width: z.number().finite().min(0).max(10000) }).safeParse(bounds);
     if (!parsed.success) return;
     contentTop = Math.round(parsed.data.top);
     contentLeft = Math.round(parsed.data.left);
