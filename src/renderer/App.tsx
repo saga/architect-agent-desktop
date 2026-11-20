@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { BrowserDownloadEvent, BrowserState, BrowserTabState, WorkspaceDocument } from "../shared/types";
+import type { AgentWorkspacePreferences, BrowserDownloadEvent, BrowserState, BrowserTabState, WorkspaceDocument } from "../shared/types";
 import { activateWorkspaceTab, createWorkspaceTabGroup, DEFAULT_WORKSPACE_DOCUMENT, setWorkspacePanelVisibility, ungroupWorkspacePanel } from "../shared/workspace-document";
 import AgentPanel from "./AgentPanel";
+import PureAgentWorkspace from "./PureAgentWorkspace";
 import { Button } from "antd";
 import { RobotOutlined } from "@ant-design/icons";
 
@@ -29,6 +30,7 @@ function App() {
   const [agentWidth, setAgentWidth] = useState(390);
   const [agentPosition, setAgentPosition] = useState<"left" | "right" | "top" | "bottom">("right");
   const [workspaceDocument, setWorkspaceDocument] = useState<WorkspaceDocument>(DEFAULT_WORKSPACE_DOCUMENT);
+  const [agentWorkspacePreferences, setAgentWorkspacePreferences] = useState<AgentWorkspacePreferences | null>(null);
   const [chromeHeight, setChromeHeight] = useState(91);
   const [dockDragActive, setDockDragActive] = useState(false);
   const splitterDrag = useRef<{ startCoordinate: number; startWidth: number; width: number } | null>(null);
@@ -70,6 +72,8 @@ function App() {
       window.setTimeout(() => findRef.current?.focus(), 0);
     });
     const unsubscribeDownload = window.browser.onDownload(setLatestDownload);
+    const unsubscribeAgentWorkspace = window.browser.onAgentWorkspaceUpdated((snapshot) => setAgentWorkspacePreferences(snapshot.preferences));
+    void window.browser.getAgentWorkspaceSnapshot().then((snapshot) => setAgentWorkspacePreferences(snapshot.preferences)).catch((error: unknown) => console.error("Unable to load Agent workspace preferences", error));
     const unsubscribeAgentToggle = window.browser.onToggleAgent(() => {
       void window.browser.getWorkspaceDocument().then(async (document) => {
         const group = document.tabGroups.find((item) => item.panelIds.includes("browser") && item.panelIds.includes("agent"));
@@ -98,6 +102,7 @@ function App() {
       unsubscribeFocus();
       unsubscribeFind();
       unsubscribeDownload();
+      unsubscribeAgentWorkspace();
       unsubscribeAgentToggle();
     };
   }, []);
@@ -162,6 +167,15 @@ function App() {
 
   const isSecure = activeTab?.url.startsWith("https://") ?? false;
 
+  const switchToPureAgent = async () => {
+    try {
+      const current = agentWorkspacePreferences ?? (await window.browser.getAgentWorkspaceSnapshot()).preferences;
+      await window.browser.saveAgentWorkspacePreferences({ ...current, mode: "pure" });
+    } catch (error) {
+      console.error("Unable to switch to Pure Agent mode", error);
+    }
+  };
+
   const persistWorkspaceDocument = async (next: WorkspaceDocument) => {
     try {
       const saved = await window.browser.saveWorkspaceDocument(next);
@@ -220,6 +234,9 @@ function App() {
   const agentPlacement = agentOpen && !groupedWorkspace && !horizontalDock ? { gridRow: agentFirst ? 1 : 3, gridColumn: 1 } : agentOpen && !groupedWorkspace && agentFirst ? { gridColumn: 1, gridRow: 1 } : { gridColumn: 3, gridRow: 1 };
   if (isFloatingAgentWindow) {
     return <div className="agent-floating-root"><AgentPanel onClose={() => { void window.browser.redockAgentPanel(); }} onDock={(position) => { void window.browser.redockAgentPanel(position); }} /></div>;
+  }
+  if (agentWorkspacePreferences?.mode === "pure") {
+    return <PureAgentWorkspace browserState={browserState} />;
   }
 
   return (
@@ -392,10 +409,11 @@ function App() {
         onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }}
         onFloat={() => { void window.browser.floatAgentPanel(); }}
         onDragState={setDockDragActive}
+        onModeChange={() => void switchToPureAgent()}
         onMaximize={() => groupAgentWithBrowser("agent")}
         onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }}
       /></div>}
-      {groupedWorkspace && activeWorkspacePanel === "agent" && <div className="agent-group-content" style={{ top: chromeHeight }}><AgentPanel onClose={() => activateWorkspacePanel("browser")} onFloat={() => { void window.browser.floatAgentPanel(); }} onDragState={setDockDragActive} onRestore={splitAgentFromBrowser} onDock={(position) => { splitAgentFromBrowser(); setAgentPosition(position); saveWorkspaceLayout(true, agentWidth, position); }} /></div>}
+      {groupedWorkspace && activeWorkspacePanel === "agent" && <div className="agent-group-content" style={{ top: chromeHeight }}><AgentPanel onClose={() => activateWorkspacePanel("browser")} onFloat={() => { void window.browser.floatAgentPanel(); }} onDragState={setDockDragActive} onModeChange={() => void switchToPureAgent()} onRestore={splitAgentFromBrowser} onDock={(position) => { splitAgentFromBrowser(); setAgentPosition(position); saveWorkspaceLayout(true, agentWidth, position); }} /></div>}
     </div>
   );
 }
