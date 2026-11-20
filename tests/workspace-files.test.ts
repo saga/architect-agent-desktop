@@ -32,6 +32,8 @@ describe("local workspace file access", () => {
     expect(searchWorkspaceFiles(root, "hello")).toContain("src/app.ts:1");
     expect(writeWorkspaceFile(root, "src/app.ts", "export const answer = 42;")).toContain("src/app.ts");
     expect(writeWorkspaceFile(root, "README.md", "# Updated")).toContain("README.md");
+    expect(writeWorkspaceFile(root, "new.txt", "created")).toContain("new.txt");
+    expect(readWorkspaceFile(root, "new.txt")).toBe("created");
     expect(readFileSync(path.join(root, "README.md"), "utf8")).toBe("# Updated");
     expect(readFileSync(path.join(root, "src", "app.ts"), "utf8")).toContain("answer");
   });
@@ -48,6 +50,12 @@ describe("local workspace file access", () => {
     writeFileSync(outside, "secret");
     roots.push(outside);
     symlinkSync(outside, path.join(root, "outside-link.txt"));
+    const outsideDirectory = path.join(root, "..", "workspace-outside-dir-" + Date.now());
+    mkdirSync(outsideDirectory);
+    roots.push(outsideDirectory);
+    writeFileSync(path.join(outsideDirectory, "leaked.txt"), "do-not-list");
+    symlinkSync(outsideDirectory, path.join(root, "outside-dir"));
+    expect(listWorkspaceFiles(root)).not.toContain("outside-dir/leaked.txt");
     expect(() => readWorkspaceFile(root, "outside-link.txt")).toThrow();
     expect(() => writeWorkspaceFile(root, "outside-link.txt", "changed")).toThrow();
     symlinkSync(path.join(root, "..", "missing-workspace-target-" + Date.now()), path.join(root, "dangling-link.txt"));
