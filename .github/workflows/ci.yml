@@ -26,19 +26,10 @@ jobs:
         include:
           - label: macOS ARM64
             runner: macos-15
-            wasmtime_asset: wasmtime-v50.0.1-aarch64-macos.tar.xz
-            archive: tar.xz
-            sha256: 960e5216c7ebd7e9b45e6561d15821b8b801b7d54aee28c7b91921aeb30c65c8
           - label: macOS x64
             runner: macos-15-intel
-            wasmtime_asset: wasmtime-v50.0.1-x86_64-macos.tar.xz
-            archive: tar.xz
-            sha256: ea1818fa8cbb51524847ab2ad22197e0051594fdc96cbd0cc2afb65832e11925
           - label: Windows x64
             runner: windows-latest
-            wasmtime_asset: wasmtime-v50.0.1-x86_64-windows.zip
-            archive: zip
-            sha256: c3646ee2de8cfcefe532e75852e1fd2728d78c3fcc43251794803a698d1c30ca
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -50,21 +41,16 @@ jobs:
           targets: wasm32-wasip2
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-      - name: Download Wasmtime
+      - name: Build Wasmtime from pinned source
         shell: bash
         run: |
-          curl -fL "https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.1/${{ matrix.wasmtime_asset }}" -o "$RUNNER_TEMP/wasmtime-archive"
-          node -e 'const fs=require("fs");const crypto=require("crypto");const actual=crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex");if(actual!==process.argv[2])throw new Error("Wasmtime archive SHA-256 mismatch: "+actual)' "$RUNNER_TEMP/wasmtime-archive" "${{ matrix.sha256 }}"
-          mkdir -p "$RUNNER_TEMP/wasmtime"
-          if [ "${{ matrix.archive }}" = "zip" ]; then
-            python -c "import zipfile; zipfile.ZipFile(r'$RUNNER_TEMP/wasmtime-archive').extractall(r'$RUNNER_TEMP/wasmtime')"
-          else
-            tar -xJf "$RUNNER_TEMP/wasmtime-archive" -C "$RUNNER_TEMP/wasmtime"
-          fi
-          WASMTIME_PATH="$(find "$RUNNER_TEMP/wasmtime" -type f \( -name wasmtime -o -name wasmtime.exe \) | head -n 1)"
-          test -n "$WASMTIME_PATH"
-          echo "$(dirname "$WASMTIME_PATH")" >> "$GITHUB_PATH"
-          echo "WASMTIME_HOME=$(dirname "$WASMTIME_PATH")" >> "$GITHUB_ENV"
+          node scripts/build-wasmtime.mjs --output "$RUNNER_TEMP/wasmtime"
+          echo "$RUNNER_TEMP/wasmtime/bin" >> "$GITHUB_PATH"
+          echo "WASMTIME_HOME=$RUNNER_TEMP/wasmtime" >> "$GITHUB_ENV"
+      - name: Verify Wasmtime build manifest
+        shell: bash
+        run: |
+          cat "$RUNNER_TEMP/wasmtime/build-manifest.json"
       - name: Build installer and package Rust/WASI runtime
         run: npm run package
       - name: Verify packaged resources
