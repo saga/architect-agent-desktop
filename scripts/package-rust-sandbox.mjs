@@ -57,7 +57,7 @@ const buildManifestPath = path.join(path.dirname(path.dirname(wasmtime)), "build
 try {
   const buildManifest = JSON.parse(await fs.readFile(buildManifestPath, "utf8"));
   const binaryHash = createHash("sha256").update(await fs.readFile(wasmtime)).digest("hex");
-  if (buildManifest.wasmtimeVersion !== wasmtimeVersion.match(/(\\d+\\.\\d+\\.\\d+)/)?.[1]) {
+  if (buildManifest.wasmtimeVersion !== wasmtimeVersion.match(/(\d+\.\d+\.\d+)/)?.[1]) {
     throw new Error("Wasmtime build manifest version does not match the executable.");
   }
   if (buildManifest.binarySha256 !== binaryHash) {
@@ -103,7 +103,11 @@ try {
   const packagedWasmtime = path.join(wasmtimeOut, "wasmtime" + executable);
   await fs.copyFile(wasmtime, packagedWasmtime);
   if (process.platform !== "win32") await fs.chmod(packagedWasmtime, 0o755);
-  if (wasmtimeBuild) await fs.copyFile(buildManifestPath, path.join(wasmtimeOut, "build-manifest.json"));
+  if (wasmtimeBuild) {
+    const packagedBuildManifest = JSON.parse(await fs.readFile(buildManifestPath, "utf8"));
+    packagedBuildManifest.binary = "wasmtime" + executable;
+    await fs.writeFile(path.join(wasmtimeOut, "build-manifest.json"), JSON.stringify(packagedBuildManifest, null, 2) + "\n", "utf8");
+  }
   await fs.cp(path.join(root, "src/main/sandbox/rust-sdk"), path.join(staging, "sdk"), { recursive: true });
   await fs.cp(path.join(root, "src/main/sandbox/rust-template"), path.join(staging, "template"), { recursive: true });
   const licenses = path.join(staging, "licenses");
