@@ -274,6 +274,19 @@ export class CopilotDesktopAgent {
   }
   const permission=this.effectivePermission();
   const READ_ONLY_BUILTINS=["Read","Glob","Grep","WebFetch","WebSearch","ListMcpResources","ReadMcpResource","ViewImage"];
+  const expertTools=this.taskContext?.tools??[];
+  const expertBuiltinSelection = expertTools.length > 0
+    ? [
+        ...(expertTools.some(name => ["workspace_list_files","workspace_read_file","workspace_search_files","workspace_write_file"].includes(name)) ? ["Read","Glob","Grep"] : []),
+        ...(permission === "allow-all" && expertTools.includes("workspace_write_file") ? ["Write","Edit"] : []),
+      ]
+    : null;
+  const allowedBuiltinTools = expertBuiltinSelection ?? (permission === "assisted" ? READ_ONLY_BUILTINS : null);
+  const disallowedBuiltinTools = permission === "browser-only"
+    ? builtinToolNames
+    : allowedBuiltinTools
+      ? builtinToolNames.filter(name => !allowedBuiltinTools.includes(name))
+      : [];
   const detached=isManagedSession()?detachedCliOptions():null;
   const runtimeEnv=await agentProcessEnvironment();
   const queryOptions={
@@ -281,9 +294,13 @@ export class CopilotDesktopAgent {
     systemPrompt:{append:[this.settings.systemPrompt.trim(),this.getPluginInstructions(),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
     cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})},settingSources,persistSession:false,maxTurns:12,
     mcpServers:{browser:server},allowedTools:allowed,
-    ...(permission==="browser-only"?{permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}:
-      permission==="assisted"?{permissionMode:"default" as const,tools:READ_ONLY_BUILTINS,disallowedTools:builtinToolNames.filter(name=>!READ_ONLY_BUILTINS.includes(name)),allowedTools:[...allowed,...READ_ONLY_BUILTINS]}:
-      {permissionMode:"bypassPermissions" as const}),
+    ...(permission==="browser-only"
+      ? {permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}
+      : permission==="assisted"
+        ? {permissionMode:"default" as const,tools:allowedBuiltinTools??READ_ONLY_BUILTINS,disallowedTools:disallowedBuiltinTools,allowedTools:[...allowed,...(allowedBuiltinTools??READ_ONLY_BUILTINS)]}
+        : allowedBuiltinTools
+          ? {permissionMode:"bypassPermissions" as const,tools:allowedBuiltinTools,disallowedTools:disallowedBuiltinTools,allowedTools:[...allowed,...allowedBuiltinTools]}
+          : {permissionMode:"bypassPermissions" as const}),
   };
   const abortController=new AbortController();
   this.codeBuddyAbortController=abortController;
