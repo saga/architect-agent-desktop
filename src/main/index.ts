@@ -208,8 +208,14 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
   if (payload.type === "status" || payload.type === "tool" || payload.type === "error" || payload.type === "done") {
     recordOperation("agent", [payload.type, payload.status, payload.toolName, payload.toolState, payload.text].filter(Boolean).join(" "));
   }
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("copilot:event", payload);
-  if (agentPanelWindow && !agentPanelWindow.isDestroyed()) agentPanelWindow.webContents.send("copilot:event", payload);
+  if (scheduledCapture && scheduledCapture.taskId === activeAgentTaskId) {
+    if (payload.type === "delta" && payload.text) scheduledCapture.answer += payload.text;
+    if (payload.type === "message" && payload.text) scheduledCapture.answer = payload.text;
+    if (payload.type === "error" && payload.text) scheduledCapture.error = payload.text;
+  }
+  const event = { ...payload, taskId: activeAgentTaskId };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("copilot:event", event);
+  if (agentPanelWindow && !agentPanelWindow.isDestroyed()) agentPanelWindow.webContents.send("copilot:event", event);
 }, {
   async getCurrentPage() {
     const tab = activeTabId ? tabs.get(activeTabId) : null;
@@ -301,7 +307,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const text=typeof result === "string" ? result : JSON.stringify(result);
     return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
-}, agentSettings, () => readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH), workspaceProject.path, (type, data, status) => recordAgentTrace(type, data, status));
+}, agentSettings, (skills) => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, expert?.tools.length ? expert.tools : undefined); }, workspaceProject.path, (type, data, status) => recordAgentTrace(type, data, status));
 let downloadSequence = 0;
 
 function safeWebUrl(value: string): boolean {
