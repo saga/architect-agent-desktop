@@ -96,7 +96,6 @@ function configFor(workspaceValue: string): SandboxConfig {
     ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "main", "sandbox", "mxc-mcp-server.mjs")
     : path.resolve(__dirname, "../sandbox/mxc-mcp-server.mjs");
   if (!existsSync(helper)) throw new Error("MXC Sandbox helper is missing from the application build.");
-  const executable = process.platform === "win32" ? ".exe" : "";
   const toolchain = path.join(root, "rust-toolchain");
   const sdk = path.join(root, "sdk");
   const template = path.join(root, "template");
