@@ -81,7 +81,7 @@ Native UtilityProcess 中的 Skill 仍然可以直接调用 Node.js 的 fs、pro
 - 只允许执行可信来源的本地 Skill。
 - 不要把从网络下载、未经审查的插件脚本自动标记为可信。
 - 不要把 Capability 列表当成对任意 Node.js 代码的强制限制。
-- 不要把当前执行后端用于 LLM 生成的临时代码。
+- 不要把 Native UtilityProcess 后端用于 LLM 生成的临时代码；生成的 Rust 只能走第 9 节定义的 Rust/WASI + MXC 路径。
 
 当前 Runtime 是可供宿主集成的基础模块，不会自动改变现有 Plugin Registry 的声明式插件行为；现有插件继续只提供 Markdown Skill、Workflow 和宿主 Tool 引用。
 
