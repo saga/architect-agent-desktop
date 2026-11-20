@@ -33,7 +33,7 @@ import { findPanel, setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
 import type { WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
 import { parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel } from "../shared/workspace-document";
-import { parseAgentTasks, parseAgentExperts, parseAgentSchedules, parseAgentWorkspacePreferences, DEFAULT_AGENT_WORKSPACE_PREFERENCES, nextScheduleRunAt } from "./agent-workspace-store";
+import { parseAgentTasks, parseAgentExperts, parseAgentSchedules, parseAgentWorkspacePreferences, nextScheduleRunAt } from "./agent-workspace-store";
 import { listWorkspaceFiles, readWorkspaceFile } from "./workspace-files";
 
 const APP_ID = "com.saga.architectagentdesktop";
@@ -398,16 +398,6 @@ async function activateAgentTask(taskId: string, publish = true): Promise<AgentT
     publishAgentWorkspaceSnapshot();
   }
   return task;
-}
-function advanceSchedule(schedule: AgentSchedule, now = Date.now()): void {
-  const next = nextScheduleRunAt(schedule.runAt, schedule.repeat, now);
-  if (!next) {
-    schedule.enabled = false;
-  } else {
-    schedule.runAt = next;
-  }
-  schedule.updatedAt = now;
-  persistAgentSchedules();
 }
 let downloadSequence = 0;
 
@@ -1350,6 +1340,7 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 }
 
 let scheduleRunnerActive = false;
+let schedulerTimer: NodeJS.Timeout | null = null;
 async function processDueAgentSchedules(): Promise<void> {
   if (scheduleRunnerActive || copilotAgent.isBusy()) return;
   scheduleRunnerActive = true;
@@ -1951,6 +1942,8 @@ if (hasSingleInstanceLock) {
     registerIpcHandlers();
     installApplicationMenu();
     createMainWindow();
+    schedulerTimer = setInterval(() => { void processDueAgentSchedules(); }, 15_000);
+    schedulerTimer.unref();
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -2029,6 +2022,8 @@ app.on("before-quit", (event) => {
 });
 
 app.on("will-quit", () => {
+  if (schedulerTimer) clearInterval(schedulerTimer);
+  schedulerTimer = null;
   agentTraceStore.close();
   disposeLoginShellEnvironment();
 });
