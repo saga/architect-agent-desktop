@@ -8,6 +8,7 @@ const api: BrowserApi = {
   getAgentWorkspaceSnapshot: (): Promise<AgentWorkspaceSnapshot> => ipcRenderer.invoke("agent-workspace:get-snapshot"),
   createAgentTask: (input) => ipcRenderer.invoke("agent-task:create", input),
   activateAgentTask: (taskId: string): Promise<AgentTask> => ipcRenderer.invoke("agent-task:activate", taskId),
+  setAgentTaskExpert: (taskId: string, expertId: string | null): Promise<AgentTask> => ipcRenderer.invoke("agent-task:set-expert", { taskId, expertId }),
   agentAddWorkspace: (): Promise<AgentTask | null> => ipcRenderer.invoke("agent-workspace:add"),
   saveAgentExpert: (expert): Promise<AgentExpert[]> => ipcRenderer.invoke("agent-expert:save", expert),
   deleteAgentExpert: (id: string): Promise<AgentExpert[]> => ipcRenderer.invoke("agent-expert:delete", id),
