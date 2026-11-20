@@ -21,7 +21,7 @@ import { AgentTraceStore } from "./agent-trace-store";
 import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
 import { readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspacePreferences, AgentWorkspaceSnapshot, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspaceSnapshot, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
 import { writeJsonAtomic } from "./json-store";
@@ -1377,7 +1377,8 @@ async function processDueAgentSchedules(): Promise<void> {
             { id: randomUUID(), kind: "user", content: schedule.prompt, createdAt: runStartedAt },
           ];
           if (captured?.answer.trim()) messages.push({ id: randomUUID(), kind: "assistant", content: captured.answer.trim(), createdAt: Date.now() });
-          if (captured?.error || failure) messages.push({ id: randomUUID(), kind: "error", content: captured.error || failure, createdAt: Date.now() });
+          const errorText = captured?.error || failure;
+          if (errorText) messages.push({ id: randomUUID(), kind: "error", content: errorText, createdAt: Date.now() });
           agentTraceStore.saveSessionItems(runTask.sessionId, runTask.workspacePath, messages);
           writeJsonAtomic(currentAgentSessionPath(runTask.sessionId), { version: 1, updatedAt: Date.now(), items: messages });
           runTask.lastRunAt = Date.now();
