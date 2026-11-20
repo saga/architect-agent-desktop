@@ -23,6 +23,7 @@ This is the browser foundation, not a complete replacement for Chrome, Edge or F
 
 - Node.js 22.13 or newer.
 - npm.
+- Git and Rust 1.97+ with Cargo for building the pinned Wasmtime runtime.
 - macOS or Windows for native packaging. Development can also run on Linux.
 
 ## Development
@@ -40,6 +41,12 @@ The Vite renderer and Electron main process run as separate development processe
 The compiled application is written to the dist/ directory.
 
 ## Package for desktop
+
+Build the pinned Wasmtime runtime first (Rust 1.97+ and Git are required):
+
+    npm run build:wasmtime
+
+This builds Wasmtime 50.0.2 from the official source tag using its upstream Cargo.lock, which pins `cranelift-frontend` to 0.137.2. The executable and build manifest are written to `.cache/wasmtime/` and are discovered by the packaging scripts.
 
 On macOS:
 
