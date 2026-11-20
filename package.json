@@ -5,17 +5,19 @@
   "description": "A cross-platform desktop workspace with a built-in multi-tab web browser.",
   "main": "dist/main/index.js",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "dev": "concurrently -k -n VITE,TSC,ELECTRON \"vite --host 127.0.0.1\" \"tsc -p tsconfig.electron.json --watch\" \"wait-on tcp:5173 dist/main/index.js && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
-    "build": "npm run clean && npm run typecheck && vite build && tsc -p tsconfig.electron.json",
-    "package:mac": "npm run build && electron-builder --mac dmg zip",
-    "package:win": "npm run build && electron-builder --win nsis portable",
+    "build": "npm run clean && npm run typecheck && vite build && tsc -p tsconfig.electron.json && node scripts/copy-rust-sandbox.mjs",
+    "package:mac": "npm run typecheck && npm test && npm run build && npm run package:rust-sandbox && electron-builder --mac dmg zip --publish never",
+    "package:win": "npm run typecheck && npm test && npm run build && npm run package:rust-sandbox && electron-builder --win nsis --publish never",
     "test:layout": "npm run build && node --test tests/layout-engine.test.mjs",
-    "test": "node --check src/main/sandbox/mcp-server.mjs && node --check src/main/sandbox/rust-execution.mjs && node --check src/main/sandbox/rust-policy.mjs && vitest run"
+    "test": "node --check src/main/sandbox/mcp-server.mjs && node --check src/main/sandbox/rust-execution.mjs && node --check src/main/sandbox/rust-policy.mjs && vitest run",
+    "package:rust-sandbox": "node scripts/package-rust-sandbox.mjs --require",
+    "package": "npm run typecheck && npm test && npm run build && npm run package:rust-sandbox && electron-builder --publish never"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
@@ -26,7 +28,8 @@
     "antd": "^6.7.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "@microsoft/mxc-sdk": "1.1.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -70,6 +73,13 @@
             "x64"
           ]
         }
+      ],
+      "binaries": [
+        "Contents/Resources/rust-sandbox/rust-toolchain/bin/rustc",
+        "Contents/Resources/rust-sandbox/rust-toolchain/bin/cargo",
+        "Contents/Resources/rust-sandbox/rust-toolchain/lib/**/*.dylib",
+        "Contents/Resources/rust-sandbox/rust-toolchain/lib/rustlib/**/bin/rust-lld",
+        "Contents/Resources/rust-sandbox/wasmtime/wasmtime"
       ]
     },
     "dmg": {
@@ -80,15 +90,7 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64",
-            "arm64"
+            "x64"
           ]
         }
       ]
@@ -99,6 +101,27 @@
       "allowElevation": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    }
+    },
+    "asarUnpack": [
+      "dist/main/sandbox/**",
+      "**/node_modules/@microsoft/mxc-sdk/**",
+      "**/node_modules/koffi/**",
+      "**/node_modules/node-pty/**",
+      "**/node_modules/semver/**"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/rust-sandbox",
+        "to": "rust-sandbox",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
+  },
+  "allowScripts": {
+    "koffi": true,
+    "node-pty": true,
+    "semver": true
   }
 }
