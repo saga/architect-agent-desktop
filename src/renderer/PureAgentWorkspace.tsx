@@ -22,6 +22,8 @@ export default function PureAgentWorkspace({ browserState }: PureAgentWorkspaceP
   const [loading, setLoading] = useState(true);
   const [splitDrag, setSplitDrag] = useState(false);
   const dragRef = useRef<SplitDrag | null>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
+  const chromeRef = useRef<HTMLDivElement>(null);
   const latestSnapshot = useRef<AgentWorkspaceSnapshot | null>(null);
 
   const refresh = useCallback(async () => {
@@ -153,10 +155,10 @@ export default function PureAgentWorkspace({ browserState }: PureAgentWorkspaceP
     const delta = event.clientX - drag.startX;
     if (drag.kind === "left") {
       const leftWidth = Math.max(220, Math.min(420, drag.startWidth + delta));
-      setSnapshot(current => current ? { ...current, preferences: { ...current.preferences, leftWidth } } : current);
+      setSnapshot(current => { if (!current) return current; const next = { ...current, preferences: { ...current.preferences, leftWidth } }; latestSnapshot.current = next; return next; });
     } else {
       const rightWidth = Math.max(360, Math.min(820, drag.startWidth - delta));
-      setSnapshot(current => current ? { ...current, preferences: { ...current.preferences, rightWidth } } : current);
+      setSnapshot(current => { if (!current) return current; const next = { ...current, preferences: { ...current.preferences, rightWidth } }; latestSnapshot.current = next; return next; });
     }
   };
 
@@ -165,10 +167,7 @@ export default function PureAgentWorkspace({ browserState }: PureAgentWorkspaceP
     dragRef.current = null;
     setSplitDrag(false);
     const current = latestSnapshot.current;
-    if (current) {
-      const next = snapshot?.preferences ?? current.preferences;
-      void savePreferences({ ...next, mode: "pure" });
-    }
+    if (current) void savePreferences({ ...current.preferences, mode: "pure" });
   };
 
   useEffect(() => {
@@ -231,7 +230,7 @@ export default function PureAgentWorkspace({ browserState }: PureAgentWorkspaceP
         onPointerDown={event => onSplitterPointerDown("right", event)} onPointerMove={onSplitterPointerMove}
         onPointerUp={onSplitterPointerUp} onPointerCancel={onSplitterPointerUp} />
       <PureAgentRightPanel snapshot={snapshot} browserState={browserState} activeTab={preferences.rightPanelTab}
-        onTabChange={setRightTab} paneRef={useRef<HTMLDivElement>(null)} chromeRef={useRef<HTMLDivElement>(null)} />
+        onTabChange={setRightTab} paneRef={paneRef} chromeRef={chromeRef} />
     </>}
   </main>;
 }
