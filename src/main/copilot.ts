@@ -339,7 +339,7 @@ export class CopilotDesktopAgent {
   this.session=null;
   if(client)await client.stop().catch(()=>undefined);
   if(pending)await pending.catch(()=>undefined);
-  const lateClient=this.client;
+  const lateClient=this.client as CopilotClient|null;
   this.client=null;
   this.session=null;
   if(lateClient&&lateClient!==client)await lateClient.stop().catch(()=>undefined);

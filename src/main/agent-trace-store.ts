@@ -122,7 +122,8 @@ export class AgentTraceStore {
     try {
       this.open();
     } catch (error) {
-      try { this.database?.close(); } catch { /* preserve the open error */ }
+      const failedDatabase = this.database as DatabaseSync | null;
+      try { failedDatabase?.close(); } catch { /* preserve the open error */ }
       this.database = previousDatabase;
       this.directory = previousDirectory;
       throw error;
