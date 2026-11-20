@@ -1,8 +1,8 @@
 # Agent Runtime、Code Mode 与安全沙箱设计
 
 **状态：** Trusted Skill Runtime 已实现；Rust/WASI + MXC 后端已接入 Allow all 工具链，仍需平台实机与安装包 CI 验证  
-**范围：** Electron 主进程、Agent Skills、本地 Workspace、后续动态代码执行  
-**目标：** 在不引入第二套 Node.js 安装的前提下，为可信 Skill 提供独立执行进程，并为未来 Code Mode 建立可替换的 Runtime 与 Capability 边界。
+**范围：** Electron 主进程、Agent Skills、本地 Workspace、JavaScript Code Mode 与 Rust/WASI 生成代码执行  
+**目标：** 保留可信 Skill 与现有 Agent 工具工作流，同时为生成的 Rust 代码提供可审计、可限制的 WASI 执行边界。
 
 ## 1. 设计结论
 
@@ -15,12 +15,13 @@ Electron 内置 Node.js 可以执行本地 JavaScript/TypeScript 编译产物，
 - **Capability API 是宿主授权接口，不是 OS 隔离。** 只有当执行环境无法绕过 API 直接调用宿主能力时，Capability 才能形成有效的访问边界。
 - **Workspace 路径不是沙箱。** 设置 cwd 或把工作目录传给 Agent，不会阻止脚本访问工作区以外的文件。
 
-第一阶段采用两条明确路径：
+当前有三条不同的执行路径：
 
-1. **trusted-skill**：由用户明确认可、来源可信的本地 Skill 脚本，可以使用 Electron UtilityProcess 中的 Node.js 执行。此模式不提供恶意代码隔离保证。
-2. **generated-code**：LLM 临时生成的代码，当前明确拒绝执行。必须等 OS 级 Sandbox Runtime 落地并通过安全测试后才能启用。
+1. **trusted-skill**：由用户明确认可、来源可信的本地 Skill 脚本，继续使用 Electron UtilityProcess 中的 Node.js 执行。它只提供故障隔离，不提供恶意代码隔离保证。
+2. **JavaScript execute_code**：现有 Code Mode 用于组合 Agent 暴露的工具 API，继续保留在 UtilityProcess 中以兼容现有工作流。UtilityProcess 可直接访问 Node.js API，因此这条路径不是安全沙箱，不应承载需要抵御恶意代码的任务。
+3. **Rust execute_rust**：LLM 生成的 Rust 代码通过固定 Cargo Template 编译为 WASI Preview 2 Component，再由 Wasmtime 在 MXC 隔离环境中执行。它只在 Allow all、工作区和平台资源均满足条件时开放；执行结果先形成 Snapshot/Diff，之后才可应用。
 
-不允许为了让 Code Mode“看起来可用”，把动态代码直接交给 UtilityProcess、node:vm、Worker Thread 或主进程执行。
+不能把 UtilityProcess、node:vm、Worker Thread 或 Prompt 约束描述成不可信代码的安全边界。
 
 ## 2. 目标架构
 
@@ -32,7 +33,8 @@ Electron 内置 Node.js 可以执行本地 JavaScript/TypeScript 编译产物，
        |
        +-- Execution Policy
        |     +-- trusted-skill -> Native UtilityProcess Backend
-       |     +-- generated-code -> OS Sandbox Backend (future; disabled)
+       |     +-- JavaScript execute_code -> UtilityProcess (compatibility; not a security boundary)
+       |     +-- generated Rust -> Rust/WASI + Wasmtime in MXC (platform-gated)
        |
        +-- Capability Host
        |     +-- Workspace: list / read / write
@@ -87,16 +89,16 @@ Native UtilityProcess 中的 Skill 仍然可以直接调用 Node.js 的 fs、pro
 
 两者共享 Runtime API、Capability 定义、生命周期和 Trace 格式，但执行策略不同。
 
-| 项目 | Trusted Skill | Generated Code |
-|---|---|---|
-| 来源 | 用户认可的本地脚本 | LLM 即时生成 |
-| Runtime | UtilityProcess / Node.js | OS Sandbox Backend |
-| Node.js 原生 API | 可用，但仅限可信代码 | 默认不可直接访问 |
-| Capability | 宿主授权检查 | 宿主授权检查 + OS 限制 |
-| 网络 | 不因 Capability 而自动安全 | 默认禁止，按任务开放 |
-| 文件系统 | 进程仍可访问用户权限范围 | 仅挂载任务目录 |
-| 依赖 | Skill 自身依赖 | 预构建运行镜像/受控依赖集 |
-| 当前状态 | Runtime 基础已实现 | 禁止执行 |
+| 项目 | Trusted Skill | JavaScript Code Mode | Generated Rust |
+|---|---|---|---|
+| 来源 | 用户认可的本地脚本 | LLM 生成的工具编排代码 | LLM 生成的 Rust 模块 |
+| Runtime | UtilityProcess / Node.js | UtilityProcess / Node.js | MXC + Wasmtime / WASI P2 |
+| Node.js 原生 API | 可用，仅限可信代码 | 技术上可访问，不是安全边界 | Guest 不提供 Node.js Runtime |
+| Capability | 宿主授权检查 | 通过工具 Broker，但直接 Node API 可绕过 | 通过 WASI Guest API 和宿主执行策略 |
+| 网络 | 不因 Capability 而自动安全 | 不能依赖 UtilityProcess 限制网络 | 默认禁用 |
+| 文件系统 | 进程仍可访问当前用户权限范围 | Broker 工具受限，但直接 Node API 可绕过 | 只读 Snapshot，修改形成独立 Diff |
+| 依赖 | Skill 自身依赖 | 应只编排当前声明的工具 | 固定 Cargo Template、Lockfile 和 SDK |
+| 当前状态 | 已实现 | 保留现有兼容行为，不作为安全沙箱 | 已接入，受平台和 Allow all 条件限制 |
 
 Code Mode 的价值在于让模型把多个操作组合成一段程序，例如遍历架构文档、读取文件、查询数据、调用工具并生成报告。它不是“给模型一个 eval()”，而是让模型编排有明确输入输出和权限边界的 API。
 
@@ -178,14 +180,18 @@ Linux 的 Bubblewrap/NSJail 不能直接解决 macOS 和 Windows。桌面应用�
 - 运行时只暴露 Skill 声明且用户授权的 Capability。
 - 增加恶意路径、符号链接、超时、异常退出和输出洪泛测试。
 
-### Phase 3：真正的 Code Mode Sandbox
+### Phase 3：Rust/WASI Generated Code Sandbox
 
-- 定义 SandboxBackend 接口，统一 create / execute / cancel / destroy。
-- 先选一个平台做 OS 级后端 PoC，不在没有隔离实现时开放 Code Mode。
-- 默认无网络、只挂载临时任务目录、无宿主凭证。
-- 加入 CPU、内存、进程数、磁盘和输出限制。
-- 通过越权文件访问、网络探测、子进程逃逸尝试、资源耗尽和清理测试。
-- 再逐步实现 macOS、Linux、Windows 后端。
+- [x] 固定 Cargo Template、SDK、Lockfile 和模型可写的 Rust 模块边界。
+- [x] 通过 MXC 执行 Cargo 离线编译与 Wasmtime Guest 执行。
+- [x] Workspace Snapshot、Diff、Hash 校验和独立 Apply 操作。
+- [x] macOS Seatbelt 与 Windows ProcessContainer 后端接入；不支持的平台失败关闭。
+- [x] 平台资源打包、manifest 校验和原生平台 CI 矩阵。
+- [ ] 完成 macOS / Windows 安装包 CI 与实际安装验证。
+- [ ] 增加真实设备上的越权文件访问、网络探测、资源耗尽和清理测试。
+- [ ] 为更高风险工作负载评估更强的隔离后端；MXC ProcessContainer 不等同于 VM。
+
+JavaScript `execute_code` 仍然是现有工具编排路径，不会因为 Rust/WASI 后端落地而自动获得同等级的安全隔离。
 
 ### Phase 4：Code Mode 与 Agent 协作
 
@@ -199,7 +205,8 @@ Linux 的 Bubblewrap/NSJail 不能直接解决 macOS 和 Windows。桌面应用�
 
 - 主进程不执行 LLM 生成的任意代码。
 - Renderer 和远程网页不能访问 Runtime IPC 或 Node.js 对象。
-- Generated Code 在 OS Sandbox 未启用时必须失败关闭。
+- Generated Rust 在 MXC / WASI 资源或平台后端不可用时必须失败关闭。
+- JavaScript `execute_code` 不得被描述成安全沙箱，且不能用于承载需要抵御恶意代码的执行任务。
 - 未声明或未授权的 Capability 调用被 Host 拒绝。
 - Workspace 路径穿越、绝对路径和符号链接访问被拒绝。
 - 超时、取消和 UtilityProcess 崩溃不会使主进程挂起。
