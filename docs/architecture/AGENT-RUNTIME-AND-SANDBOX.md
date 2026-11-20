@@ -234,7 +234,7 @@ The apply operation is guarded by the app's Allow all permission mode. It is not
 ### Packaging and validation
 
 - `npm run build` copies the MCP helper and Rust execution modules into the Electron build output.
-- `npm run package:rust-sandbox` requires platform-native Rust 1.85+ with `wasm32-wasip2` and Wasmtime 50.0.1+.
+- `npm run package:rust-sandbox` requires platform-native Rust 1.85+ with `wasm32-wasip2` and Wasmtime 50.0.2+.
   The packaging script discovers the active Rust toolchain from `rustc` and `cargo` on `PATH`, including the standard `CARGO_HOME/bin` and `~/.cargo/bin` locations. It resolves the sysroot and checks that `wasm32-wasip2` is installed. Wasmtime is discovered from `PATH`, `WASMTIME_HOME`, or the standard `~/.wasmtime/bin` location. Normally no project-specific environment variables are required. For non-standard installations, set the conventional `RUSTC`, `CARGO_HOME`, or `WASMTIME_HOME` variables, or add the executable directories to `PATH`. Install the target once with `rustup target add wasm32-wasip2` if it is missing.
 - `npm run package` builds the app, prepares Rust resources and invokes Electron Builder.
 - CI has native macOS ARM64, macOS x64 and Windows x64 package jobs. CI artifacts are unsigned unless signing credentials are configured separately.
