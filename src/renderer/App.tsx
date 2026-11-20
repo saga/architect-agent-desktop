@@ -133,7 +133,7 @@ function App() {
     updateBounds();
 
     return () => observer.disconnect();
-  }, [agentOpen, agentPosition, groupedWorkspace, activeWorkspacePanel]);
+  }, [agentOpen, agentPosition, groupedWorkspace, activeWorkspacePanel, agentWorkspacePreferences?.mode]);
 
   useEffect(() => {
     if (showFind) {
