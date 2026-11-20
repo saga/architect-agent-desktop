@@ -8,6 +8,8 @@ import PureAgentRightPanel from "./PureAgentRightPanel";
 import PureAgentSidebar, { type PureAgentSection } from "./PureAgentSidebar";
 import ScheduleManager from "./ScheduleManager";
 
+const IS_MAC = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || navigator.userAgent);
+
 interface PureAgentWorkspaceProps { browserState: BrowserState; }
 
 interface SplitDrag {
@@ -182,7 +184,7 @@ export default function PureAgentWorkspace({ browserState }: PureAgentWorkspaceP
     ? `${preferences.leftWidth}px 6px minmax(360px, 2fr) 6px ${preferences.rightWidth}px`
     : `${preferences.leftWidth}px 6px minmax(0, 1fr)`;
 
-  return <main className={"pure-agent-shell" + (splitDrag ? " is-resizing" : "")} style={{ gridTemplateColumns: gridColumns }}>
+  return <main className={"pure-agent-shell" + (splitDrag ? " is-resizing" : "") + (IS_MAC ? " is-mac" : "")} style={{ gridTemplateColumns: gridColumns }}>
     <PureAgentSidebar
       snapshot={snapshot}
       section={section}
