@@ -77,6 +77,12 @@ Remote pages run with nodeIntegration: false, contextIsolation: true and sandbox
 
 Choose **打开工作区** in the main toolbar to select a local project directory. The selected directory is restored on restart, becomes the Agent working directory where supported, and has its own conversation history. See [本地项目工作区设计](docs/architecture/LOCAL-WORKSPACE.md) for permission behavior and file boundaries.
 
+## Pure Agent 工作模式
+
+除浏览器右侧 Sidepanel 外，可以切换到 Pure Agent 三栏工作区。左侧按 Workspace 文件夹组织多个 Task，并提供 Schedule、Expert 和配置入口；中间保留每个 Task 独立的 Agent 对话；右侧可选显示内置浏览器、Workspace 文件和任务结果。右侧默认关闭，三栏宽度可拖动调整。
+
+Task、对话、Expert 和 Schedule 均保存在本机。Expert 可为任务指定 System Prompt、Plugin Skills、Tool 范围和权限上限，但不能提升 Agent Settings 的全局工具权限。Schedule 支持一次、每天和每周执行；本地调度器只在桌面应用运行期间工作，不保证应用退出或系统休眠时执行。详细设计见 [Pure Agent 工作界面](docs/architecture/PURE-AGENT-WORKSPACE.md)。
+
 ## Agent Data 与运行记录
 
 默认数据目录为 Electron userData 下的 `agent-data/`，主要文件为 `agent-traces.sqlite`。可在「Agent 与插件配置」中更改目录。切换目录不会搬移或删除旧目录的数据；之后的新事件写入新目录。
@@ -91,7 +97,7 @@ Choose **打开工作区** in the main toolbar to select a local project directo
 
 ## Agent Runtime 与 Code Mode
 
-Runtime 基础设计、可信 Skill 的 UtilityProcess 执行、Capability API，以及 LLM 动态代码的安全边界见 [Agent Runtime、Code Mode 与安全沙箱设计](docs/architecture/AGENT-RUNTIME-AND-SANDBOX.md)。当前 Native Runtime 仅面向可信本地脚本；LLM 生成代码在 OS 级 Sandbox Backend 落地前保持禁用。现有插件仍是声明式资源，不会因导入而执行 JavaScript。
+Runtime 基础设计、Code Mode 执行链路、Capability API，以及 LLM 动态代码的安全边界见 [Agent Runtime、Code Mode 与安全沙箱设计](docs/architecture/AGENT-RUNTIME-AND-SANDBOX.md)。当前 Code Mode 使用独立 Electron UtilityProcess 执行模型生成的 JavaScript，但 UtilityProcess 不是安全沙箱；生成代码在第一阶段仍可能使用当前用户权限访问 Node.js API 和本机资源。Main Process Tool Broker 只对声明 API 的调用实施权限校验，不能约束生成代码直接调用 Node.js API。该限制是当前接受的风险，不应将 UtilityProcess 描述为 OS 级隔离。现有插件仍是声明式资源，不会因导入而执行 JavaScript。
 
 ## Plugins
 

@@ -7,6 +7,7 @@ import XMarkdown from "@ant-design/x-markdown";
 import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } from "../shared/types";
 
 type ChatItem = AgentSessionItem & { streaming?: boolean };
+type AgentPanelMode = "sidepanel" | "pure";
 const EMPTY_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", toolPermission: "browser-only", systemPrompt: "" };
 const SESSION_SAVE_DELAY_MS = 500;
 
@@ -81,7 +82,19 @@ const bubbleRoles = {
   },
 };
 
-export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMaximize, onRestore }: { onClose: () => void; onDock: (position: "left" | "right" | "top" | "bottom") => void; onFloat?: () => void; onDragState?: (active: boolean) => void; onMaximize?: () => void; onRestore?: () => void }) {
+export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMaximize, onRestore, taskId, mode = "sidepanel", onModeChange, onToggleRightPane, rightPaneVisible = false }: {
+  onClose: () => void;
+  onDock: (position: "left" | "right" | "top" | "bottom") => void;
+  onFloat?: () => void;
+  onDragState?: (active: boolean) => void;
+  onMaximize?: () => void;
+  onRestore?: () => void;
+  taskId?: string;
+  mode?: AgentPanelMode;
+  onModeChange?: () => void;
+  onToggleRightPane?: () => void;
+  rightPaneVisible?: boolean;
+}) {
   const { modal } = AntApp.useApp();
   const [status, setStatus] = useState("checking");
   const [statusMessage, setStatusMessage] = useState("");
@@ -94,6 +107,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const [items, setItems] = useState<ChatItem[]>([]);
   const [sessionReady, setSessionReady] = useState(false);
   const latestItems = useRef<ChatItem[]>([]);
+  const loadedTaskId = useRef<string | undefined>(undefined);
   const sessionReadyRef = useRef(false);
 
   const refreshStatus = async () => {
@@ -104,24 +118,28 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
 
   useEffect(() => {
     let cancelled = false;
+    setSessionReady(false);
+    setItems([]);
     let unsubscribe: () => void = () => undefined;
     void window.browser.getWorkspaceProject().then((workspace) => { if (!cancelled) setWorkspaceProject(workspace); }).catch(() => undefined);
     const unsubscribeProject = window.browser.onWorkspaceProjectUpdated((workspace) => {
       setWorkspaceProject(workspace);
-      void window.browser.agentLoadSession().then((saved) => { if (!cancelled) setItems(saved); }).catch(() => undefined);
+      void window.browser.agentLoadSession(taskId).then((saved) => { if (!cancelled) setItems(saved); }).catch(() => undefined);
     });
     void (async () => {
       try {
         if (typeof window.browser.agentLoadSession === "function") {
-          const saved = await window.browser.agentLoadSession();
+          const saved = await window.browser.agentLoadSession(taskId);
           if (!cancelled && saved.length) setItems(saved);
         }
       } catch {
         // A missing or unreadable session file starts an empty conversation.
       }
       if (cancelled) return;
+      loadedTaskId.current = taskId;
       setSessionReady(true);
       const off = window.browser.onCopilotEvent((event: CopilotEvent) => {
+        if (event.taskId && taskId && event.taskId !== taskId) return;
         if (event.type === "status" && event.status) setStatus(event.status);
         if (event.type === "delta" && event.text) setItems((current) => {
           const next = [...current];
@@ -173,22 +191,22 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       .then(([saved, result]) => { setSettings(saved); setStatus(result.status); setStatusMessage(result.message ?? ""); })
       .catch(() => setStatus("error"));
     return () => { cancelled = true; unsubscribe(); unsubscribeProject(); unsubscribeSettings(); };
-  }, []);
+  }, [taskId]);
 
   useEffect(() => {
-    if (!sessionReady || typeof window.browser.agentSaveSession !== "function") return;
+    if (!sessionReady || loadedTaskId.current !== taskId || typeof window.browser.agentSaveSession !== "function") return;
     const timer = setTimeout(() => {
-      void window.browser.agentSaveSession(toSessionItems(items)).catch(() => undefined);
+      void window.browser.agentSaveSession(toSessionItems(items), taskId).catch(() => undefined);
     }, SESSION_SAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [items, sessionReady]);
+  }, [items, sessionReady, taskId]);
 
   useEffect(() => { latestItems.current = items; }, [items]);
   useEffect(() => { sessionReadyRef.current = sessionReady; }, [sessionReady]);
   useEffect(() => () => {
-    if (!sessionReadyRef.current || typeof window.browser.agentSaveSession !== "function") return;
-    void window.browser.agentSaveSession(toSessionItems(latestItems.current)).catch(() => undefined);
-  }, []);
+    if (!sessionReadyRef.current || loadedTaskId.current !== taskId || typeof window.browser.agentSaveSession !== "function") return;
+    void window.browser.agentSaveSession(toSessionItems(latestItems.current), taskId).catch(() => undefined);
+  }, [taskId]);
 
   const openSettings = async () => {
     try { await window.browser.openAgentSettings(); }
@@ -209,7 +227,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
 
   const clearSession = async () => {
     try {
-      if (typeof window.browser.agentClearSession === "function") await window.browser.agentClearSession();
+      if (typeof window.browser.agentClearSession === "function") await window.browser.agentClearSession(taskId);
       setItems([]);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
@@ -225,7 +243,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       .map((item) => ({ role: item.kind as "user" | "assistant", content: item.content.trim().slice(0, 6000) }));
     setItems((current) => [...current, { id: crypto.randomUUID(), kind: "user", content: prompt, createdAt: Date.now() }]);
     setLoading(true);
-    try { await window.browser.copilotSend(prompt, history); }
+    try { await window.browser.copilotSend(prompt, history, taskId); }
     catch (error) { setLoading(false); message.error(error instanceof Error ? error.message : String(error)); }
   };
 
@@ -274,7 +292,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
         onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", "agent-panel"); onDragState?.(true); }}
         onDragEnd={() => onDragState?.(false)}
       >
-        <strong className="agent-panel-title">Browser Agent</strong>
+        <strong className="agent-panel-title">{mode === "pure" ? "Agent" : "Browser Agent"}</strong>
         <div className="agent-subtitle" title={subtitle}>{subtitle}</div>
         <div className="agent-workspace-row">
           <button type="button" draggable={false} className={"agent-workspace" + (workspaceProject.name ? "" : " is-empty")}
@@ -289,6 +307,8 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
         </div>
       </div>
       <div className="agent-panel-toolbar">
+        {onModeChange && <Tooltip title={mode === "pure" ? "切换到 Sidepanel 模式" : "切换到 Pure Agent 模式"}><Button type="text" size="small" onClick={onModeChange}>{mode === "pure" ? "Sidepanel" : "Pure Agent"}</Button></Tooltip>}
+        {mode === "pure" && onToggleRightPane && <Tooltip title={rightPaneVisible ? "隐藏右侧工作区" : "显示右侧工作区"}><Button type="text" size="small" onClick={onToggleRightPane}>{rightPaneVisible ? "隐藏预览" : "显示预览"}</Button></Tooltip>}
         <Tooltip title="Session Explorer"><Button type="text" size="small" aria-label="Session Explorer" icon={<HistoryOutlined />} onClick={() => setSessionExplorerOpen(true)} /></Tooltip>
         <Tooltip title="Agent 配置"><Button type="text" size="small" aria-label="Agent 配置" icon={<SettingOutlined />} onClick={() => void openSettings()} /></Tooltip>
         <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: moreItems, onClick: onMoreClick }}>
