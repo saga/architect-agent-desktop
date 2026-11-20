@@ -48,7 +48,7 @@ const rustMatch = /rustc\s+(\d+)\.(\d+)\.(\d+)/.exec(rustcVersion);
 const wasmMatch = /wasmtime\s+(\d+)\.(\d+)\.(\d+)/i.exec(wasmtimeVersion);
 if (!rustMatch || Number(rustMatch[1]) !== 1 || Number(rustMatch[2]) < 85) throw new Error("Rust 1.85 or later is required.");
 const version = wasmMatch?.slice(1).map(Number) ?? [];
-if (version.length !== 3 || version[0] < 50 || (version[0] === 50 && version[1] === 0 && version[2] < 1)) {
+if (version.length !== 3 || version[0] < 50 || (version[0] === 50 && version[1] === 0 && version[2] < 2)) {
   throw new Error("Wasmtime 50.0.2 or later is required.");
 }
 const reportedTarget = execFileSync(rustc, ["--print", "target-libdir", "--target", "wasm32-wasip2"], { encoding: "utf8" }).trim();
