@@ -584,7 +584,7 @@ export class CopilotDesktopAgent {
   const runtimeEnv=await agentProcessEnvironment();
   const queryOptions={
     ...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:effort?{type:"adaptive" as const}:{type:"disabled" as const},
-    systemPrompt:{append:[this.settings.systemPrompt.trim(),this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
+    systemPrompt:{append:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
     cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})},settingSources,persistSession:false,maxTurns:12,
     mcpServers:{browser:server},allowedTools:allowed,
     ...(permission==="browser-only"
