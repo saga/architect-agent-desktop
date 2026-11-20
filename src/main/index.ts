@@ -130,6 +130,23 @@ function recordAgentTrace(type: string, data: unknown, status?: string): void {
     recordOperation("agent-trace", "trace write failed: " + (error instanceof Error ? error.message : String(error)));
   }
 }
+
+function recordTaskTrace(task: AgentTask, type: string, data: unknown): void {
+  try {
+    agentTraceStore.record({
+      sessionId: task.sessionId,
+      traceId: randomUUID(),
+      workspacePath: task.workspacePath,
+      provider: agentSettings.provider,
+      model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel,
+      type,
+      status: "completed",
+      data,
+    });
+  } catch (error) {
+    recordOperation("agent-trace", "task trace write failed: " + (error instanceof Error ? error.message : String(error)));
+  }
+}
 const LEGACY_AGENT_SESSION_PATH = path.join(app.getPath("userData"), "agent-session.json");
 const WORKSPACE_PROJECT_PATH = path.join(app.getPath("userData"), "workspace-project.json");
 const WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
@@ -1949,7 +1966,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:save-settings", async (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后修改 Agent 配置。");
+    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行或切换 Task，请稍后修改 Agent 配置。");
     const parsed = z.object({
       provider: z.enum(["copilot", "codebuddy"]),
       copilotModel: z.string().max(200),
@@ -2020,7 +2037,7 @@ function registerIpcHandlers(): void {
     const taskId = input === undefined ? activeAgentTaskId : z.string().min(1).max(100).parse(input);
     const items = loadAgentSession(taskId);
     const task = taskForId(taskId);
-    agentTraceStore.record({ sessionId: task.sessionId, traceId: randomUUID(), workspacePath: task.workspacePath, provider: agentSettings.provider, model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel, type: "session.loaded", status: "completed", data: { itemCount: items.length, storage: "sqlite-session-messages" } });
+    recordTaskTrace(task, "session.loaded", { itemCount: items.length, storage: "sqlite-session-messages" });
     return items;
   });
   ipcMain.handle("agent:save-session", (event, input: unknown) => {
@@ -2043,15 +2060,16 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     const taskId = input === undefined ? activeAgentTaskId : z.string().min(1).max(100).parse(input);
     const task = taskForId(taskId);
+    if (taskId === activeAgentTaskId && (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy())) throw new Error("Agent 正在运行，不能清理当前 Task 的会话。");
     const previousItemCount = loadAgentSession(taskId).length;
     agentTraceStore.clearSessionItems(task.sessionId);
     rmSync(currentAgentSessionPath(task.sessionId), { force: true });
     if (task.sessionId === initialSessionId && !task.workspacePath) rmSync(LEGACY_AGENT_SESSION_PATH, { force: true });
-    agentTraceStore.record({ sessionId: task.sessionId, traceId: randomUUID(), workspacePath: task.workspacePath, provider: agentSettings.provider, model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel, type: "session.cleared", status: "completed", data: { previousItemCount } });
+    recordTaskTrace(task, "session.cleared", { previousItemCount });
   });
 
   ipcMain.on("browser:set-content-top", (event, height: number) => {
-    if (!isTrustedAppSender(event.sender)) return;
+    if (!isTrustedAppSender(event.sender) || !event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isTrustedAppUrl(event.senderFrame.url, path.join(__dirname, "../renderer/index.html"), process.env.VITE_DEV_SERVER_URL)) return;
     if (!Number.isFinite(height)) return;
     contentTop = Math.max(0, Math.min(240, Math.round(height)));
     updateActiveBounds();
