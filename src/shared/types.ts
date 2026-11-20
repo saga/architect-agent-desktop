@@ -144,6 +144,7 @@ export interface BrowserApi {
   getAgentWorkspaceSnapshot(): Promise<AgentWorkspaceSnapshot>;
   createAgentTask(input?: { title?: string; workspacePath?: string | null; expertId?: string | null }): Promise<AgentTask>;
   activateAgentTask(taskId: string): Promise<AgentTask>;
+  setAgentTaskExpert(taskId: string, expertId: string | null): Promise<AgentTask>;
   agentAddWorkspace(): Promise<AgentTask | null>;
   saveAgentExpert(expert: Omit<AgentExpert, "createdAt" | "updatedAt"> & Partial<Pick<AgentExpert, "createdAt" | "updatedAt">>): Promise<AgentExpert[]>;
   deleteAgentExpert(id: string): Promise<AgentExpert[]>;
