@@ -80,10 +80,7 @@
       "allowElevation": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    },
-    "asarUnpack": [
-      "dist/main/sandbox/**"
-    ]
+    }
   },
   "allowScripts": {
     "electron-winstaller": true
