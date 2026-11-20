@@ -110,10 +110,6 @@ export default function ExpertManager({ onChanged }: ExpertManagerProps) {
     }
   };
 
-  const toggleValue = (key: "skills" | "tools", value: string, checked: boolean) => {
-    update(key, checked ? [...draft[key], value] : draft[key].filter(item => item !== value));
-  };
-
   const toolOptions = TOOL_GROUPS.flatMap(group => group.tools).map(tool => ({ label: tool, value: tool }));
   const skillOptions = plugins.flatMap(plugin => plugin.skills.map(skill => ({
     label: plugin.name + " / " + skill,
