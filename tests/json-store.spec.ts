@@ -48,7 +48,7 @@ describe("writeJsonAtomic", () => {
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ ok: true });
   });
 
-  it("writes private files", () => {
+  it.skipIf(process.platform === "win32")("writes private files", () => {
     const file = path.join(tempDir(), "state.json");
 
     writeJsonAtomic(file, { ok: true });
@@ -56,7 +56,7 @@ describe("writeJsonAtomic", () => {
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
-  it("tightens permissions on a file created with a wider mode", () => {
+  it.skipIf(process.platform === "win32")("tightens permissions on a file created with a wider mode", () => {
     const directory = tempDir();
     const file = path.join(directory, "state.json");
     writeFileSync(file, "{}", { mode: 0o644 });
