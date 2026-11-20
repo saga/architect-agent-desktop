@@ -1420,6 +1420,168 @@ async function processDueAgentSchedules(): Promise<void> {
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.handle("agent-workspace:get-snapshot", (event) => {
+    assertTrustedSender(event);
+    return buildAgentWorkspaceSnapshot();
+  });
+  ipcMain.handle("agent-workspace:save-preferences", (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.object({
+      mode: z.enum(["sidepanel", "pure"]),
+      leftWidth: z.number().finite(),
+      rightWidth: z.number().finite(),
+      rightPanelVisible: z.boolean(),
+      rightPanelTab: z.enum(["browser", "files", "results"]),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Agent workspace preferences.");
+    agentWorkspacePreferences = parseAgentWorkspacePreferences(parsed.data);
+    writeJsonAtomic(AGENT_WORKSPACE_PREFERENCES_PATH, agentWorkspacePreferences);
+    updateActiveBounds();
+    publishAgentWorkspaceSnapshot();
+    return { ...agentWorkspacePreferences };
+  });
+  ipcMain.handle("agent-task:create", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再新建 Task。");
+    const parsed = z.object({
+      title: z.string().trim().max(120).optional(),
+      workspacePath: z.string().max(4096).nullable().optional(),
+      expertId: z.string().max(100).nullable().optional(),
+    }).safeParse(input ?? {});
+    if (!parsed.success) throw new Error("Invalid Agent Task.");
+    const workspacePath = parsed.data.workspacePath === undefined ? workspaceProject.path : parsed.data.workspacePath;
+    if (workspacePath && !agentTasks.some(task => task.workspacePath === workspacePath) && workspacePath !== workspaceProject.path) {
+      throw new Error("必须先将 Workspace 添加到工作区列表。");
+    }
+    const task = createAgentTaskRecord({
+      title: parsed.data.title,
+      workspacePath,
+      expertId: parsed.data.expertId === undefined ? taskForId().expertId : parsed.data.expertId,
+    });
+    await activateAgentTask(task.id);
+    return task;
+  });
+  ipcMain.handle("agent-task:activate", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.string().min(1).max(100).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Task ID.");
+    return activateAgentTask(parsed.data);
+  });
+  ipcMain.handle("agent-task:set-expert", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.object({ taskId: z.string().min(1).max(100), expertId: z.string().max(100).nullable() }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Task Expert assignment.");
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再切换 Expert。");
+    if (parsed.data.expertId && !agentExperts.some(item => item.id === parsed.data.expertId)) throw new Error("所选 Expert 不存在。");
+    const task = taskForId(parsed.data.taskId);
+    task.expertId = parsed.data.expertId;
+    task.updatedAt = Date.now();
+    persistAgentTasks();
+    if (activeAgentTaskId === task.id) await activateAgentTask(task.id);
+    else publishAgentWorkspaceSnapshot();
+    return task;
+  });
+  ipcMain.handle("agent-workspace:add", async (event) => {
+    assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再添加 Workspace。");
+    const { canceled, filePaths } = await dialog.showOpenDialog({ title: "添加 Workspace 文件夹", properties: ["openDirectory"] });
+    if (canceled || !filePaths[0]) return null;
+    const selected = safeWorkspaceProject(realpathSync(filePaths[0]));
+    const existing = agentTasks.filter(task => task.workspacePath === selected.path).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    const task = existing ?? createAgentTaskRecord({ workspacePath: selected.path, title: selected.name + " · New task" });
+    await activateAgentTask(task.id);
+    return task;
+  });
+  ipcMain.handle("agent-expert:save", (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再修改 Expert。");
+    const parsed = z.object({
+      id: z.string().min(1).max(100),
+      name: z.string().trim().min(1).max(80),
+      description: z.string().max(500),
+      systemPrompt: z.string().max(12000),
+      toolPermission: z.enum(["browser-only", "assisted", "allow-all"]),
+      skills: z.array(z.string().min(1).max(200)).max(100),
+      tools: z.array(z.string().min(1).max(100)).max(100),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Expert definition.");
+    if (new Set(parsed.data.skills).size !== parsed.data.skills.length || new Set(parsed.data.tools).size !== parsed.data.tools.length) throw new Error("Expert Skills 和 Tools 不能重复。");
+    const pluginSkills = listPlugins(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH).flatMap(plugin => plugin.skills.map(skill => plugin.id + ":" + skill));
+    if (parsed.data.skills.some(skill => !pluginSkills.includes(skill))) throw new Error("Expert 引用了不存在或未安装的 Plugin Skill。");
+    if (parsed.data.tools.some(tool => !/^[a-z][a-z0-9_]{1,100}$/.test(tool))) throw new Error("Expert 包含无效的 Tool ID。");
+    const previous = agentExperts.find(item => item.id === parsed.data.id);
+    const timestamp = Date.now();
+    const expert: AgentExpert = { ...parsed.data, createdAt: previous?.createdAt ?? timestamp, updatedAt: timestamp };
+    agentExperts = [...agentExperts.filter(item => item.id !== expert.id), expert].sort((a, b) => a.name.localeCompare(b.name));
+    persistAgentExperts();
+    const activeTask = taskForId();
+    if (activeTask.expertId === expert.id) void activateAgentTask(activeTask.id);
+    publishAgentWorkspaceSnapshot();
+    return agentExperts;
+  });
+  ipcMain.handle("agent-expert:delete", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再删除 Expert。");
+    const parsed = z.string().min(1).max(100).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Expert ID.");
+    agentExperts = agentExperts.filter(item => item.id !== parsed.data);
+    for (const task of agentTasks) if (task.expertId === parsed.data) task.expertId = null;
+    for (const schedule of agentSchedules) if (schedule.expertId === parsed.data) schedule.expertId = null;
+    persistAgentExperts();
+    persistAgentTasks();
+    persistAgentSchedules();
+    if (taskForId().expertId === null) await activateAgentTask(activeAgentTaskId);
+    publishAgentWorkspaceSnapshot();
+    return agentExperts;
+  });
+  ipcMain.handle("agent-schedule:save", (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.object({
+      id: z.string().min(1).max(100),
+      title: z.string().trim().min(1).max(120),
+      prompt: z.string().trim().min(1).max(30000),
+      workspacePath: z.string().max(4096).nullable(),
+      expertId: z.string().max(100).nullable(),
+      runAt: z.string().datetime({ offset: true }),
+      repeat: z.enum(["none", "daily", "weekly"]),
+      enabled: z.boolean(),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Schedule definition.");
+    if (parsed.data.workspacePath && !agentTasks.some(task => task.workspacePath === parsed.data.workspacePath)) throw new Error("Schedule 必须关联已登记的 Workspace。");
+    if (parsed.data.expertId && !agentExperts.some(expert => expert.id === parsed.data.expertId)) throw new Error("Schedule 引用了不存在的 Expert。");
+    const previous = agentSchedules.find(item => item.id === parsed.data.id);
+    const timestamp = Date.now();
+    const schedule: AgentSchedule = { ...parsed.data, createdAt: previous?.createdAt ?? timestamp, updatedAt: timestamp };
+    agentSchedules = [...agentSchedules.filter(item => item.id !== schedule.id), schedule].sort((a, b) => Date.parse(a.runAt) - Date.parse(b.runAt));
+    persistAgentSchedules();
+    publishAgentWorkspaceSnapshot();
+    return agentSchedules;
+  });
+  ipcMain.handle("agent-schedule:delete", (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.string().min(1).max(100).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Schedule ID.");
+    agentSchedules = agentSchedules.filter(item => item.id !== parsed.data);
+    persistAgentSchedules();
+    publishAgentWorkspaceSnapshot();
+    return agentSchedules;
+  });
+  ipcMain.handle("agent-workspace:list-files", (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.string().min(1).max(4096).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Workspace path.");
+    const workspace = safeWorkspaceProject(parsed.data);
+    if (!agentTasks.some(task => task.workspacePath === workspace.path)) throw new Error("Workspace 尚未登记。");
+    return listWorkspaceFiles(workspace.path as string).split("\n").filter(Boolean);
+  });
+  ipcMain.handle("agent-workspace:read-file", (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.object({ workspacePath: z.string().min(1).max(4096), relativePath: z.string().min(1).max(1000) }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Workspace file request.");
+    const workspace = safeWorkspaceProject(parsed.data.workspacePath);
+    if (!agentTasks.some(task => task.workspacePath === workspace.path)) throw new Error("Workspace 尚未登记。");
+    return readWorkspaceFile(workspace.path as string, parsed.data.relativePath);
+  });
   ipcMain.handle("workspace:get-project", (event) => { assertTrustedSender(event); return { ...workspaceProject }; });
   ipcMain.handle("workspace:select-project", async (event) => {
     assertTrustedSender(event);
