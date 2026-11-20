@@ -21,7 +21,7 @@ This is the browser foundation, not a complete replacement for Chrome, Edge or F
 
 ## Requirements
 
-- Node.js 24.5 or newer.
+- Node.js 24.5+ on macOS; 24.21.0+ (or 26.8.0+) on Windows for the MXC Rust helper.
 - npm.
 - Git and Rust 1.85+ with Cargo for packaging the Rust/WASM execution runtime. The application includes the pinned @wasm-sandbox/runtime 1.3.0 native runtime.
 - macOS or Windows for native packaging. Development can also run on Linux.
