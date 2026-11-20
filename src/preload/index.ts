@@ -1,10 +1,19 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, BrowserApi, BrowserDownloadEvent, PluginSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
+import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspacePreferences, AgentWorkspaceSnapshot, BrowserApi, BrowserDownloadEvent, PluginSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
 
 const api: BrowserApi = {
   getWorkspaceProject: () => ipcRenderer.invoke("workspace:get-project"),
   selectWorkspace: () => ipcRenderer.invoke("workspace:select-project"),
   clearWorkspace: () => ipcRenderer.invoke("workspace:clear-project"),
+  getAgentWorkspaceSnapshot: (): Promise<AgentWorkspaceSnapshot> => ipcRenderer.invoke("agent-workspace:get-snapshot"),
+  createAgentTask: (input) => ipcRenderer.invoke("agent-task:create", input),
+  activateAgentTask: (taskId: string): Promise<AgentTask> => ipcRenderer.invoke("agent-task:activate", taskId),
+  agentAddWorkspace: (): Promise<AgentTask | null> => ipcRenderer.invoke("agent-workspace:add"),
+  saveAgentExpert: (expert): Promise<AgentExpert[]> => ipcRenderer.invoke("agent-expert:save", expert),
+  deleteAgentExpert: (id: string): Promise<AgentExpert[]> => ipcRenderer.invoke("agent-expert:delete", id),
+  saveAgentSchedule: (schedule): Promise<AgentSchedule[]> => ipcRenderer.invoke("agent-schedule:save", schedule),
+  deleteAgentSchedule: (id: string): Promise<AgentSchedule[]> => ipcRenderer.invoke("agent-schedule:delete", id),
+  saveAgentWorkspacePreferences: (preferences: AgentWorkspacePreferences): Promise<AgentWorkspacePreferences> => ipcRenderer.invoke("agent-workspace:save-preferences", preferences),
   onWorkspaceProjectUpdated: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, workspace: WorkspaceProject) => listener(workspace);
     ipcRenderer.on("workspace:project-updated", handler);
@@ -63,11 +72,13 @@ const api: BrowserApi = {
     return () => ipcRenderer.removeListener("agent:settings-updated", handler);
   },
   agentSaveSettings: (settings: AgentSettings) => ipcRenderer.invoke("agent:save-settings", settings),
-  copilotSend: (prompt, history) => ipcRenderer.invoke("copilot:send", { prompt, history }),
+  copilotSend: (prompt, history, taskId) => ipcRenderer.invoke("copilot:send", { prompt, history, taskId }),
   copilotCancel: () => ipcRenderer.invoke("copilot:cancel"),
-  agentLoadSession: () => ipcRenderer.invoke("agent:load-session"),
-  agentSaveSession: (items: AgentSessionItem[]) => ipcRenderer.invoke("agent:save-session", items),
-  agentClearSession: () => ipcRenderer.invoke("agent:clear-session"),
+  agentLoadSession: (taskId?: string) => ipcRenderer.invoke("agent:load-session", taskId),
+  agentSaveSession: (items: AgentSessionItem[], taskId?: string) => ipcRenderer.invoke("agent:save-session", { items, taskId }),
+  agentClearSession: (taskId?: string) => ipcRenderer.invoke("agent:clear-session", taskId),
+  agentWorkspaceListFiles: (workspacePath: string): Promise<string[]> => ipcRenderer.invoke("agent-workspace:list-files", workspacePath),
+  agentWorkspaceReadFile: (workspacePath: string, relativePath: string): Promise<string> => ipcRenderer.invoke("agent-workspace:read-file", { workspacePath, relativePath }),
   onCopilotEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, payload: CopilotEvent) => listener(payload);
     ipcRenderer.on("copilot:event", handler);
