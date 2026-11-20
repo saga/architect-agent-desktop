@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Checkbox, Input, Popconfirm, Radio, Select, message } from "antd";
+import { Button, Input, Popconfirm, Radio, Select, message } from "antd";
 import { DeleteOutlined, PlusOutlined, TeamOutlined } from "@ant-design/icons";
 import type { AgentExpert, AgentToolPermission, PluginSummary } from "../shared/types";
 
