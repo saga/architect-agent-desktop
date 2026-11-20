@@ -22,6 +22,11 @@ try {
   console.log("[wasmtime-build] Cloning " + config.repository + " at " + config.tag);
   run("git", ["clone", "--depth", "1", "--branch", config.tag, config.repository, sourceDirectory]);
 
+  const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: sourceDirectory, encoding: "utf8" }).trim();
+  if (config.sourceCommit && sourceCommit !== config.sourceCommit) {
+    throw new Error("Wasmtime source commit mismatch: expected " + config.sourceCommit + ", got " + sourceCommit);
+  }
+
   const sourceManifest = await fs.readFile(path.join(sourceDirectory, "Cargo.toml"), "utf8");
   const versionMatch = /\[workspace\.package\][\s\S]*?\nversion\s*=\s*"([^"]+)"/.exec(sourceManifest);
   if (versionMatch?.[1] !== config.version) {
@@ -68,7 +73,6 @@ try {
   if (!foundLicense) throw new Error("Wasmtime source license file was not found.");
 
   const binaryHash = createHash("sha256").update(await fs.readFile(outputBinary)).digest("hex");
-  const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: sourceDirectory, encoding: "utf8" }).trim();
   const manifest = {
     schemaVersion: 1,
     sourceRepository: config.repository,
