@@ -1590,21 +1590,23 @@ function registerIpcHandlers(): void {
     if (canceled || !filePaths[0]) return null;
     const selected = realpathSync(filePaths[0]);
     if (!statSync(selected).isDirectory()) throw new Error("所选路径不是目录。");
-    await copilotAgent.setWorkspacePath(selected);
-    workspaceProject = { path: selected, name: path.basename(selected) || selected };
-    writeJsonAtomic(WORKSPACE_PROJECT_PATH, workspaceProject);
+    const task = taskForId();
+    task.workspacePath = selected;
+    task.updatedAt = Date.now();
+    persistAgentTasks();
+    await activateAgentTask(task.id);
     recordOperation("workspace", "select " + selected);
-    publishWorkspaceProject();
     return { ...workspaceProject };
   });
   ipcMain.handle("workspace:clear-project", async (event) => {
     assertTrustedSender(event);
     if (copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再清除工作区。");
-    await copilotAgent.setWorkspacePath(null);
-    workspaceProject = { path: null, name: null };
-    writeJsonAtomic(WORKSPACE_PROJECT_PATH, workspaceProject);
+    const task = taskForId();
+    task.workspacePath = null;
+    task.updatedAt = Date.now();
+    persistAgentTasks();
+    await activateAgentTask(task.id);
     recordOperation("workspace", "clear");
-    publishWorkspaceProject();
     return { ...workspaceProject };
   });
   ipcMain.handle("workspace:get-layout", (event) => { assertTrustedSender(event); return { ...workspaceLayout }; });
@@ -1848,43 +1850,69 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("copilot:send", async (event, input: unknown) => {
     assertTrustedSender(event);
-    const parsed = z.object({ prompt: z.string().trim().min(1).max(30000), history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(12000) })).max(20).optional() }).safeParse(input);
+    const parsed = z.object({
+      prompt: z.string().trim().min(1).max(30000),
+      taskId: z.string().min(1).max(100).optional(),
+      history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(12000) })).max(20).optional(),
+    }).safeParse(input);
     if (!parsed.success) throw new Error("Message must contain 1–30,000 characters.");
+    const task = taskForId(parsed.data.taskId);
+    if (activeAgentTaskId !== task.id) await activateAgentTask(task.id);
+    if (task.title === "New task" || task.title.endsWith(" · New task")) {
+      const cleanTitle = parsed.data.prompt.replace(/\s+/g, " ").trim();
+      task.title = cleanTitle.slice(0, 64) + (cleanTitle.length > 64 ? "…" : "");
+    }
     const traceId = randomUUID();
     activeAgentTraceId = traceId;
-    recordAgentTrace("turn.started", { prompt: parsed.data.prompt, history: parsed.data.history ?? [], settings: agentSettings, workspacePath: workspaceProject.path }, "running");
+    task.lastRunAt = Date.now();
+    task.updatedAt = Date.now();
+    persistAgentTasks();
+    publishAgentWorkspaceSnapshot();
+    recordAgentTrace("turn.started", { prompt: parsed.data.prompt, history: parsed.data.history ?? [], settings: agentSettings, workspacePath: workspaceProject.path, taskId: task.id }, "running");
     try {
       await copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined);
       recordAgentTrace("turn.completed", { outcome: "completed" }, "completed");
     } catch (error) {
       recordAgentTrace("turn.failed", { error: error instanceof Error ? error.message : String(error) }, "failed");
       throw error;
-    } finally { activeAgentTraceId = null; }
+    } finally {
+      task.updatedAt = Date.now();
+      persistAgentTasks();
+      activeAgentTraceId = null;
+      publishAgentWorkspaceSnapshot();
+    }
   });
   ipcMain.handle("copilot:cancel", async (event) => {
     assertTrustedSender(event);
     recordAgentTrace("turn.cancel.requested", { workspacePath: workspaceProject.path }, "requested");
     return copilotAgent.cancel();
   });
-  ipcMain.handle("agent:load-session", (event) => {
+  ipcMain.handle("agent:load-session", (event, input?: unknown) => {
     assertTrustedSender(event);
-    const items = loadAgentSession();
-    recordAgentTrace("session.loaded", { itemCount: items.length, storage: "sqlite-session-messages" }, "completed");
+    const taskId = input === undefined ? activeAgentTaskId : z.string().min(1).max(100).parse(input);
+    const items = loadAgentSession(taskId);
+    const task = taskForId(taskId);
+    agentTraceStore.record({ sessionId: task.sessionId, traceId: randomUUID(), workspacePath: task.workspacePath, provider: agentSettings.provider, model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel, type: "session.loaded", status: "completed", data: { itemCount: items.length, storage: "sqlite-session-messages" } });
     return items;
   });
   ipcMain.handle("agent:save-session", (event, input: unknown) => {
     assertTrustedSender(event);
-    if (!Array.isArray(input)) throw new Error("Invalid Agent session.");
-    const items = parseAgentSessionItems(input);
-    saveAgentSession(items);
-    recordAgentTrace("session.saved", { itemCount: items.length, storage: "sqlite-session-messages" }, "completed");
+    const parsed = z.object({ items: z.array(z.unknown()), taskId: z.string().min(1).max(100).optional() }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Agent session.");
+    const items = parseAgentSessionItems(parsed.data.items);
+    saveAgentSession(items, parsed.data.taskId);
+    const task = taskForId(parsed.data.taskId);
+    agentTraceStore.record({ sessionId: task.sessionId, traceId: randomUUID(), workspacePath: task.workspacePath, provider: agentSettings.provider, model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel, type: "session.saved", status: "completed", data: { itemCount: items.length, storage: "sqlite-session-messages" } });
   });
-  ipcMain.handle("agent:clear-session", (event) => {
+  ipcMain.handle("agent:clear-session", (event, input?: unknown) => {
     assertTrustedSender(event);
-    recordAgentTrace("session.cleared", { workspacePath: workspaceProject.path, previousItemCount: loadAgentSession().length }, "completed");
-    agentTraceStore.clearSessionItems(currentTraceSessionId());
-    rmSync(currentAgentSessionPath(), { force: true });
-    if (!workspaceProject.path) rmSync(LEGACY_AGENT_SESSION_PATH, { force: true });
+    const taskId = input === undefined ? activeAgentTaskId : z.string().min(1).max(100).parse(input);
+    const task = taskForId(taskId);
+    const previousItemCount = loadAgentSession(taskId).length;
+    agentTraceStore.clearSessionItems(task.sessionId);
+    rmSync(currentAgentSessionPath(task.sessionId), { force: true });
+    if (task.sessionId === initialSessionId && !task.workspacePath) rmSync(LEGACY_AGENT_SESSION_PATH, { force: true });
+    agentTraceStore.record({ sessionId: task.sessionId, traceId: randomUUID(), workspacePath: task.workspacePath, provider: agentSettings.provider, model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel, type: "session.cleared", status: "completed", data: { previousItemCount } });
   });
 
   ipcMain.on("browser:set-content-top", (event, height: number) => {
