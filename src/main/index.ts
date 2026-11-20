@@ -21,7 +21,7 @@ import { AgentTraceStore } from "./agent-trace-store";
 import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
 import { readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspacePreferences, AgentWorkspaceSnapshot, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
 import { writeJsonAtomic } from "./json-store";
@@ -33,6 +33,8 @@ import { findPanel, setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
 import type { WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
 import { parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel } from "../shared/workspace-document";
+import { parseAgentTasks, parseAgentExperts, parseAgentSchedules, parseAgentWorkspacePreferences, DEFAULT_AGENT_WORKSPACE_PREFERENCES, nextScheduleRunAt } from "./agent-workspace-store";
+import { listWorkspaceFiles, readWorkspaceFile } from "./workspace-files";
 
 const APP_ID = "com.saga.architectagentdesktop";
 const HOME_URL = "https://www.google.com/";
@@ -73,6 +75,11 @@ let contentLeft = 0;
 let contentWidth: number | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
 const AGENT_SESSION_ROOT = path.join(app.getPath("userData"), "agent-sessions");
+const AGENT_TASKS_PATH = path.join(app.getPath("userData"), "agent-tasks.json");
+const AGENT_EXPERTS_PATH = path.join(app.getPath("userData"), "agent-experts.json");
+const AGENT_SCHEDULES_PATH = path.join(app.getPath("userData"), "agent-schedules.json");
+const AGENT_WORKSPACE_PREFERENCES_PATH = path.join(app.getPath("userData"), "agent-workspace-preferences.json");
+const ACTIVE_AGENT_TASK_PATH = path.join(app.getPath("userData"), "active-agent-task.json");
 const LEGACY_AGENT_SESSION_ITEMS = 200;
 const AGENT_DATA_SETTINGS_PATH = path.join(app.getPath("userData"), "agent-data.json");
 function loadAgentDataDirectory(): string {
@@ -84,8 +91,11 @@ function loadAgentDataDirectory(): string {
 }
 const agentTraceStore = new AgentTraceStore(loadAgentDataDirectory());
 let activeAgentTraceId: string | null = null;
+let activeAgentTaskId = "";
+let scheduledCapture: { taskId: string; answer: string; error?: string } | null = null;
 function currentTraceSessionId(): string {
-  return createHash("sha256").update(workspaceProject.path ?? "__default_workspace__").digest("hex").slice(0, 32);
+  const task = agentTasks.find(item => item.id === activeAgentTaskId);
+  return task?.sessionId ?? createHash("sha256").update(workspaceProject.path ?? "__default_workspace__").digest("hex").slice(0, 32);
 }
 function recordAgentTrace(type: string, data: unknown, status?: string): void {
   const sessionId = currentTraceSessionId();
@@ -117,10 +127,32 @@ function loadWorkspaceProject(): WorkspaceProject {
   } catch { return { path: null, name: null }; }
 }
 let workspaceProject = loadWorkspaceProject();
-function currentAgentSessionPath(): string {
-  const identity = workspaceProject.path ?? "__default_workspace__";
-  const key = createHash("sha256").update(identity).digest("hex").slice(0, 32);
-  return path.join(AGENT_SESSION_ROOT, key + ".json");
+function loadJsonValue(file: string): unknown {
+  try { return JSON.parse(readFileSync(file, "utf8")) as unknown; } catch { return null; }
+}
+const now = Date.now();
+const initialSessionId = createHash("sha256").update(workspaceProject.path ?? "__default_workspace__").digest("hex").slice(0, 32);
+let agentTasks = parseAgentTasks(loadJsonValue(AGENT_TASKS_PATH));
+if (!agentTasks.length) {
+  agentTasks = [{ id: "legacy-" + initialSessionId, sessionId: initialSessionId, title: workspaceProject.name ? workspaceProject.name + " · 默认任务" : "New task", workspacePath: workspaceProject.path, expertId: null, createdAt: now, updatedAt: now }];
+  writeJsonAtomic(AGENT_TASKS_PATH, agentTasks);
+}
+let agentExperts = parseAgentExperts(loadJsonValue(AGENT_EXPERTS_PATH));
+if (!agentExperts.length) {
+  agentExperts = [
+    { id: "general", name: "通用助手", description: "通用桌面 Agent，适合日常任务和跨领域问题。", systemPrompt: "作为通用桌面 Agent，先明确目标，再使用可用工具完成任务。", toolPermission: "allow-all", skills: [], tools: [], createdAt: now, updatedAt: now },
+    { id: "researcher", name: "研究分析师", description: "擅长网页研究、资料归纳、比较分析和报告整理。", systemPrompt: "你是一名严谨的研究分析师。优先使用一手资料，区分事实、推断和不确定性，保留来源与证据。先研究再综合，不要编造引用。", toolPermission: "assisted", skills: [], tools: [], createdAt: now, updatedAt: now },
+    { id: "developer", name: "开发工程师", description: "擅长代码阅读、实现、测试和调试。", systemPrompt: "你是一名资深软件工程师。先理解现有架构和代码约定，优先做范围明确的最小变更，执行相关类型检查和测试，并报告实际验证结果。", toolPermission: "allow-all", skills: [], tools: [], createdAt: now, updatedAt: now },
+  ];
+  writeJsonAtomic(AGENT_EXPERTS_PATH, agentExperts);
+}
+let agentSchedules = parseAgentSchedules(loadJsonValue(AGENT_SCHEDULES_PATH));
+let agentWorkspacePreferences = parseAgentWorkspacePreferences(loadJsonValue(AGENT_WORKSPACE_PREFERENCES_PATH));
+const savedActiveTask = loadJsonValue(ACTIVE_AGENT_TASK_PATH) as { taskId?: unknown } | null;
+activeAgentTaskId = typeof savedActiveTask?.taskId === "string" && agentTasks.some(task => task.id === savedActiveTask.taskId) ? savedActiveTask.taskId : agentTasks[0].id;
+writeJsonAtomic(ACTIVE_AGENT_TASK_PATH, { taskId: activeAgentTaskId });
+function currentAgentSessionPath(sessionId = currentTraceSessionId()): string {
+  return path.join(AGENT_SESSION_ROOT, sessionId + ".json");
 }
 function loadWorkspaceLayout(): WorkspaceLayoutState {
   try { return parseWorkspaceLayout(JSON.parse(readFileSync(WORKSPACE_LAYOUT_PATH, "utf8"))); }
