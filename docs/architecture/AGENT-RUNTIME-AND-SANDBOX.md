@@ -220,7 +220,7 @@ The implementation is deliberately additive:
 - The Rust compiler, Cargo, SDK, template and Wasmtime are packaged under `resources/rust-sandbox`. The runtime verifies platform, architecture and hashes from `manifest.json` before enabling the tools.
 - Linux is fail-closed. The supported packaging matrix is macOS ARM64, macOS x64 and Windows x64.
 
-The MXC boundary is not a VM. On Windows, ProcessContainer is not equivalent to AppContainer or a micro-VM; its effective isolation depends on the host capabilities reported by MXC. A missing backend, mismatched resource manifest, unsupported OS or missing Node.js 24+ helper runtime must fail closed rather than execute Rust on the host.
+The MXC boundary is not a VM. On Windows, ProcessContainer is not equivalent to AppContainer or a micro-VM; its effective isolation depends on the host capabilities reported by MXC. A missing backend, mismatched resource manifest, unsupported OS or missing Node.js helper runtime must fail closed (24+ on macOS; 24.21.0+ or 26.8.0+ on Windows) rather than execute Rust on the host.
 
 The apply operation is guarded by the app's Allow all permission mode. It is not a separate per-diff confirmation dialog; do not describe it as one. Workspace hashes, path validation and staged-file hashes are rechecked before writes.
 

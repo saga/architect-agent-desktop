@@ -36,4 +36,4 @@ The existing UtilityProcess runtime and JavaScript `execute_code` behavior remai
 
 ## Consequences
 
-The change is additive and preserves the existing Runtime and browser/Agent tool architecture. Packaging requires a native Rust toolchain with `wasm32-wasip2`, Wasmtime 50.0.1+ and an external Node.js 24+ runtime for MXC. Unsigned CI installers are test artifacts, not signed releases.
+The change is additive and preserves the existing Runtime and browser/Agent tool architecture. Packaging requires a native Rust toolchain with `wasm32-wasip2`, Wasmtime 50.0.1+ and an external Node.js runtime for MXC (24+ on macOS; 24.21.0+ or 26.8.0+ on Windows). Unsigned CI installers are test artifacts, not signed releases.

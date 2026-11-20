@@ -11,7 +11,9 @@ type JsonRpcResponse = { jsonrpc: "2.0"; id: number; result?: any; error?: { mes
 type Pending = { resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> };
 type SandboxConfig = { command: string; helper: string; env: Record<string, string>; workspace: string };
 
-const MIN_NODE = [24, 0, 0];
+const MIN_NODE_MAC = [24, 0, 0];
+const MIN_NODE_WINDOWS = [24, 21, 0];
+const MIN_NODE_WINDOWS_NEXT = [26, 8, 0];
 function versionAtLeast(value: string, minimum: number[]): boolean {
   const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(value);
   if (!match) return false;
@@ -28,9 +30,8 @@ function nodeCandidates(): string[] {
   if (process.platform === "darwin") {
     candidates.unshift("/opt/homebrew/bin/node", "/usr/local/bin/node", "/opt/local/bin/node");
     candidates.push(path.join(home, ".volta/bin/node"), path.join(home, ".asdf/shims/node"), path.join(home, ".fnm/aliases/default/bin/node"), path.join(home, ".local/share/mise/shims/node"));
-    for (const entry of [".nvm/versions/node", ".local/share/fnm/node-versions"]) {
-      try { for (const version of readdirSync(path.join(home, entry)).sort().reverse()) candidates.push(path.join(home, entry, version, "bin", "node")); } catch { /* optional version manager */ }
-    }
+    try { for (const version of readdirSync(path.join(home, ".nvm/versions/node")).sort().reverse()) candidates.push(path.join(home, ".nvm/versions/node", version, "bin", "node")); } catch { /* optional nvm installation */ }
+    try { for (const version of readdirSync(path.join(home, ".local/share/fnm/node-versions")).sort().reverse()) candidates.push(path.join(home, ".local/share/fnm/node-versions", version, "installation", "bin", "node")); } catch { /* optional fnm installation */ }
   } else if (process.platform === "win32" && process.env.ProgramFiles) candidates.unshift(path.join(process.env.ProgramFiles, "nodejs", executable));
   return [...new Set(candidates)];
 }
@@ -39,10 +40,10 @@ function resolveNode24(): string {
     try {
       if (!statSync(candidate).isFile()) continue;
       const version = execFileSync(candidate, ["--version"], { encoding: "utf8", timeout: 3000, windowsHide: true }).trim();
-      if (versionAtLeast(version, MIN_NODE)) return candidate;
+      if (process.platform === "win32" ? (versionAtLeast(version, MIN_NODE_WINDOWS) || versionAtLeast(version, MIN_NODE_WINDOWS_NEXT)) : versionAtLeast(version, MIN_NODE_MAC)) return candidate;
     } catch { /* try next candidate */ }
   }
-  throw new Error("Rust/WASI Sandbox requires an external Node.js 24+ runtime for MXC. No compatible runtime was found; host execution fallback is disabled.");
+  throw new Error(process.platform === "win32" ? "Rust/WASI Sandbox requires external Node.js 24.21.0+ or 26.8.0+ on Windows for MXC. No compatible runtime was found; host execution fallback is disabled." : "Rust/WASI Sandbox requires external Node.js 24+ on macOS for MXC. No compatible runtime was found; host execution fallback is disabled.");
 }
 function resourceRoot(): string {
   const candidates = [
