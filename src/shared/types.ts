@@ -58,7 +58,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt.",
 };
 
-export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done" | "tool"; status?: string; text?: string; toolName?: string; toolDetail?: string; toolState?: "done" | "error"; }
+export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done" | "tool"; taskId?: string; status?: string; text?: string; toolName?: string; toolDetail?: string; toolState?: "done" | "error"; }
 
 export interface AgentSessionItem {
   id: string;
@@ -67,6 +67,65 @@ export interface AgentSessionItem {
   toolName?: string;
   toolState?: "done" | "error";
   createdAt: number;
+}
+
+export type AgentWorkspaceMode = "sidepanel" | "pure";
+export type AgentScheduleRepeat = "none" | "daily" | "weekly";
+export type AgentWorkspaceRightTab = "browser" | "files" | "results";
+export interface AgentTask {
+  id: string;
+  sessionId: string;
+  title: string;
+  workspacePath: string | null;
+  expertId: string | null;
+  createdAt: number;
+  updatedAt: number;
+  lastRunAt?: number;
+}
+export interface AgentWorkspaceSummary extends WorkspaceProject {
+  taskCount: number;
+  updatedAt: number;
+}
+export interface AgentExpert {
+  id: string;
+  name: string;
+  description: string;
+  systemPrompt: string;
+  toolPermission: AgentToolPermission;
+  skills: string[];
+  tools: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+export interface AgentSchedule {
+  id: string;
+  title: string;
+  prompt: string;
+  workspacePath: string | null;
+  expertId: string | null;
+  runAt: string;
+  repeat: AgentScheduleRepeat;
+  enabled: boolean;
+  lastRunAt?: number;
+  lastRunStatus?: "success" | "error";
+  lastError?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface AgentWorkspacePreferences {
+  mode: AgentWorkspaceMode;
+  leftWidth: number;
+  rightWidth: number;
+  rightPanelVisible: boolean;
+  rightPanelTab: AgentWorkspaceRightTab;
+}
+export interface AgentWorkspaceSnapshot {
+  tasks: AgentTask[];
+  activeTaskId: string;
+  workspaces: AgentWorkspaceSummary[];
+  experts: AgentExpert[];
+  schedules: AgentSchedule[];
+  preferences: AgentWorkspacePreferences;
 }
 
 export interface WorkspaceProject { path: string | null; name: string | null; }
@@ -82,6 +141,15 @@ export interface BrowserApi {
   selectWorkspace(): Promise<WorkspaceProject | null>;
   clearWorkspace(): Promise<WorkspaceProject>;
   onWorkspaceProjectUpdated(listener: (workspace: WorkspaceProject) => void): () => void;
+  getAgentWorkspaceSnapshot(): Promise<AgentWorkspaceSnapshot>;
+  createAgentTask(input?: { title?: string; workspacePath?: string | null; expertId?: string | null }): Promise<AgentTask>;
+  activateAgentTask(taskId: string): Promise<AgentTask>;
+  agentAddWorkspace(): Promise<AgentTask | null>;
+  saveAgentExpert(expert: Omit<AgentExpert, "createdAt" | "updatedAt"> & Partial<Pick<AgentExpert, "createdAt" | "updatedAt">>): Promise<AgentExpert[]>;
+  deleteAgentExpert(id: string): Promise<AgentExpert[]>;
+  saveAgentSchedule(schedule: Omit<AgentSchedule, "createdAt" | "updatedAt"> & Partial<Pick<AgentSchedule, "createdAt" | "updatedAt">>): Promise<AgentSchedule[]>;
+  deleteAgentSchedule(id: string): Promise<AgentSchedule[]>;
+  saveAgentWorkspacePreferences(preferences: AgentWorkspacePreferences): Promise<AgentWorkspacePreferences>;
   getWorkspaceLayout(): Promise<WorkspaceLayoutState>;
   saveWorkspaceLayout(layout: WorkspaceLayoutState): Promise<WorkspaceLayoutState>;
   getWorkspaceDocument(): Promise<WorkspaceDocument>;
@@ -119,11 +187,13 @@ export interface BrowserApi {
   agentInspectModels(provider: AgentProvider): Promise<AgentModelInfo[]>;
   onAgentSettingsUpdated(listener: (settings: AgentSettings) => void): () => void;
   agentSaveSettings(settings: AgentSettings): Promise<AgentSettings>;
-  copilotSend(prompt: string, history?: AgentChatMessage[]): Promise<void>;
+  copilotSend(prompt: string, history?: AgentChatMessage[], taskId?: string): Promise<void>;
   copilotCancel(): Promise<void>;
-  agentLoadSession(): Promise<AgentSessionItem[]>;
-  agentSaveSession(items: AgentSessionItem[]): Promise<void>;
-  agentClearSession(): Promise<void>;
+  agentLoadSession(taskId?: string): Promise<AgentSessionItem[]>;
+  agentSaveSession(items: AgentSessionItem[], taskId?: string): Promise<void>;
+  agentClearSession(taskId?: string): Promise<void>;
+  agentWorkspaceListFiles(workspacePath: string): Promise<string[]>;
+  agentWorkspaceReadFile(workspacePath: string, relativePath: string): Promise<string>;
   onCopilotEvent(listener: (event: CopilotEvent) => void): () => void;
   findInPage(id: string, text: string): Promise<void>;
   stopFindInPage(id: string): Promise<void>;
