@@ -102,7 +102,7 @@ try {
     throw new Error("Rust execution service did not return a snapshot and file diff.");
   }
   if (JSON.parse(payload.result).ok !== true) {
-    throw new Error("WASI guest did not write the expected result.");
+    throw new Error("WASI module did not write the expected result.");
   }
   if (!payload.changedFiles.some((change) => change.path === "output.txt" && change.status === "added")) {
     throw new Error("Rust execution service did not detect the expected output file.");
@@ -116,7 +116,7 @@ try {
 
   const output = await fs.readFile(path.join(workspace, "output.txt"), "utf8");
   if (output !== "WASM SANDBOX WORKS") throw new Error("Approved Rust diff was not applied to the workspace.");
-  console.log("[rust-sandbox] Bundled Rust compiler and Wasmtime compiled, executed, diffed, and applied a WASI guest successfully.");
+  console.log("[rust-sandbox] Bundled Rust compiler and Wasmer compiled, executed, diffed, and applied a WASI module successfully.");
 } finally {
   await service.dispose();
   await fs.rm(temporaryRoot, { recursive: true, force: true });
