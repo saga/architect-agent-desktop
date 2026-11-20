@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEnvironmentDump, readLoginShellEnvironment } from "../src/main/login-shell-env";
+import { parseEnvironmentDump, readLoginShellEnvironment, withSystemNetworkEnvironment } from "../src/main/login-shell-env";
 
 const MARKER = "\0_ARCHITECT_SHELL_ENV_DELIMITER_\0";
 
@@ -39,6 +39,20 @@ describe("parseEnvironmentDump", () => {
 
   it("skips entries without a key", () => {
     expect(parseEnvironmentDump(`${MARKER}=broken\0NOVALUE\0OK=1\0${MARKER}`)).toEqual({ OK: "1" });
+  });
+});
+
+describe("withSystemNetworkEnvironment", () => {
+  it("forces system CA and environment-proxy support on", () => {
+    expect(withSystemNetworkEnvironment({
+      NODE_USE_SYSTEM_CA: "0",
+      NODE_USE_ENV_PROXY: "0",
+      HTTPS_PROXY: "http://proxy.example:8080",
+    })).toEqual({
+      NODE_USE_SYSTEM_CA: "1",
+      NODE_USE_ENV_PROXY: "1",
+      HTTPS_PROXY: "http://proxy.example:8080",
+    });
   });
 });
 

@@ -177,7 +177,23 @@ export function disposeLoginShellEnvironment(): void {
  * login shell's PATH and tool variables. The shell wins because it describes
  * the user's actual setup.
  */
+/**
+ * Node reads these switches when the child process starts. Keep them enabled
+ * for every Agent CLI/runtime process, regardless of the launcher's environment.
+ */
+export function withSystemNetworkEnvironment(
+  environment: Record<string, string | undefined>
+): Record<string, string | undefined> {
+  return {
+    ...environment,
+    NODE_USE_SYSTEM_CA: "1",
+    NODE_USE_ENV_PROXY: "1",
+  };
+}
+
 export async function agentProcessEnvironment(): Promise<Record<string, string | undefined>> {
   const captured = await primeLoginShellEnvironment();
-  return captured ? { ...process.env, ...captured } : { ...process.env };
+  return withSystemNetworkEnvironment(captured
+    ? { ...process.env, ...captured }
+    : { ...process.env });
 }

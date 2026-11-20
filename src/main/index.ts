@@ -1980,8 +1980,10 @@ if (!hasSingleInstanceLock) {
 }
 
 if (hasSingleInstanceLock) {
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     browserSession = session.fromPartition(BROWSER_PARTITION);
+    // Explicitly use the OS proxy configuration for the embedded browser.
+    await browserSession.setProxy({ mode: "system" });
     installPermissionHandlers();
     registerIpcHandlers();
     installApplicationMenu();

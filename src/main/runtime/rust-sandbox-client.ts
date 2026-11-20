@@ -11,7 +11,7 @@ type JsonRpcResponse = { jsonrpc: "2.0"; id: number; result?: any; error?: { mes
 type Pending = { resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> };
 type SandboxConfig = { command: string; helper: string; env: Record<string, string>; workspace: string };
 
-const MIN_NODE_MAC = [24, 0, 0];
+const MIN_NODE_MAC = [24, 5, 0];
 const MIN_NODE_WINDOWS = [24, 21, 0];
 const MIN_NODE_WINDOWS_NEXT = [26, 8, 0];
 function versionAtLeast(value: string, minimum: number[]): boolean {
@@ -43,7 +43,7 @@ function resolveNode24(): string {
       if (process.platform === "win32" ? (versionAtLeast(version, MIN_NODE_WINDOWS) || versionAtLeast(version, MIN_NODE_WINDOWS_NEXT)) : versionAtLeast(version, MIN_NODE_MAC)) return candidate;
     } catch { /* try next candidate */ }
   }
-  throw new Error(process.platform === "win32" ? "Rust/WASI Sandbox requires external Node.js 24.21.0+ or 26.8.0+ on Windows for MXC. No compatible runtime was found; host execution fallback is disabled." : "Rust/WASI Sandbox requires external Node.js 24+ on macOS for MXC. No compatible runtime was found; host execution fallback is disabled.");
+  throw new Error(process.platform === "win32" ? "Rust/WASI Sandbox requires external Node.js 24.21.0+ or 26.8.0+ on Windows for MXC. No compatible runtime was found; host execution fallback is disabled." : "Rust/WASI Sandbox requires external Node.js 24.5.0+ on macOS for MXC. No compatible runtime was found; host execution fallback is disabled.");
 }
 function resourceRoot(): string {
   const candidates = [
@@ -90,7 +90,16 @@ function configFor(workspaceValue: string): SandboxConfig {
     RUST_TEMPLATE_DIR: template,
     WASMTIME_BIN: wasmtime,
     NODE_NO_WARNINGS: "1",
+    NODE_USE_SYSTEM_CA: "1",
+    NODE_USE_ENV_PROXY: "1",
   };
+  for (const key of [
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+  ]) {
+    const value = process.env[key];
+    if (value) env[key] = value;
+  }
   if (process.platform === "win32") {
     env.SystemRoot = process.env.SystemRoot ?? "";
     env.ComSpec = process.env.ComSpec ?? "cmd.exe";

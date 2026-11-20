@@ -106,8 +106,15 @@ export class UtilityProcessAgentRuntime {
       if (request.signal?.aborted) { finish("cancelled", undefined, "Execution cancelled."); return; }
       try {
         if (!existsSync(this.workerPath)) throw new Error("Runtime worker is missing: " + this.workerPath);
-        const env: Record<string, string> = {};
-        for (const key of ["PATH", "HOME", "USERPROFILE", "TMPDIR", "TMP", "TEMP", "SystemRoot", "WINDIR"]) {
+        const env: Record<string, string> = {
+          NODE_USE_SYSTEM_CA: "1",
+          NODE_USE_ENV_PROXY: "1",
+        };
+        for (const key of [
+          "PATH", "HOME", "USERPROFILE", "TMPDIR", "TMP", "TEMP", "SystemRoot", "WINDIR",
+          "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+          "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+        ]) {
           const value = process.env[key]; if (value) env[key] = value;
         }
         child = utilityProcess.fork(this.workerPath, [], { serviceName: "Agent Code Mode", cwd: request.workspaceRoot || process.cwd(), env });
