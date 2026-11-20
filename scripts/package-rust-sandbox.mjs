@@ -10,6 +10,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const destination = path.join(root, "resources", "rust-sandbox");
 const staging = destination + ".staging-" + process.pid;
 const required = process.argv.includes("--require");
+const supported = new Set(["darwin:arm64", "darwin:x64", "win32:x64"]);
+const platformKey = process.platform + ":" + process.arch;
+if (!supported.has(platformKey)) {
+  throw new Error("Rust sandbox release packaging supports macOS arm64/x64 and Windows x64 only; got " + platformKey);
+}
 let discovered;
 let toolchainSource;
 let wasmtimeSource;
@@ -22,11 +27,6 @@ try {
   if (required) throw new Error(message);
   console.warn("[rust-sandbox] " + message);
   process.exit(0);
-}
-const supported = new Set(["darwin:arm64", "darwin:x64", "win32:x64"]);
-const platformKey = process.platform + ":" + process.arch;
-if (!supported.has(platformKey)) {
-  throw new Error("Rust sandbox release packaging supports macOS arm64/x64 and Windows x64 only; got " + platformKey);
 }
 const toolchain = path.resolve(toolchainSource);
 const wasmtime = path.resolve(wasmtimeSource);
