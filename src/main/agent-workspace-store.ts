@@ -96,7 +96,6 @@ export function nextScheduleRunAt(runAt: string, repeat: AgentScheduleRepeat, no
   if (repeat === "none") return null;
   const next = new Date(runAt);
   if (!Number.isFinite(next.getTime())) return null;
-  const interval = repeat === "daily" ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
-  while (next.getTime() <= now) next.setTime(next.getTime() + interval);
+  while (next.getTime() <= now) next.setDate(next.getDate() + (repeat === "daily" ? 1 : 7));
   return next.toISOString();
 }
