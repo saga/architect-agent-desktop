@@ -134,7 +134,39 @@ const now = Date.now();
 const initialSessionId = createHash("sha256").update(workspaceProject.path ?? "__default_workspace__").digest("hex").slice(0, 32);
 let agentTasks = parseAgentTasks(loadJsonValue(AGENT_TASKS_PATH));
 if (!agentTasks.length) {
-  agentTasks = [{ id: "legacy-" + initialSessionId, sessionId: initialSessionId, title: workspaceProject.name ? workspaceProject.name + " · 默认任务" : "New task", workspacePath: workspaceProject.path, expertId: null, createdAt: now, updatedAt: now }];
+  const legacySessions = agentTraceStore.listSessions(500);
+  const migrated = legacySessions.flatMap((row): AgentTask[] => {
+    const sessionId = typeof row.id === "string" ? row.id : "";
+    const hasHistory = Number(row.messageCount ?? 0) > 0 || Number(row.eventCount ?? 0) > 0;
+    if (!sessionId || !hasHistory) return [];
+    const workspacePath = typeof row.workspacePath === "string" && row.workspacePath.trim() ? row.workspacePath : null;
+    const createdAtValue = typeof row.createdAt === "string" ? Date.parse(row.createdAt) : Number(row.createdAt);
+    const updatedAtValue = typeof row.updatedAt === "string" ? Date.parse(row.updatedAt) : Number(row.updatedAt);
+    const createdAt = Number.isFinite(createdAtValue) && createdAtValue > 0 ? createdAtValue : now;
+    const updatedAt = Number.isFinite(updatedAtValue) && updatedAtValue > 0 ? updatedAtValue : createdAt;
+    const workspaceName = workspacePath ? path.basename(workspacePath) || workspacePath : "个人工作区";
+    return [{
+      id: "legacy-" + sessionId,
+      sessionId,
+      title: workspacePath ? workspaceName + " · 历史会话" : "个人工作区 · 历史会话",
+      workspacePath,
+      expertId: null,
+      createdAt,
+      updatedAt,
+    }];
+  });
+  if (!migrated.some(task => task.sessionId === initialSessionId)) {
+    migrated.push({
+      id: "legacy-" + initialSessionId,
+      sessionId: initialSessionId,
+      title: workspaceProject.name ? workspaceProject.name + " · 默认任务" : "个人工作区 · 默认任务",
+      workspacePath: workspaceProject.path,
+      expertId: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  agentTasks = migrated.sort((a, b) => b.updatedAt - a.updatedAt);
   writeJsonAtomic(AGENT_TASKS_PATH, agentTasks);
 }
 let agentExperts = parseAgentExperts(loadJsonValue(AGENT_EXPERTS_PATH));
@@ -149,7 +181,7 @@ if (!agentExperts.length) {
 let agentSchedules = parseAgentSchedules(loadJsonValue(AGENT_SCHEDULES_PATH));
 let agentWorkspacePreferences = parseAgentWorkspacePreferences(loadJsonValue(AGENT_WORKSPACE_PREFERENCES_PATH));
 const savedActiveTask = loadJsonValue(ACTIVE_AGENT_TASK_PATH) as { taskId?: unknown } | null;
-activeAgentTaskId = typeof savedActiveTask?.taskId === "string" && agentTasks.some(task => task.id === savedActiveTask.taskId) ? savedActiveTask.taskId : agentTasks[0].id;
+activeAgentTaskId = typeof savedActiveTask?.taskId === "string" && agentTasks.some(task => task.id === savedActiveTask.taskId) ? savedActiveTask.taskId : (agentTasks.find(task => task.sessionId === initialSessionId)?.id ?? agentTasks[0].id);
 writeJsonAtomic(ACTIVE_AGENT_TASK_PATH, { taskId: activeAgentTaskId });
 const startupTask = agentTasks.find(task => task.id === activeAgentTaskId);
 if (startupTask) {
