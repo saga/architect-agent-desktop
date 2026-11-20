@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { existsSync, readFileSync, realpathSync, readdirSync, statSync } from "node:fs";
 import { createInterface } from "node:readline";
 import os from "node:os";
@@ -10,6 +11,25 @@ import { app } from "electron";
 type JsonRpcResponse = { jsonrpc: "2.0"; id: number; result?: any; error?: { message?: string } };
 type Pending = { resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> };
 type SandboxConfig = { command: string; helper: string; env: Record<string, string>; workspace: string };
+const WASM_SANDBOX_RUNTIME_VERSION = "1.3.0";
+function runtimePackageAvailable(): boolean {
+  const nativePackage = {
+    "darwin:arm64": "@wasm-sandbox/wasm-sandbox.darwin-arm64",
+    "darwin:x64": "@wasm-sandbox/wasm-sandbox.darwin-x64",
+    "win32:x64": "@wasm-sandbox/wasm-sandbox.win32-x64-msvc",
+  }[process.platform + ":" + process.arch];
+  if (!nativePackage) return false;
+  try {
+    const require = createRequire(path.join(app.getAppPath(), "package.json"));
+    const runtimePackagePath = require.resolve("@wasm-sandbox/runtime/package.json");
+    if (JSON.parse(readFileSync(runtimePackagePath, "utf8")).version !== WASM_SANDBOX_RUNTIME_VERSION) return false;
+    const runtimeEntry = require.resolve("@wasm-sandbox/runtime");
+    createRequire(runtimeEntry).resolve(nativePackage);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const MIN_NODE_MAC = [24, 5, 0];
 const MIN_NODE_WINDOWS = [24, 21, 0];
@@ -53,10 +73,10 @@ function resourceRoot(): string {
   for (const root of candidates) {
     const manifestPath = path.join(root, "manifest.json");
     if (!existsSync(manifestPath)) continue;
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { enabled?: boolean; platform?: string; arch?: string; files?: Record<string, string> };
-    if (manifest.enabled !== true || manifest.platform !== process.platform || manifest.arch !== process.arch) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { enabled?: boolean; platform?: string; arch?: string; files?: Record<string, string>; target?: string; wasmSandboxRuntimeVersion?: string };
+    if (manifest.enabled !== true || manifest.platform !== process.platform || manifest.arch !== process.arch || manifest.target !== "wasm32-wasip2" || manifest.wasmSandboxRuntimeVersion !== WASM_SANDBOX_RUNTIME_VERSION) continue;
     const executable = process.platform === "win32" ? ".exe" : "";
-    const required = ["rust-toolchain/bin/rustc" + executable, "rust-toolchain/bin/cargo" + executable, "wasmer/wasmer" + executable, "sdk/Cargo.toml", "template/Cargo.toml", "template/Cargo.lock", "template/src/main.rs"];
+    const required = ["rust-toolchain/bin/rustc" + executable, "rust-toolchain/bin/cargo" + executable, "sdk/Cargo.toml", "template/Cargo.toml", "template/Cargo.lock", "template/src/main.rs"];
     let valid = true;
     for (const relative of required) {
       const absolute = path.join(root, ...relative.split("/"));
@@ -69,6 +89,7 @@ function resourceRoot(): string {
 }
 function configFor(workspaceValue: string): SandboxConfig {
   if (process.platform !== "darwin" && process.platform !== "win32") throw new Error("MXC sandbox currently supports macOS and Windows only. This platform fails closed.");
+  if (!runtimePackageAvailable()) throw new Error("The pinned @wasm-sandbox/runtime native package is unavailable for this platform.");
   const workspace = realpathSync(workspaceValue);
   const root = resourceRoot();
   const helper = app.isPackaged
@@ -79,16 +100,14 @@ function configFor(workspaceValue: string): SandboxConfig {
   const toolchain = path.join(root, "rust-toolchain");
   const sdk = path.join(root, "sdk");
   const template = path.join(root, "template");
-  const wasmer = path.join(root, "wasmer", "wasmer" + executable);
   const node = resolveNode24();
   const env: Record<string, string> = {
-    PATH: [path.dirname(node), path.join(toolchain, "bin"), path.dirname(wasmer), process.env.PATH ?? ""].filter(Boolean).join(path.delimiter),
+    PATH: [path.dirname(node), path.join(toolchain, "bin"), process.env.PATH ?? ""].filter(Boolean).join(path.delimiter),
     WORKSPACE_DIR: workspace,
     HOST_PLATFORM: process.platform,
     RUST_TOOLCHAIN_DIR: toolchain,
     RUST_SDK_DIR: sdk,
     RUST_TEMPLATE_DIR: template,
-    WASMER_BIN: wasmer,
     NODE_NO_WARNINGS: "1",
     NODE_USE_SYSTEM_CA: "1",
     NODE_USE_ENV_PROXY: "1",
@@ -117,7 +136,7 @@ export class RustSandboxClient {
   private starting: Promise<void> | null = null;
 
   isAvailable(): boolean {
-    try { resourceRoot(); return process.platform === "darwin" || process.platform === "win32"; }
+    try { resourceRoot(); return runtimePackageAvailable() && (process.platform === "darwin" || process.platform === "win32"); }
     catch { return false; }
   }
 

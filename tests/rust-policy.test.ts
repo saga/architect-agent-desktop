@@ -2,8 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   RUST_SOURCE_LIMIT,
+  WASM_FUEL_LIMIT,
   WASM_MEMORY_LIMIT,
-  buildWasmerArgs,
+  WASM_RUN_TIMEOUT_MS,
+  WASM_STACK_LIMIT,
+  buildWasmSandboxOptions,
   compareFileHashes,
   isExcludedWorkspaceEntry,
   isSafeRelativePath,
@@ -39,16 +42,17 @@ test("snapshot excludes credentials, dependency trees and build output", () => {
   assert.equal(isExcludedWorkspaceEntry("package.json", false), false);
 });
 
-test("Wasmer runs WASI Preview 1 with the Singlepass backend and a single workspace volume", () => {
-  const args = buildWasmerArgs("/bundle/wasmer", "/tmp/run/workspace", "/tmp/run/task.wasm");
-  assert.equal(args[0], "/bundle/wasmer");
-  assert.deepEqual(args.slice(1, 4), ["run", "--singlepass", "--disable-cache"]);
-  assert.ok(args.includes("--volume"));
-  assert.ok(args.includes("/tmp/run/workspace:/workspace"));
-  assert.ok(args.includes("--stack-size"));
-  assert.ok(args.includes("1048576"));
-  assert.equal(args.at(-1), "/tmp/run/task.wasm");
-  assert.equal(WASM_MEMORY_LIMIT, 256 * 1024 * 1024);
+test("WASM Sandbox receives only the staged workspace and explicit resource quotas", () => {
+  const options = buildWasmSandboxOptions("/tmp/run/task.wasm", "/tmp/run/workspace");
+  assert.equal(options.wasmFile, "/tmp/run/task.wasm");
+  assert.equal(options.programName, "desktop_agent_task");
+  assert.deepEqual(options.mapDirs, [{ key: "/tmp/run/workspace", value: "/workspace" }]);
+  assert.deepEqual(options.allowedOutboundHosts, []);
+  assert.equal(options.wasmTimeout, WASM_RUN_TIMEOUT_MS / 1000);
+  assert.equal(options.wasmMaxMemorySize, WASM_MEMORY_LIMIT);
+  assert.equal(options.wasmMaxWasmStack, WASM_STACK_LIMIT);
+  assert.equal(options.wasmFuel, WASM_FUEL_LIMIT);
+  assert.equal(options.workDir, undefined);
 });
 
 test("file diff distinguishes added, modified and deleted paths", () => {

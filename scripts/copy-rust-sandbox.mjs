@@ -9,6 +9,7 @@ for (const [sourceName, outputName] of [
   ["mcp-server.mjs", "mxc-mcp-server.mjs"],
   ["rust-execution.mjs", "rust-execution.mjs"],
   ["rust-policy.mjs", "rust-policy.mjs"],
+  ["rust-wasm-runner.mjs", "rust-wasm-runner.mjs"],
 ]) {
   await fs.copyFile(path.join(root, "src", "main", "sandbox", sourceName), path.join(destination, outputName));
 }

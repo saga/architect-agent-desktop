@@ -3,6 +3,8 @@ export const RUST_INPUT_LIMIT = 64 * 1024;
 export const SNAPSHOT_FILE_LIMIT = 5000;
 export const SNAPSHOT_BYTE_LIMIT = 100 * 1024 * 1024;
 export const WASM_MEMORY_LIMIT = 256 * 1024 * 1024;
+export const WASM_STACK_LIMIT = 8 * 1024 * 1024;
+export const WASM_FUEL_LIMIT = 100_000_000;
 export const WASM_RUN_TIMEOUT_MS = 60_000;
 export const RUST_BUILD_TIMEOUT_MS = 180_000;
 
@@ -68,16 +70,19 @@ export function isExcludedWorkspaceEntry(name, isDirectory) {
   return false;
 }
 
-export function buildWasmerArgs(wasmerPath, workspacePath, wasmPath) {
-  return [
-    wasmerPath,
-    "run",
-    "--singlepass",
-    "--disable-cache",
-    "--stack-size", "1048576",
-    "--volume", workspacePath + ":/workspace",
-    wasmPath,
-  ];
+export function buildWasmSandboxOptions(wasmFile, workspacePath) {
+  return {
+    wasmFile,
+    programName: "desktop_agent_task",
+    args: [],
+    mapDirs: [{ key: workspacePath, value: "/workspace" }],
+    envVars: [{ key: "HOME", value: "/workspace" }],
+    allowedOutboundHosts: [],
+    wasmTimeout: WASM_RUN_TIMEOUT_MS / 1000,
+    wasmMaxMemorySize: WASM_MEMORY_LIMIT,
+    wasmMaxWasmStack: WASM_STACK_LIMIT,
+    wasmFuel: WASM_FUEL_LIMIT,
+  };
 }
 
 export function compareFileHashes(before, after) {

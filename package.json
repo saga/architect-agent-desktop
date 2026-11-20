@@ -15,7 +15,7 @@
     "package:mac": "npm run typecheck && npm test && npm run build && npm run package:rust-sandbox && electron-builder --mac dmg zip --publish never",
     "package:win": "npm run typecheck && npm test && npm run build && npm run package:rust-sandbox && electron-builder --win nsis --publish never",
     "test:layout": "npm run build && node --test tests/layout-engine.test.mjs",
-    "test": "node --check scripts/rust-toolchain-discovery.mjs && node --check scripts/package-rust-sandbox.mjs && node --check src/main/sandbox/mcp-server.mjs && node --check src/main/sandbox/rust-execution.mjs && node --check src/main/sandbox/rust-policy.mjs && vitest run",
+    "test": "node --check scripts/rust-toolchain-discovery.mjs && node --check scripts/package-rust-sandbox.mjs && node --check src/main/sandbox/mcp-server.mjs && node --check src/main/sandbox/rust-execution.mjs && node --check src/main/sandbox/rust-wasm-runner.mjs && node --check src/main/sandbox/rust-policy.mjs && vitest run",
     "package:rust-sandbox": "node scripts/package-rust-sandbox.mjs --require",
     "package": "npm run typecheck && npm test && npm run build && npm run package:rust-sandbox && electron-builder --publish never"
   },
@@ -29,7 +29,8 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zod": "^4.6.7",
-    "@microsoft/mxc-sdk": "1.1.0"
+    "@microsoft/mxc-sdk": "1.1.0",
+    "@wasm-sandbox/runtime": "1.3.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -66,8 +67,7 @@
         "Contents/Resources/rust-sandbox/rust-toolchain/bin/rustc",
         "Contents/Resources/rust-sandbox/rust-toolchain/bin/cargo",
         "Contents/Resources/rust-sandbox/rust-toolchain/lib/**/*.dylib",
-        "Contents/Resources/rust-sandbox/rust-toolchain/lib/rustlib/**/bin/rust-lld",
-        "Contents/Resources/rust-sandbox/wasmer/wasmer"
+        "Contents/Resources/rust-sandbox/rust-toolchain/lib/rustlib/**/bin/rust-lld"
       ]
     },
     "dmg": {
@@ -95,7 +95,8 @@
       "**/node_modules/@microsoft/mxc-sdk/**",
       "**/node_modules/koffi/**",
       "**/node_modules/node-pty/**",
-      "**/node_modules/semver/**"
+      "**/node_modules/semver/**",
+      "**/node_modules/@wasm-sandbox/**"
     ],
     "extraResources": [
       {

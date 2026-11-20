@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { discoverRustToolchain, discoverWasmer } from "./rust-toolchain-discovery.mjs";
+import { discoverRustToolchain } from "./rust-toolchain-discovery.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const destination = path.join(root, "resources", "rust-sandbox");
@@ -15,15 +16,17 @@ if (!supported.has(platformKey)) {
   throw new Error("Rust/WASM packaging supports macOS arm64/x64 and Windows x64 only; got " + platformKey);
 }
 
+const require = createRequire(import.meta.url);
+const runtimePackagePath = require.resolve("@wasm-sandbox/runtime/package.json");
+const runtimePackage = JSON.parse(await fs.readFile(runtimePackagePath, "utf8"));
+const runtimeModule = await import("@wasm-sandbox/runtime");
+if (runtimePackage.version !== "1.3.0" || typeof runtimeModule.default?.run !== "function") {
+  throw new Error("The pinned @wasm-sandbox/runtime 1.3.0 native run() binding is unavailable.");
+}
+
 let discovered;
-let rustc;
-let cargo;
-let wasmer;
 try {
   discovered = discoverRustToolchain();
-  rustc = discovered.rustc;
-  cargo = discovered.cargo;
-  wasmer = discoverWasmer();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   if (required) throw new Error(message);
@@ -31,11 +34,12 @@ try {
   process.exit(0);
 }
 
+const rustc = discovered.rustc;
+const cargo = discovered.cargo;
 const toolchain = path.resolve(discovered.toolchain);
-wasmer = path.resolve(wasmer);
 const executable = process.platform === "win32" ? ".exe" : "";
-for (const candidate of [rustc, cargo, discovered.targetLibrary, wasmer]) {
-  await fs.access(candidate).catch(() => { throw new Error("Required Rust/WASM resource is missing: " + candidate); });
+for (const candidate of [rustc, cargo, discovered.targetLibrary]) {
+  await fs.access(candidate).catch(() => { throw new Error("Required Rust/WASI resource is missing: " + candidate); });
 }
 
 const rustcVersion = execFileSync(rustc, ["--version"], { encoding: "utf8" }).trim();
@@ -52,19 +56,9 @@ const rustMatch = /rustc\s+(\d+)\.(\d+)\.(\d+)/.exec(rustcVersion);
 if (!rustMatch || Number(rustMatch[1]) !== 1 || Number(rustMatch[2]) < 85) {
   throw new Error("Rust 1.85 or later is required.");
 }
-const wasmerVersion = execFileSync(wasmer, ["--version"], { encoding: "utf8" }).trim();
-const wasmerMatch = /wasmer\s+(\d+)\.(\d+)\.(\d+)/i.exec(wasmerVersion);
-const wasmerNumbers = wasmerMatch?.slice(1).map(Number) ?? [];
-if (wasmerNumbers.length !== 3 || wasmerNumbers[0] < 7 || (wasmerNumbers[0] === 7 && wasmerNumbers[1] < 3)) {
-  throw new Error("Wasmer CLI 7.3.0 or later is required.");
-}
-const reportedTarget = execFileSync(rustc, ["--print", "target-libdir", "--target", "wasm32-wasip1"], { encoding: "utf8" }).trim();
+const reportedTarget = execFileSync(rustc, ["--print", "target-libdir", "--target", "wasm32-wasip2"], { encoding: "utf8" }).trim();
 if (path.resolve(reportedTarget) !== path.resolve(discovered.targetLibrary)) {
-  throw new Error("Rust target-libdir does not resolve to the expected wasm32-wasip1 target directory.");
-}
-const runHelp = execFileSync(wasmer, ["run", "--help"], { encoding: "utf8" });
-for (const option of ["--singlepass", "--volume", "--disable-cache", "--stack-size"]) {
-  if (!runHelp.includes(option)) throw new Error("Wasmer CLI lacks required run option " + option);
+  throw new Error("Rust target-libdir does not resolve to the expected wasm32-wasip2 target directory.");
 }
 
 await fs.rm(staging, { recursive: true, force: true });
@@ -76,12 +70,6 @@ try {
   await fs.copyFile(cargo, path.join(toolchainOut, "bin", "cargo" + executable));
   await fs.cp(path.join(toolchain, "lib"), path.join(toolchainOut, "lib"), { recursive: true, dereference: true });
 
-  const wasmerOut = path.join(staging, "wasmer");
-  await fs.mkdir(wasmerOut, { recursive: true });
-  const packagedWasmer = path.join(wasmerOut, "wasmer" + executable);
-  await fs.copyFile(wasmer, packagedWasmer);
-  if (process.platform !== "win32") await fs.chmod(packagedWasmer, 0o755);
-
   await fs.cp(path.join(root, "src/main/sandbox/rust-sdk"), path.join(staging, "sdk"), { recursive: true });
   await fs.cp(path.join(root, "src/main/sandbox/rust-template"), path.join(staging, "template"), { recursive: true });
 
@@ -90,8 +78,8 @@ try {
   const rustLicenses = path.join(toolchain, "share", "doc", "rust", "licenses");
   await fs.access(rustLicenses);
   await fs.cp(rustLicenses, path.join(licenses, "rust"), { recursive: true });
-  await fs.writeFile(path.join(licenses, "wasmer-NOTICE.txt"),
-    "Wasmer Runtime is distributed under the licenses published by the Wasmer project.\nSource and license texts: https://github.com/wasmerio/wasmer\n", "utf8");
+  const runtimeLicense = path.join(path.dirname(runtimePackagePath), "LICENSE");
+  await fs.copyFile(runtimeLicense, path.join(licenses, "wasm-sandbox-LICENSE.txt"));
 
   const hashes = {};
   async function hashTree(directory, prefix = "") {
@@ -104,14 +92,23 @@ try {
   }
   await hashTree(staging);
   await fs.writeFile(path.join(staging, "manifest.json"), JSON.stringify({
-    schemaVersion: 1, enabled: true, platform: process.platform, arch: process.arch,
-    rustcVersion, cargoVersion, wasmerVersion, target: "wasm32-wasip1",
-    sdkVersion: "0.1.0", templateVersion: "0.1.0", files: hashes,
+    schemaVersion: 1,
+    enabled: true,
+    platform: process.platform,
+    arch: process.arch,
+    rustcVersion,
+    cargoVersion,
+    target: "wasm32-wasip2",
+    wasmSandboxRuntime: "@wasm-sandbox/runtime",
+    wasmSandboxRuntimeVersion: runtimePackage.version,
+    sdkVersion: "0.1.0",
+    templateVersion: "0.1.0",
+    files: hashes,
   }, null, 2) + "\n", "utf8");
 
   await fs.rm(destination, { recursive: true, force: true });
   await fs.rename(staging, destination);
-  console.log("[rust-sandbox] Packaged " + platformKey + " / " + rustcVersion + " / " + wasmerVersion);
+  console.log("[rust-sandbox] Packaged " + platformKey + " / " + rustcVersion + " / @wasm-sandbox/runtime " + runtimePackage.version);
 } catch (error) {
   await fs.rm(staging, { recursive: true, force: true });
   throw error;

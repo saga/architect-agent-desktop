@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import readline from 'node:readline';
+import { createRequire } from 'node:module';
 import { createRustExecutionService } from './rust-execution.mjs';
 import {
   getPlatformSupport,
@@ -9,6 +10,7 @@ import {
   spawn,
 } from '@microsoft/mxc-sdk/v1';
 
+const require = createRequire(import.meta.url);
 const workspace = fs.realpathSync(process.env.WORKSPACE_DIR ?? '');
 const platform = process.env.HOST_PLATFORM ?? process.platform;
 const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'architect-agent-mxc-'));
@@ -22,23 +24,45 @@ const pathEntries = (process.env.PATH ?? '').split(path.delimiter).filter((entry
   return !relative.split(path.sep).some((part) => secretDirectories.has(part.toLowerCase()));
 });
 
+const nativeRuntimePackage = {
+  "darwin:arm64": "@wasm-sandbox/wasm-sandbox.darwin-arm64",
+  "darwin:x64": "@wasm-sandbox/wasm-sandbox.darwin-x64",
+  "win32:x64": "@wasm-sandbox/wasm-sandbox.win32-x64-msvc",
+}[process.platform + ":" + process.arch];
+let wasmSandboxRuntimePaths = [];
+try {
+  if (nativeRuntimePackage) {
+    const runtimeEntry = require.resolve("@wasm-sandbox/runtime");
+    const runtimeRequire = createRequire(runtimeEntry);
+    wasmSandboxRuntimePaths = [
+      path.dirname(runtimeEntry),
+      path.dirname(runtimeRequire.resolve(nativeRuntimePackage)),
+    ];
+  }
+} catch {
+  wasmSandboxRuntimePaths = [];
+}
+const wasmSandboxRuntimeAvailable = wasmSandboxRuntimePaths.length === 2 && (() => {
+  try { return JSON.parse(fs.readFileSync(require.resolve("@wasm-sandbox/runtime/package.json"), "utf8")).version === "1.3.0"; } catch { return false; }
+})();
+
 const readonlyPaths = platform === 'win32'
   ? [...new Set([
       process.env.SystemRoot,
       process.env.ProgramFiles,
       process.env['ProgramFiles(x86)'],
       ...pathEntries,
+      ...wasmSandboxRuntimePaths,
     ].filter(Boolean))]
   : [...new Set([
       '/System', '/usr', '/bin', '/sbin', '/Library/Developer/CommandLineTools',
-      '/opt/homebrew', '/usr/local', ...pathEntries,
+      '/opt/homebrew', '/usr/local', ...pathEntries, ...wasmSandboxRuntimePaths,
     ])];
 
 for (const entry of [
   process.env.RUST_TOOLCHAIN_DIR,
   process.env.RUST_SDK_DIR,
   process.env.RUST_TEMPLATE_DIR,
-  process.env.WASMER_BIN ? path.dirname(process.env.WASMER_BIN) : '',
 ]) {
   if (entry && !readonlyPaths.includes(entry)) readonlyPaths.push(entry);
 }
@@ -99,19 +123,18 @@ const rustResourcesAvailable = Boolean(
   process.env.RUST_TOOLCHAIN_DIR
   && process.env.RUST_SDK_DIR
   && process.env.RUST_TEMPLATE_DIR
-  && process.env.WASMER_BIN
+  && wasmSandboxRuntimeAvailable
   && fs.existsSync(path.join(process.env.RUST_TOOLCHAIN_DIR, 'bin', platform === 'win32' ? 'cargo.exe' : 'cargo'))
   && fs.existsSync(path.join(process.env.RUST_TOOLCHAIN_DIR, 'bin', platform === 'win32' ? 'rustc.exe' : 'rustc'))
-  && fs.existsSync(path.join(process.env.RUST_TOOLCHAIN_DIR, 'lib', 'rustlib', 'wasm32-wasip1', 'lib'))
+  && fs.existsSync(path.join(process.env.RUST_TOOLCHAIN_DIR, 'lib', 'rustlib', 'wasm32-wasip2', 'lib'))
   && fs.existsSync(path.join(process.env.RUST_SDK_DIR, 'Cargo.toml'))
   && fs.existsSync(path.join(process.env.RUST_TEMPLATE_DIR ?? '', 'Cargo.toml'))
   && fs.existsSync(path.join(process.env.RUST_TEMPLATE_DIR ?? '', 'Cargo.lock'))
   && fs.existsSync(path.join(process.env.RUST_TEMPLATE_DIR ?? '', 'src', 'main.rs'))
-  && fs.existsSync(process.env.WASMER_BIN)
 );
 
 const rustTempDirectory = rustResourcesAvailable
-  ? fs.mkdtempSync(path.join(os.tmpdir(), 'architect-agent-rust-'))
+  ? fs.mkdtempSync(path.join(tempDirectory, 'rust-'))
   : null;
 
 const rustExecution = rustResourcesAvailable
@@ -123,7 +146,8 @@ const rustExecution = rustResourcesAvailable
       rustToolchainDirectory: process.env.RUST_TOOLCHAIN_DIR,
       rustSdkDirectory: process.env.RUST_SDK_DIR,
       rustTemplateDirectory: process.env.RUST_TEMPLATE_DIR,
-      wasmerPath: process.env.WASMER_BIN,
+      runtimeReadonlyPaths: wasmSandboxRuntimePaths,
+      helperDirectory: path.dirname(process.argv[1] ?? process.cwd()),
       spawn,
       activeProcesses,
       cancelledRequests,

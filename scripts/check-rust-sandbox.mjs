@@ -16,8 +16,10 @@ if (manifest.enabled !== true || manifest.platform !== process.platform || manif
 const packagedToolchain = path.join(packagedRoot, "rust-toolchain");
 const cargo = path.join(packagedToolchain, "bin", "cargo" + executable);
 const rustc = path.join(packagedToolchain, "bin", "rustc" + executable);
-const wasmer = path.join(packagedRoot, "wasmer", "wasmer" + executable);
-await Promise.all([fs.access(cargo), fs.access(rustc), fs.access(wasmer)]);
+await Promise.all([fs.access(cargo), fs.access(rustc)]);
+if (manifest.target !== "wasm32-wasip2" || manifest.wasmSandboxRuntime !== "@wasm-sandbox/runtime" || manifest.wasmSandboxRuntimeVersion !== "1.3.0") throw new Error("Packaged WASM Sandbox runtime manifest is invalid.");
+const runtime = await import("@wasm-sandbox/runtime");
+if (typeof runtime.default?.run !== "function") throw new Error("@wasm-sandbox/runtime native run() binding is unavailable.");
 const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "architect-agent-rust-check-"));
 const workspace = path.join(temporaryRoot, "workspace");
 const executionTemp = path.join(temporaryRoot, "execution-temp");
@@ -84,7 +86,6 @@ const service = createRustExecutionService({
   rustToolchainDirectory: packagedToolchain,
   rustSdkDirectory: sdk,
   rustTemplateDirectory: path.join(packagedRoot, "template"),
-  wasmerPath: wasmer,
   spawn: spawnForTest,
   activeProcesses: new Map(),
   cancelledRequests: new Set(),
@@ -116,7 +117,7 @@ try {
 
   const output = await fs.readFile(path.join(workspace, "output.txt"), "utf8");
   if (output !== "WASM SANDBOX WORKS") throw new Error("Approved Rust diff was not applied to the workspace.");
-  console.log("[rust-sandbox] Bundled Rust compiler and Wasmer compiled, executed, diffed, and applied a WASI module successfully.");
+  console.log("[rust-sandbox] Bundled Rust compiler and @wasm-sandbox/runtime compiled, executed, diffed, and applied a WASI Component successfully.");
 } finally {
   await service.dispose();
   await fs.rm(temporaryRoot, { recursive: true, force: true });

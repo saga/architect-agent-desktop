@@ -13,12 +13,10 @@ export function findExecutable(name, options = {}) {
   const platform = options.platform ?? process.platform;
   const home = options.home ?? os.homedir();
   const delimiter = platform === "win32" ? ";" : path.delimiter;
-  const explicit = name === "rustc" ? env.RUSTC : name === "cargo" ? env.CARGO : name === "wasmer" ? env.WASMER_BIN : undefined;
+  const explicit = name === "rustc" ? env.RUSTC : name === "cargo" ? env.CARGO : undefined;
   const cargoHome = env.CARGO_HOME || path.join(home, ".cargo");
-  const wasmerHome = env.WASMER_HOME || path.join(home, ".wasmer");
   const directories = [
     ...((name === "rustc" || name === "cargo") ? [path.join(cargoHome, "bin"), path.join(home, ".cargo", "bin")] : []),
-    ...(name === "wasmer" ? [path.join(wasmerHome, "bin"), wasmerHome] : []),
     ...(env.PATH || "").split(delimiter).filter(Boolean),
   ];
   const candidates = explicit ? [explicit] : [];
@@ -46,15 +44,10 @@ export function discoverRustToolchain(options = {}) {
   const cargo = fs.existsSync(cargoInSysroot) ? cargoInSysroot : findExecutable("cargo", options);
   if (!fs.existsSync(rustc)) throw new Error("The active Rust sysroot does not contain rustc: " + rustc);
   if (!cargo) throw new Error("Cargo not found in the active Rust toolchain or PATH.");
-  const targetLibrary = run(rustc, ["--print", "target-libdir", "--target", "wasm32-wasip1"], { encoding: "utf8" }).trim();
+  const targetLibrary = run(rustc, ["--print", "target-libdir", "--target", "wasm32-wasip2"], { encoding: "utf8" }).trim();
   if (!targetLibrary || !fs.existsSync(targetLibrary)) {
-    throw new Error("Rust target wasm32-wasip1 is not installed. Run: rustup target add wasm32-wasip1");
+    throw new Error("Rust target wasm32-wasip2 is not installed. Run: rustup target add wasm32-wasip2");
   }
   return { toolchain: sysroot, rustc, cargo, targetLibrary };
 }
 
-export function discoverWasmer(options = {}) {
-  const executable = findExecutable("wasmer", options);
-  if (!executable) throw new Error("Wasmer CLI not found. Install Wasmer 7.3.0+ and add its bin directory to PATH, or set WASMER_HOME/WASMER_BIN.");
-  return executable;
-}

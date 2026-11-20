@@ -21,9 +21,9 @@ This is the browser foundation, not a complete replacement for Chrome, Edge or F
 
 ## Requirements
 
-- Node.js 22.13 or newer.
+- Node.js 24.5 or newer.
 - npm.
-- Git, Rust 1.85+ with Cargo, and Wasmer CLI 7.3.0+ for packaging the Rust/WASM execution runtime.
+- Git and Rust 1.85+ with Cargo for packaging the Rust/WASM execution runtime. The application includes the pinned @wasm-sandbox/runtime 1.3.0 native runtime.
 - macOS or Windows for native packaging. Development can also run on Linux.
 
 ## Development
@@ -42,11 +42,11 @@ The compiled application is written to the dist/ directory.
 
 ## Package for desktop
 
-Install Wasmer CLI 7.3.0+ and the Rust WASI target before packaging:
+Install the Rust WASI Preview 2 target before packaging:
 
-    rustup target add wasm32-wasip1
+    rustup target add wasm32-wasip2
 
-The packaging script bundles the active Rust compiler/Cargo toolchain and the Wasmer CLI. WASM execution uses Wasmer's Singlepass backend; it does not build or link Cranelift/Wasmer from source.
+The packaging script bundles the active Rust compiler/Cargo toolchain. Rust compiles directly to a WASI Preview 2 Component, which @wasm-sandbox/runtime executes with explicit filesystem capabilities, memory, fuel and timeout limits. No separate runtime CLI or Component conversion step is required.
 
 On macOS:
 
