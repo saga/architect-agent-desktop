@@ -1489,7 +1489,7 @@ function registerIpcHandlers(): void {
     await activateAgentTask(task.id);
     return task;
   });
-  ipcMain.handle("agent-expert:save", (event, input: unknown) => {
+  ipcMain.handle("agent-expert:save", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再修改 Expert。");
     const parsed = z.object({
@@ -1512,7 +1512,7 @@ function registerIpcHandlers(): void {
     agentExperts = [...agentExperts.filter(item => item.id !== expert.id), expert].sort((a, b) => a.name.localeCompare(b.name));
     persistAgentExperts();
     const activeTask = taskForId();
-    if (activeTask.expertId === expert.id) void activateAgentTask(activeTask.id);
+    if (activeTask.expertId === expert.id) await activateAgentTask(activeTask.id);
     publishAgentWorkspaceSnapshot();
     return agentExperts;
   });
