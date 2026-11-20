@@ -1491,6 +1491,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-expert:save", async (event, input: unknown) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后修改 Expert。");
     if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再修改 Expert。");
     const parsed = z.object({
       id: z.string().min(1).max(100),
@@ -1518,6 +1519,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-expert:delete", async (event, input: unknown) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后删除 Expert。");
     if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再删除 Expert。");
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Expert ID.");
