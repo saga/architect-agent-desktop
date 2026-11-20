@@ -189,17 +189,20 @@ export function exportPlugin(pluginId: string, pluginRoot: string, destinationDi
   return destination;
 }
 
-export function readEnabledPluginInstructions(pluginRoot: string, registryPath: string): string {
+export function readEnabledPluginInstructions(pluginRoot: string, registryPath: string, selectedSkills?: string[], selectedTools?: string[]): string {
   const chunks: string[] = [];
   let remaining = MAX_SKILL_CONTEXT;
   for (const plugin of listPlugins(pluginRoot, registryPath).filter(item => item.enabled)) {
-    if (plugin.tools.length && remaining > 0) {
-      const chunk = "### " + plugin.name + " / 宿主工具引用\n" + plugin.tools.join(", ") + "\n这些标识只用于说明插件依赖的宿主工具，不会授予权限；工具仍受应用当前权限设置约束。";
+    const availableTools = selectedTools === undefined ? plugin.tools : plugin.tools.filter(tool => selectedTools.includes(tool));
+    if (availableTools.length && remaining > 0) {
+      const chunk = "### " + plugin.name + " / 宿主工具引用\n" + availableTools.join(", ") + "\n这些标识只用于说明插件依赖的宿主工具，不会授予权限；工具仍受应用当前权限设置约束。";
       chunks.push(chunk);
       remaining -= chunk.length;
     }
     const resources = [
-      ...plugin.skills.map(resource => ({ kind: "Skill", path: resource })),
+      ...plugin.skills
+        .filter(resource => selectedSkills === undefined || selectedSkills.includes(plugin.id + ":" + resource))
+        .map(resource => ({ kind: "Skill", path: resource })),
       ...plugin.workflows.map(resource => ({ kind: "Workflow 模板", path: resource })),
     ];
     for (const resource of resources) {
