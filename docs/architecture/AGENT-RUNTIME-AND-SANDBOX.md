@@ -1,8 +1,8 @@
 # Agent Runtime、Code Mode 与安全沙箱设计
 
-**状态：** Trusted Skill Runtime 已实现；Rust/WASI + MXC 后端已接入 Allow all 工具链，仍需平台实机与安装包 CI 验证  
-**范围：** Electron 主进程、Agent Skills、本地 Workspace、JavaScript Code Mode 与 Rust/WASI 生成代码执行  
-**目标：** 保留可信 Skill 与现有 Agent 工具工作流，同时为生成的 Rust 代码提供可审计、可限制的 WASI 执行边界。
+**状态：** Trusted Skill Runtime 与 JavaScript Code Mode 已实现；UtilityProcess 不构成安全沙箱  
+**范围：** Electron 主进程、Agent Skills、本地 Workspace 与 JavaScript Code Mode  
+**目标：** 保留可信 Skill 与现有 Agent 工具工作流，明确 JavaScript Code Mode 的权限和隔离边界；不提供独立的生成代码编译执行后端。
 
 ## 1. 设计结论
 
@@ -19,7 +19,7 @@ Electron 内置 Node.js 可以执行本地 JavaScript/TypeScript 编译产物，
 
 1. **trusted-skill**：由用户明确认可、来源可信的本地 Skill 脚本，继续使用 Electron UtilityProcess 中的 Node.js 执行。它只提供故障隔离，不提供恶意代码隔离保证。
 2. **JavaScript execute_code**：现有 Code Mode 用于组合 Agent 暴露的工具 API，继续保留在 UtilityProcess 中以兼容现有工作流。UtilityProcess 可直接访问 Node.js API，因此这条路径不是安全沙箱，不应承载需要抵御恶意代码的任务。
-3. **Rust execute_rust**：LLM 生成的 Rust 代码通过固定 Cargo Template 编译为 WASI Preview 2 Component，再由 `@wasm-sandbox/runtime` 在 MXC 隔离环境中执行。它只在 Allow all、工作区和平台资源均满足条件时开放；执行结果先形成 Snapshot/Diff，之后才可应用。
+3. **Generated Code**：不提供独立的编译执行路径。JavaScript `execute_code` 仅用于编排当前已授权工具，不应被视为不可信代码的安全执行环境。
 
 不能把 UtilityProcess、node:vm、Worker Thread 或 Prompt 约束描述成不可信代码的安全边界。
 
@@ -27,24 +27,19 @@ Electron 内置 Node.js 可以执行本地 JavaScript/TypeScript 编译产物，
 
     Agent / LLM
        |
-       | Skill invocation / generated program
        v
     Agent Runtime API
        |
        +-- Execution Policy
        |     +-- trusted-skill -> Native UtilityProcess Backend
-       |     +-- JavaScript execute_code -> UtilityProcess (compatibility; not a security boundary)
-       |     +-- generated Rust -> Rust/WASI + @wasm-sandbox/runtime in MXC (platform-gated)
+       |     +-- JavaScript execute_code -> UtilityProcess (tool orchestration only)
        |
        +-- Capability Host
        |     +-- Workspace: list / read / write
-       |     +-- HTTP: future handler
-       |     +-- Database: future handler
-       |     +-- Browser / MCP / Tools: future host adapters
+       |     +-- Browser / MCP / Tools: host adapters
        |
        +-- Lifecycle
-             +-- timeout
-             +-- AbortSignal cancellation
+             +-- timeout / cancellation
              +-- process exit / crash handling
              +-- output and log limits
              +-- Agent Trace integration point
@@ -81,7 +76,7 @@ Native UtilityProcess 中的 Skill 仍然可以直接调用 Node.js 的 fs、pro
 - 只允许执行可信来源的本地 Skill。
 - 不要把从网络下载、未经审查的插件脚本自动标记为可信。
 - 不要把 Capability 列表当成对任意 Node.js 代码的强制限制。
-- 不要把 Native UtilityProcess 后端用于 LLM 生成的临时代码；生成的 Rust 只能走第 9 节定义的 Rust/WASI + MXC 路径。
+- 不要把 Native UtilityProcess 后端用于执行未经审查的 LLM 生成代码。
 
 当前 Runtime 是可供宿主集成的基础模块，不会自动改变现有 Plugin Registry 的声明式插件行为；现有插件继续只提供 Markdown Skill、Workflow 和宿主 Tool 引用。
 
@@ -89,16 +84,15 @@ Native UtilityProcess 中的 Skill 仍然可以直接调用 Node.js 的 fs、pro
 
 两者共享 Runtime API、Capability 定义、生命周期和 Trace 格式，但执行策略不同。
 
-| 项目 | Trusted Skill | JavaScript Code Mode | Generated Rust |
-|---|---|---|---|
-| 来源 | 用户认可的本地脚本 | LLM 生成的工具编排代码 | LLM 生成的 Rust 模块 |
-| Runtime | UtilityProcess / Node.js | UtilityProcess / Node.js | MXC + @wasm-sandbox/runtime / WASI Preview 2 |
-| Node.js 原生 API | 可用，仅限可信代码 | 技术上可访问，不是安全边界 | Guest 不提供 Node.js Runtime |
-| Capability | 宿主授权检查 | 通过工具 Broker，但直接 Node API 可绕过 | 通过 WASI Guest API 和宿主执行策略 |
-| 网络 | 不因 Capability 而自动安全 | 不能依赖 UtilityProcess 限制网络 | 默认禁用 |
-| 文件系统 | 进程仍可访问当前用户权限范围 | Broker 工具受限，但直接 Node API 可绕过 | 只读 Snapshot，修改形成独立 Diff |
-| 依赖 | Skill 自身依赖 | 应只编排当前声明的工具 | 固定 Cargo Template、Lockfile 和 SDK |
-| 当前状态 | 已实现 | 保留现有兼容行为，不作为安全沙箱 | 已接入，受平台和 Allow all 条件限制 |
+| 项目 | Trusted Skill | JavaScript Code Mode |
+|---|---|---|
+| 来源 | 用户认可的本地脚本 | LLM 生成的工具编排代码 |
+| Runtime | UtilityProcess / Node.js | UtilityProcess / Node.js |
+| Node.js 原生 API | 可用，仅限可信代码 | 技术上可访问，不是安全边界 |
+| Capability | 宿主授权检查 | 通过 Tool Broker，但直接 Node API 可绕过 |
+| 文件系统 | 进程仍可访问当前用户权限范围 | Broker 工具受限，但直接 Node API 可绕过 |
+| 依赖 | Skill 自身依赖 | 只编排当前声明的工具 |
+| 当前状态 | 已实现 | 已实现，不作为安全沙箱 |
 
 Code Mode 的价值在于让模型把多个操作组合成一段程序，例如遍历架构文档、读取文件、查询数据、调用工具并生成报告。它不是“给模型一个 eval()”，而是让模型编排有明确输入输出和权限边界的 API。
 
@@ -180,20 +174,7 @@ Linux 的 Bubblewrap/NSJail 不能直接解决 macOS 和 Windows。桌面应用�
 - 运行时只暴露 Skill 声明且用户授权的 Capability。
 - 增加恶意路径、符号链接、超时、异常退出和输出洪泛测试。
 
-### Phase 3：Rust/WASI Generated Code Sandbox
-
-- [x] 固定 Cargo Template、SDK、Lockfile 和模型可写的 Rust 模块边界。
-- [x] 通过 MXC 执行 Cargo 离线编译与 WASI Preview 2 Component 执行。
-- [x] Workspace Snapshot、Diff、Hash 校验和独立 Apply 操作。
-- [x] macOS Seatbelt 与 Windows ProcessContainer 后端接入；不支持的平台失败关闭。
-- [x] 平台资源打包、manifest 校验和原生平台 CI 矩阵。
-- [ ] 完成 macOS / Windows 安装包 CI 与实际安装验证。
-- [ ] 增加真实设备上的越权文件访问、网络探测、资源耗尽和清理测试。
-- [ ] 为更高风险工作负载评估更强的隔离后端；MXC ProcessContainer 不等同于 VM。
-
-JavaScript `execute_code` 仍然是现有工具编排路径，不会因为 Rust/WASI 后端落地而自动获得同等级的安全隔离。
-
-### Phase 4：Code Mode 与 Agent 协作
+### Phase 3：Code Mode 与 Agent 协作
 
 - Agent 先读取可用 API/Capability Schema，再生成短程序。
 - 代码、输入、输出和 Capability 请求均关联同一个 Trace。
@@ -205,38 +186,9 @@ JavaScript `execute_code` 仍然是现有工具编排路径，不会因为 Rust/
 
 - 主进程不执行 LLM 生成的任意代码。
 - Renderer 和远程网页不能访问 Runtime IPC 或 Node.js 对象。
-- Generated Rust 在 MXC / WASI 资源或平台后端不可用时必须失败关闭。
 - JavaScript `execute_code` 不得被描述成安全沙箱，且不能用于承载需要抵御恶意代码的执行任务。
 - 未声明或未授权的 Capability 调用被 Host 拒绝。
 - Workspace 路径穿越、绝对路径和符号链接访问被拒绝。
 - 超时、取消和 UtilityProcess 崩溃不会使主进程挂起。
 - 结果、日志和 Capability 返回值有大小上限。
 - 文档清楚区分进程隔离、Runtime 隔离和 OS 级安全边界。
-
-
-## 9. Rust/WASI Generated Code Backend
-
-Generated Rust is executed through a separate MXC helper process, not through the Electron UtilityProcess. The helper uses `@microsoft/mxc-sdk` with the macOS Seatbelt or Windows ProcessContainer backend, then compiles a fixed Cargo project for `wasm32-wasip2` and runs the resulting WASI Preview 2 Component with `@wasm-sandbox/runtime` in a dedicated Node child process launched through MXC.
-
-The implementation is deliberately additive:
-
-- `trusted-skill` remains on the existing Native UtilityProcess backend.
-- The existing JavaScript `execute_code` Code Mode remains unchanged for compatibility. UtilityProcess is still not a security boundary; its JavaScript is not promoted to the Rust/WASI isolation level.
-- `execute_rust` and `apply_rust_changes` are added as separate tools. They are exposed only when Allow all is selected, a workspace is selected, and platform-matched Rust/WASI resources are present.
-- The Rust guest receives a filtered workspace snapshot and task input. The WASI host grants access only to the staged workspace mapping and no outbound hosts; MXC remains the outer OS process boundary. The result is a staged diff; applying it requires the exact run ID and diff returned by the execution tool.
-- The Rust compiler, Cargo, SDK and template are packaged under `resources/rust-sandbox`; `@wasm-sandbox/runtime` 1.3.0 and its platform-specific N-API binary are pinned application dependencies and unpacked from ASAR. The host maps only the staged workspace to `/workspace`, sets an empty outbound-host allowlist, and applies guest memory, stack, fuel and timeout quotas. The runtime verifies platform, architecture and hashes from `manifest.json` before enabling the tools.
-- Linux is fail-closed. The supported packaging matrix is macOS ARM64, macOS x64 and Windows x64.
-
-The MXC boundary is not a VM. On Windows, ProcessContainer is not equivalent to AppContainer or a micro-VM; its effective isolation depends on the host capabilities reported by MXC. A missing backend, mismatched resource manifest, unsupported OS or missing Node.js helper runtime must fail closed (24.5.0+ on macOS; 24.21.0+ or 26.8.0+ on Windows) rather than execute Rust on the host.
-
-The apply operation is guarded by the app's Allow all permission mode. It is not a separate per-diff confirmation dialog; do not describe it as one. Workspace hashes, path validation and staged-file hashes are rechecked before writes.
-
-### Packaging and validation
-
-- `npm run build` copies the MCP helper, Rust execution service, policy module and WASM runner script into the Electron build output.
-- `npm run package:rust-sandbox` requires platform-native Rust 1.85+ with `wasm32-wasip2` and the pinned `@wasm-sandbox/runtime` 1.3.0 npm dependency.
-  The packaging script discovers the active Rust toolchain from `rustc` and `cargo` on `PATH`, including `CARGO_HOME/bin` and `~/.cargo/bin`, resolves the sysroot and checks that `wasm32-wasip2` is installed. Normally no project-specific environment variables are required. For non-standard Rust installations, set `RUSTC` or `CARGO_HOME`, or add the executable directories to `PATH`. Install the target once with `rustup target add wasm32-wasip2` if it is missing.
-- `npm run package` builds the app, prepares Rust resources and invokes Electron Builder.
-- CI has native macOS ARM64, macOS x64 and Windows x64 package jobs. CI artifacts are unsigned unless signing credentials are configured separately.
-- The resource smoke test validates the packaged compiler and native runtime binding, then executes the SDK guest through the WASI Preview 2 Component API. It does not replace an end-to-end MXC escape-resistance test on a user's actual OS installation.
-

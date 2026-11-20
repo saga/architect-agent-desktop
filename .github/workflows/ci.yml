@@ -36,16 +36,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip2
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-      - name: Build installer and package Rust/WASI runtime
+      - name: Build installer
         run: npm run package
-      - name: Verify packaged Rust/WASM resources
-        shell: bash
-        run: node scripts/check-rust-sandbox.mjs
       - name: Report installer size and signing state
         shell: bash
         run: |

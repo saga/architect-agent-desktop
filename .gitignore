@@ -6,8 +6,6 @@ node_modules/
 dist/
 release/
 out/
-resources/rust-sandbox/
-resources/rust-sandbox.staging-*/
 
 # Environment and local settings
 .env
