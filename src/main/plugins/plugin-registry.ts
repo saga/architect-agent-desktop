@@ -144,16 +144,18 @@ export function importPlugin(sourceDirectory: string, pluginRoot: string, regist
   const destination = path.join(pluginRoot, manifest.id);
   if (existsSync(destination)) throw new Error("插件已安装：" + manifest.id);
   const temporary = path.join(pluginRoot, "." + manifest.id + ".importing");
+  let destinationCreated = false;
   try {
     cpSync(sourceDirectory, temporary, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true });
     validatePluginDirectory(temporary);
     renameSync(temporary, destination);
+    destinationCreated = true;
     const registry = readRegistry(registryPath);
     registry.enabled[manifest.id] = true;
     writeRegistry(registryPath, registry);
   } catch (error) {
     rmSync(temporary, { recursive: true, force: true });
-    rmSync(destination, { recursive: true, force: true });
+    if (destinationCreated) rmSync(destination, { recursive: true, force: true });
     throw error;
   }
   return { ...manifest, enabled: true };

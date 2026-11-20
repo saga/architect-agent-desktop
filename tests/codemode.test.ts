@@ -105,9 +105,23 @@ describe("normalizeCode", () => {
       .toBe("async () => {\nconst tabs = await browser.listTabs();\nreturn tabs;\n}");
   });
 
-  it("preserves an async arrow function", () => {
-    const code = "async () => { return await browser.listTabs(); }";
-    expect(normalizeCode(code)).toBe(code);
+  it("parses a single async arrow expression and removes a trailing semicolon", () => {
+    const code = "async () => { return await browser.listTabs(); };";
+    expect(normalizeCode(code)).toBe("async () => { return await browser.listTabs(); }");
+  });
+
+  it("wraps a function declaration followed by statements as one async body", () => {
+    const code = "async function main() { return 1; }\\nreturn await main();";
+    expect(normalizeCode(code)).toBe("async () => {\\n" + code + "\\n}");
+  });
+
+  it("wraps ordinary function declarations and calls as statements", () => {
+    const code = "function main() { return 1; }\\nreturn main();";
+    expect(normalizeCode(code)).toBe("async () => {\\n" + code + "\\n}");
+  });
+
+  it("keeps a non-function expression as an expression", () => {
+    expect(normalizeCode("await browser.listTabs();")).toBe("await browser.listTabs()");
   });
 
   it("rejects empty source", () => {

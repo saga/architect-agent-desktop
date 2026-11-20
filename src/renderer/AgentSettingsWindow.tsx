@@ -51,7 +51,7 @@ export default function AgentSettingsWindow() {
     void refreshPlugins();
     void window.browser.agentDataGetDirectory().then(setAgentDataDirectory).catch((error: unknown) => message.error(error instanceof Error ? error.message : String(error)));
     void window.browser.agentGetSettings()
-      .then(async value => { setSettings(value); await inspect(value.provider); })
+      .then(value => { setSettings(value); setModels([]); })
       .catch((error: unknown) => message.error(error instanceof Error ? error.message : String(error)))
       .finally(() => setLoading(false));
   }, [inspect, refreshPlugins]);
@@ -162,7 +162,7 @@ export default function AgentSettingsWindow() {
               }),
             ]} />
           <div className="settings-field-help">
-            <Button type="link" size="small" loading={inspecting} onClick={() => void inspect(settings.provider)}>重新 Inspect 模型</Button>
+            <Button type="link" size="small" loading={inspecting} onClick={() => void inspect(settings.provider)}>Inspect / 刷新模型</Button>
             {inspectError && <span>{inspectError}</span>}
           </div>
         </Form.Item>

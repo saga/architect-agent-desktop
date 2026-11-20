@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button, Empty, Input, Tabs, Tooltip, message } from "antd";
 import { ArrowLeftOutlined, ArrowRightOutlined, FileOutlined, FolderOpenOutlined, GlobalOutlined, ReloadOutlined } from "@ant-design/icons";
 import XMarkdown from "@ant-design/x-markdown";
+import { markdownComponents } from "./MarkdownLink";
 import type { AgentSessionItem, AgentWorkspaceRightTab, AgentWorkspaceSnapshot, BrowserState } from "../shared/types";
 
 interface PureAgentRightPanelProps {
@@ -27,6 +28,7 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
   const [fileContent, setFileContent] = useState("");
   const [contentLoading, setContentLoading] = useState(false);
   const [messages, setMessages] = useState<AgentSessionItem[]>([]);
+  const fileRequestId = useRef(0);
   const currentTab = browserState.tabs.find(tab => tab.id === browserState.activeTabId);
 
   useEffect(() => { setAddress(currentTab?.url ?? ""); }, [currentTab?.id, currentTab?.url]);
@@ -70,7 +72,7 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
       .then(result => { if (active) setFiles(result); })
       .catch(error => { if (active) message.error(error instanceof Error ? error.message : String(error)); })
       .finally(() => { if (active) setFileLoading(false); });
-    return () => { active = false; };
+    return () => { active = false; fileRequestId.current += 1; };
   }, [task?.workspacePath, activeTab]);
 
   useEffect(() => {
@@ -85,11 +87,18 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
 
   const openFile = async (file: string) => {
     if (!task?.workspacePath) return;
+    const requestId = ++fileRequestId.current;
+    const workspacePath = task.workspacePath;
     setSelectedFile(file);
     setContentLoading(true);
-    try { setFileContent(await window.browser.agentWorkspaceReadFile(task.workspacePath, file)); }
-    catch (error) { setFileContent(error instanceof Error ? error.message : String(error)); }
-    finally { setContentLoading(false); }
+    try {
+      const content = await window.browser.agentWorkspaceReadFile(workspacePath, file);
+      if (requestId === fileRequestId.current) setFileContent(content);
+    } catch (error) {
+      if (requestId === fileRequestId.current) setFileContent(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (requestId === fileRequestId.current) setContentLoading(false);
+    }
   };
 
   const navigate = () => {
@@ -155,7 +164,7 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
     {activeTab === "results" && <div className="pure-results-list">
       {resultMessages.length ? resultMessages.map(item => <article className={"pure-result-item " + item.kind} key={item.id}>
         <div className="pure-result-meta">{item.kind === "error" ? "错误" : "Agent 结果"} · {new Date(item.createdAt).toLocaleString()}</div>
-        {item.kind === "assistant" ? <XMarkdown content={item.content} escapeRawHtml /> : <pre>{item.content}</pre>}
+        {item.kind === "assistant" ? <XMarkdown content={item.content} components={markdownComponents} escapeRawHtml /> : <pre>{item.content}</pre>}
       </article>) : <Empty description="完成任务后，Agent 的结果会显示在这里" />}
     </div>}
   </aside>;

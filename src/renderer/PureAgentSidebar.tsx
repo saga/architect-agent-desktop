@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Tooltip } from "antd";
 import { CalendarOutlined, FolderOpenOutlined, PlusOutlined, RobotOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
 import type { AgentTask, AgentWorkspaceSnapshot } from "../shared/types";
@@ -27,6 +27,13 @@ export default function PureAgentSidebar({
   onActivateWorkspace, onOpenSettings, onSwitchToSidepanel,
 }: PureAgentSidebarProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(snapshot.workspaces.map(item => item.path ?? "__personal__")));
+  const knownWorkspaceKeys = useRef(new Set(snapshot.workspaces.map(item => item.path ?? "__personal__")));
+  useEffect(() => {
+    const currentKeys = new Set(snapshot.workspaces.map(item => item.path ?? "__personal__"));
+    const added = [...currentKeys].filter(key => !knownWorkspaceKeys.current.has(key));
+    if (added.length) setExpanded(current => new Set([...current, ...added]));
+    knownWorkspaceKeys.current = currentKeys;
+  }, [snapshot.workspaces]);
   const tasksByWorkspace = useMemo(() => {
     const grouped = new Map<string, AgentTask[]>();
     for (const task of snapshot.tasks) {

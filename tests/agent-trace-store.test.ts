@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,6 +16,39 @@ afterEach(() => {
 });
 
 describe("AgentTraceStore", () => {
+  it("preserves shared object references while still redacting true cycles", () => {
+    const store = new AgentTraceStore(temporaryDirectory());
+    const shared = { label: "shared-safe-value" };
+    const cyclic: Record<string, unknown> = { label: "cycle" };
+    cyclic.self = cyclic;
+    store.record({ sessionId: "session-shared", traceId: "trace-shared", workspacePath: null, type: "test", data: { first: shared, second: shared, cyclic } });
+    const data = store.query({ traceId: "trace-shared" })[0]?.data as Record<string, any>;
+    expect(data.first).toEqual({ label: "shared-safe-value" });
+    expect(data.second).toEqual({ label: "shared-safe-value" });
+    expect(data.cyclic.self).toBe("[Circular]");
+    store.close();
+  });
+
+  it("keeps the old store open when switching to an unavailable directory", () => {
+    const root = temporaryDirectory();
+    const blockedPath = path.join(root, "not-a-directory");
+    writeFileSync(blockedPath, "file");
+    const store = new AgentTraceStore(root);
+    expect(() => store.setDirectory(blockedPath)).toThrow();
+    expect(store.getDirectory()).toBe(path.resolve(root));
+    store.record({ sessionId: "session-after-failure", traceId: "trace-after-failure", workspacePath: null, type: "still-open" });
+    expect(store.query({ traceId: "trace-after-failure" })).toHaveLength(1);
+    store.close();
+  });
+
+  it("supports in-memory fallback storage", () => {
+    const store = new AgentTraceStore(":memory:");
+    store.record({ sessionId: "memory-session", traceId: "memory-trace", workspacePath: null, type: "memory.test" });
+    expect(store.query({ traceId: "memory-trace" })).toHaveLength(1);
+    expect(store.getDirectory()).toBe(":memory:");
+    store.close();
+  });
+
   it("persists session and trace events with ordered sequence numbers", () => {
     const store = new AgentTraceStore(temporaryDirectory());
     store.record({ sessionId: "session-a", traceId: "trace-a", workspacePath: "/workspace/a", type: "turn.started", status: "running", data: { prompt: "hello" } });

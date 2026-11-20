@@ -4,6 +4,7 @@ import { FolderOpenOutlined, HistoryOutlined, MoreOutlined, SettingOutlined } fr
 import SessionExplorer from "./SessionExplorer";
 import { Bubble, Sender } from "@ant-design/x";
 import XMarkdown from "@ant-design/x-markdown";
+import { markdownComponents } from "./MarkdownLink";
 import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } from "../shared/types";
 
 type ChatItem = AgentSessionItem & { streaming?: boolean };
@@ -33,22 +34,6 @@ function ToolCard({ name, detail, state }: { name: string; detail: string; state
     {detail.trim() && <pre className="agent-tool-detail">{detail.trim()}</pre>}
   </div>;
 }
-
-function MarkdownLink(props: any) {
-  const href = typeof props.href === "string" ? props.href : "";
-  return <a href={href} title={typeof props.title === "string" ? props.title : undefined}
-    onClick={(event) => {
-      if (!href) return;
-      event.preventDefault();
-      if (href.startsWith("#")) {
-        document.getElementById(href.slice(1))?.scrollIntoView({ behavior: "smooth", block: "center" });
-        return;
-      }
-      void (typeof window.browser.openExternal === "function" ? window.browser.openExternal(href) : Promise.resolve()).catch(() => undefined);
-    }}>{props.children}</a>;
-}
-
-const markdownComponents = { a: MarkdownLink };
 
 const bubbleRoles = {
   assistant: (data: any) => ({

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Popconfirm, message } from "antd";
 import { CalendarOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { AgentSchedule, AgentWorkspaceSnapshot } from "../shared/types";
@@ -37,6 +37,12 @@ export default function ScheduleManager({ snapshot, onChanged }: ScheduleManager
     setRunAt(localDateTimeValue(new Date(Date.now() + 60 * 60 * 1000)));
     setRepeat("none");
   };
+
+  useEffect(() => {
+    if (!showForm) return;
+    setWorkspacePath(activeTask?.workspacePath ?? "");
+    setExpertId(activeTask?.expertId ?? "");
+  }, [showForm, activeTask?.id, activeTask?.workspacePath, activeTask?.expertId]);
 
   const create = async () => {
     if (!title.trim() || !prompt.trim() || !runAt) {
@@ -97,7 +103,7 @@ export default function ScheduleManager({ snapshot, onChanged }: ScheduleManager
         <h1>Schedule</h1>
         <p>为 Agent 安排一次性或周期性任务。调度器在桌面应用运行期间执行。</p>
       </div>
-      <Button type="primary" icon={<PlusOutlined />} onClick={() => setShowForm(value => !value)}>New schedule</Button>
+      <Button type="primary" icon={<PlusOutlined />} onClick={() => { if (!showForm) reset(); setShowForm(value => !value); }}>New schedule</Button>
     </header>
 
     {showForm && <section className="pure-editor-card">

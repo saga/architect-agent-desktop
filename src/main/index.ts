@@ -16,10 +16,11 @@ import {
 } from "electron";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { CopilotDesktopAgent } from "./copilot";
+import { AGENT_TOOL_IDS, CopilotDesktopAgent } from "./copilot";
 import { AgentTraceStore } from "./agent-trace-store";
 import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
+import { isTrustedAppUrl } from "./app-url-policy";
 import { readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspaceSnapshot, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { parseAgentSessionItems } from "./agent-session";
@@ -89,9 +90,24 @@ function loadAgentDataDirectory(): string {
   } catch { /* use the application default */ }
   return path.join(app.getPath("userData"), "agent-data");
 }
-const agentTraceStore = new AgentTraceStore(loadAgentDataDirectory());
+function createAgentTraceStore(): AgentTraceStore {
+  const configured = loadAgentDataDirectory();
+  try { return new AgentTraceStore(configured); }
+  catch (primaryError) {
+    const fallback = path.join(app.getPath("userData"), "agent-data");
+    console.error("[agent-trace] configured data directory is unavailable", primaryError);
+    if (path.resolve(configured) !== path.resolve(fallback)) {
+      try { return new AgentTraceStore(fallback); }
+      catch (fallbackError) { console.error("[agent-trace] default data directory is unavailable", fallbackError); }
+    }
+    return new AgentTraceStore(":memory:");
+  }
+}
+const agentTraceStore = createAgentTraceStore();
 let activeAgentTraceId: string | null = null;
 let activeAgentTaskId = "";
+let agentRequestPending = false;
+let taskActivationPending = false;
 let scheduledCapture: { taskId: string; answer: string; error?: string } | null = null;
 function currentTraceSessionId(): string {
   const task = agentTasks.find(item => item.id === activeAgentTaskId);
@@ -99,16 +115,20 @@ function currentTraceSessionId(): string {
 }
 function recordAgentTrace(type: string, data: unknown, status?: string): void {
   const sessionId = currentTraceSessionId();
-  agentTraceStore.record({
-    sessionId,
-    traceId: activeAgentTraceId ?? randomUUID(),
-    workspacePath: workspaceProject.path,
-    provider: agentSettings.provider,
-    model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel,
-    type,
-    status,
-    data,
-  });
+  try {
+    agentTraceStore.record({
+      sessionId,
+      traceId: activeAgentTraceId ?? randomUUID(),
+      workspacePath: workspaceProject.path,
+      provider: agentSettings.provider,
+      model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel,
+      type,
+      status,
+      data,
+    });
+  } catch (error) {
+    recordOperation("agent-trace", "trace write failed: " + (error instanceof Error ? error.message : String(error)));
+  }
 }
 const LEGACY_AGENT_SESSION_PATH = path.join(app.getPath("userData"), "agent-session.json");
 const WORKSPACE_PROJECT_PATH = path.join(app.getPath("userData"), "workspace-project.json");
@@ -410,9 +430,22 @@ function createAgentTaskRecord(input: { title?: string; workspacePath?: string |
 }
 async function activateAgentTask(taskId: string, publish = true, scheduled = false): Promise<AgentTask> {
   if (scheduleRunnerActive && !scheduled) throw new Error("本地 Schedule 正在执行，请稍后切换 Task。");
-  if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再切换 Task。");
+  if (taskActivationPending || copilotAgent.isBusy()) throw new Error("另一个 Task 切换或 Agent 请求正在运行，请稍后重试。");
+  taskActivationPending = true;
+  try {
   const task = taskForId(taskId);
-  const nextWorkspace = safeWorkspaceProject(task.workspacePath);
+  let nextWorkspace: WorkspaceProject;
+  try {
+    nextWorkspace = safeWorkspaceProject(task.workspacePath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+    const missingPath = task.workspacePath;
+    recordOperation("workspace", "Task " + task.id + " references a missing Workspace: " + missingPath);
+    // Keep the original path on the Task so the user can reselect or restore it.
+    // The active Agent runtime is detached from the missing directory.
+    nextWorkspace = { path: null, name: null };
+  }
   const expert = task.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined;
   await copilotAgent.setWorkspacePath(nextWorkspace.path);
   await copilotAgent.setTaskContext(expert ? {
@@ -431,6 +464,9 @@ async function activateAgentTask(taskId: string, publish = true, scheduled = fal
     publishAgentWorkspaceSnapshot();
   }
   return task;
+  } finally {
+    taskActivationPending = false;
+  }
 }
 let downloadSequence = 0;
 
@@ -1134,6 +1170,18 @@ async function recoverWindowRenderer(window: BrowserWindow, details: Electron.Re
   app.quit();
 }
 function attachWindowDiagnostics(window: BrowserWindow, label: string, recoverWithDialog = false): void {
+  const isAllowedUrl = (url: string) => isTrustedAppUrl(
+    url,
+    path.join(__dirname, "../renderer/index.html"),
+    process.env.VITE_DEV_SERVER_URL,
+  );
+  window.webContents.on("will-navigate", (event, url) => {
+    if (!isAllowedUrl(url)) event.preventDefault();
+  });
+  window.webContents.on("will-redirect", (event, url) => {
+    if (!isAllowedUrl(url)) event.preventDefault();
+  });
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("preload-error", (_event, preloadPath, error) => {
     recordCrash(`${label}-preload-error`, new Error(`${preloadPath}: ${error.message}`));
   });
@@ -1260,9 +1308,18 @@ function floatAgentPanel(): void {
     agentPanelWindow.show(); agentPanelWindow.focus(); return;
   }
   const savedBounds = workspaceDocument.floating.find((item) => item.panelId === "agent")?.bounds;
+  const requestedBounds = savedBounds ?? { x: 120, y: 100, width: 480, height: 760 };
+  const workArea = screen.getDisplayMatching(requestedBounds).workArea;
+  const width = Math.min(Math.max(360, requestedBounds.width), workArea.width);
+  const height = Math.min(Math.max(480, requestedBounds.height), workArea.height);
+  const restoredBounds = {
+    x: Math.max(workArea.x, Math.min(requestedBounds.x, workArea.x + workArea.width - width)),
+    y: Math.max(workArea.y, Math.min(requestedBounds.y, workArea.y + workArea.height - height)),
+    width,
+    height,
+  };
   const window = new BrowserWindow({
-    parent: mainWindow, x: savedBounds?.x ?? 120, y: savedBounds?.y ?? 100,
-    width: savedBounds?.width ?? 480, height: savedBounds?.height ?? 760, minWidth: 360, minHeight: 480,
+    parent: mainWindow, ...restoredBounds, minWidth: 360, minHeight: 480,
     title: "Browser Agent", backgroundColor: "#ffffff", autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
@@ -1367,19 +1424,30 @@ function openAgentSettingsWindow(): void {
 }
 
 function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
-  if (!isTrustedAppSender(event.sender)) {
-    throw new Error("Untrusted IPC sender");
+  const frame = event.senderFrame;
+  if (
+    !isTrustedAppSender(event.sender)
+    || !frame
+    || frame !== event.sender.mainFrame
+    || !isTrustedAppUrl(frame.url, path.join(__dirname, "../renderer/index.html"), process.env.VITE_DEV_SERVER_URL)
+  ) {
+    throw new Error("Untrusted IPC sender or frame");
   }
 }
 
 let scheduleRunnerActive = false;
 let schedulerTimer: NodeJS.Timeout | null = null;
 async function processDueAgentSchedules(): Promise<void> {
-  if (scheduleRunnerActive || copilotAgent.isBusy()) return;
+  if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) return;
   scheduleRunnerActive = true;
   try {
     const due = agentSchedules.filter(item => item.enabled && Date.parse(item.runAt) <= Date.now()).sort((a, b) => Date.parse(a.runAt) - Date.parse(b.runAt));
-    for (const schedule of due) {
+    for (const candidate of due) {
+      const schedule = agentSchedules.find(item =>
+        item.id === candidate.id && item.enabled && item.runAt === candidate.runAt
+        && item.updatedAt === candidate.updatedAt && item.prompt === candidate.prompt
+      );
+      if (!schedule) continue;
       if (copilotAgent.isBusy()) break;
       const previousTaskId = activeAgentTaskId;
       const runStartedAt = Date.now();
@@ -1468,7 +1536,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("agent-task:create", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后新建 Task。");
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再新建 Task。");
+    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再新建 Task。");
     const parsed = z.object({
       title: z.string().trim().max(120).optional(),
       workspacePath: z.string().max(4096).nullable().optional(),
@@ -1489,7 +1557,9 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-task:activate", async (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Task。");
+    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+      throw new Error("Agent 正在运行或切换 Task，请稍后重试。");
+    }
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Task ID.");
     return activateAgentTask(parsed.data);
@@ -1499,7 +1569,7 @@ function registerIpcHandlers(): void {
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Expert。");
     const parsed = z.object({ taskId: z.string().min(1).max(100), expertId: z.string().max(100).nullable() }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Task Expert assignment.");
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再切换 Expert。");
+    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再切换 Expert。");
     if (parsed.data.expertId && !agentExperts.some(item => item.id === parsed.data.expertId)) throw new Error("所选 Expert 不存在。");
     const task = taskForId(parsed.data.taskId);
     task.expertId = parsed.data.expertId;
@@ -1512,19 +1582,25 @@ function registerIpcHandlers(): void {
   ipcMain.handle("agent-workspace:add", async (event) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后添加 Workspace。");
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再添加 Workspace。");
-    const { canceled, filePaths } = await dialog.showOpenDialog({ title: "添加 Workspace 文件夹", properties: ["openDirectory"] });
-    if (canceled || !filePaths[0]) return null;
-    const selected = safeWorkspaceProject(realpathSync(filePaths[0]));
-    const existing = agentTasks.filter(task => task.workspacePath === selected.path).sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    const task = existing ?? createAgentTaskRecord({ workspacePath: selected.path, title: selected.name + " · New task" });
-    await activateAgentTask(task.id);
-    return task;
+    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再添加 Workspace。");
+    taskActivationPending = true;
+    try {
+      const { canceled, filePaths } = await dialog.showOpenDialog({ title: "添加 Workspace 文件夹", properties: ["openDirectory"] });
+      if (canceled || !filePaths[0]) return null;
+      const selected = safeWorkspaceProject(realpathSync(filePaths[0]));
+      const existing = agentTasks.filter(task => task.workspacePath === selected.path).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      const task = existing ?? createAgentTaskRecord({ workspacePath: selected.path, title: selected.name + " · New task" });
+      taskActivationPending = false;
+      await activateAgentTask(task.id);
+      return task;
+    } finally {
+      taskActivationPending = false;
+    }
   });
-  ipcMain.handle("agent-expert:save", async (event, input: unknown) => {
+    ipcMain.handle("agent-expert:save", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后修改 Expert。");
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再修改 Expert。");
+    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再修改 Expert。");
     const parsed = z.object({
       id: z.string().min(1).max(100),
       name: z.string().trim().min(1).max(80),
@@ -1538,7 +1614,7 @@ function registerIpcHandlers(): void {
     if (new Set(parsed.data.skills).size !== parsed.data.skills.length || new Set(parsed.data.tools).size !== parsed.data.tools.length) throw new Error("Expert Skills 和 Tools 不能重复。");
     const pluginSkills = listPlugins(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH).flatMap(plugin => plugin.skills.map(skill => plugin.id + ":" + skill));
     if (parsed.data.skills.some(skill => !pluginSkills.includes(skill))) throw new Error("Expert 引用了不存在或未安装的 Plugin Skill。");
-    if (parsed.data.tools.some(tool => !/^[a-z][a-z0-9_]{1,100}$/.test(tool))) throw new Error("Expert 包含无效的 Tool ID。");
+    if (parsed.data.tools.some(tool => !AGENT_TOOL_IDS.has(tool))) throw new Error("Expert 包含不存在或当前应用不支持的 Tool ID。");
     const previous = agentExperts.find(item => item.id === parsed.data.id);
     const timestamp = Date.now();
     const expert: AgentExpert = { ...parsed.data, createdAt: previous?.createdAt ?? timestamp, updatedAt: timestamp };
@@ -1552,21 +1628,23 @@ function registerIpcHandlers(): void {
   ipcMain.handle("agent-expert:delete", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后删除 Expert。");
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再删除 Expert。");
+    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再删除 Expert。");
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Expert ID.");
+    const activeTaskUsesExpert = taskForId().expertId === parsed.data;
     agentExperts = agentExperts.filter(item => item.id !== parsed.data);
     for (const task of agentTasks) if (task.expertId === parsed.data) task.expertId = null;
     for (const schedule of agentSchedules) if (schedule.expertId === parsed.data) schedule.expertId = null;
     persistAgentExperts();
     persistAgentTasks();
     persistAgentSchedules();
-    if (taskForId().expertId === null) await activateAgentTask(activeAgentTaskId);
+    if (activeTaskUsesExpert) await activateAgentTask(activeAgentTaskId);
     publishAgentWorkspaceSnapshot();
     return agentExperts;
   });
   ipcMain.handle("agent-schedule:save", (event, input: unknown) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后修改 Schedule。");
     const parsed = z.object({
       id: z.string().min(1).max(100),
       title: z.string().trim().min(1).max(120),
@@ -1590,6 +1668,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-schedule:delete", (event, input: unknown) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后删除 Schedule。");
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Schedule ID.");
     agentSchedules = agentSchedules.filter(item => item.id !== parsed.data);
@@ -1617,23 +1696,29 @@ function registerIpcHandlers(): void {
   ipcMain.handle("workspace:select-project", async (event) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Workspace。");
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再切换工作区。");
-    const { canceled, filePaths } = await dialog.showOpenDialog({ title: "选择本地工作区", properties: ["openDirectory"] });
-    if (canceled || !filePaths[0]) return null;
-    const selected = realpathSync(filePaths[0]);
-    if (!statSync(selected).isDirectory()) throw new Error("所选路径不是目录。");
-    const task = taskForId();
-    task.workspacePath = selected;
-    task.updatedAt = Date.now();
-    persistAgentTasks();
-    await activateAgentTask(task.id);
-    recordOperation("workspace", "select " + selected);
-    return { ...workspaceProject };
+    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再切换工作区。");
+    taskActivationPending = true;
+    try {
+      const { canceled, filePaths } = await dialog.showOpenDialog({ title: "选择本地工作区", properties: ["openDirectory"] });
+      if (canceled || !filePaths[0]) return null;
+      const selected = realpathSync(filePaths[0]);
+      if (!statSync(selected).isDirectory()) throw new Error("所选路径不是目录。");
+      const task = taskForId();
+      task.workspacePath = selected;
+      task.updatedAt = Date.now();
+      persistAgentTasks();
+      taskActivationPending = false;
+      await activateAgentTask(task.id);
+      recordOperation("workspace", "select " + selected);
+      return { ...workspaceProject };
+    } finally {
+      taskActivationPending = false;
+    }
   });
-  ipcMain.handle("workspace:clear-project", async (event) => {
+    ipcMain.handle("workspace:clear-project", async (event) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Workspace。");
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再清除工作区。");
+    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再清除工作区。");
     const task = taskForId();
     task.workspacePath = null;
     task.updatedAt = Date.now();
@@ -1751,7 +1836,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-data:select-directory", async (event) => {
     assertTrustedSender(event);
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等待当前请求结束后再切换 Agent Data 目录。");
+    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等待当前请求结束后再切换 Agent Data 目录。");
     const { canceled, filePaths } = await dialog.showOpenDialog({ title: "选择 Agent Data 目录", properties: ["openDirectory", "createDirectory"] });
     if (canceled || !filePaths[0]) return agentTraceStore.getDirectory();
     const directory = path.resolve(filePaths[0]);
@@ -1840,7 +1925,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.on("browser:set-content-bounds", (event, bounds: unknown) => {
-    if (!isTrustedAppSender(event.sender)) return;
+    if (!isTrustedAppSender(event.sender) || !event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isTrustedAppUrl(event.senderFrame.url, path.join(__dirname, "../renderer/index.html"), process.env.VITE_DEV_SERVER_URL)) return;
     const parsed = z.object({ top: z.number().finite().min(0).max(300), left: z.number().finite().min(0).max(10000), width: z.number().finite().min(0).max(10000) }).safeParse(bounds);
     if (!parsed.success) return;
     contentTop = Math.round(parsed.data.top);
@@ -1891,6 +1976,11 @@ function registerIpcHandlers(): void {
       history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(12000) })).max(20).optional(),
     }).safeParse(input);
     if (!parsed.success) throw new Error("Message must contain 1–30,000 characters.");
+    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+      throw new Error("Agent 正在处理其他请求或切换 Task，请稍后重试。");
+    }
+    agentRequestPending = true;
+    try {
     const task = taskForId(parsed.data.taskId);
     if (activeAgentTaskId !== task.id) await activateAgentTask(task.id);
     if (task.title === "New task" || task.title.endsWith(" · New task")) {
@@ -1916,6 +2006,9 @@ function registerIpcHandlers(): void {
       activeAgentTraceId = null;
       publishAgentWorkspaceSnapshot();
     }
+    } finally {
+      agentRequestPending = false;
+    }
   });
   ipcMain.handle("copilot:cancel", async (event) => {
     assertTrustedSender(event);
@@ -1932,12 +2025,19 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:save-session", (event, input: unknown) => {
     assertTrustedSender(event);
-    const parsed = z.object({ items: z.array(z.unknown()), taskId: z.string().min(1).max(100).optional() }).safeParse(input);
-    if (!parsed.success) throw new Error("Invalid Agent session.");
+    const parsed = z.object({ items: z.array(z.unknown()).max(2000), taskId: z.string().min(1).max(100).optional() }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Agent session: at most 2,000 messages are allowed.");
+    const serialized = JSON.stringify(parsed.data.items);
+    if (Buffer.byteLength(serialized, "utf8") > 5 * 1024 * 1024) throw new Error("Agent session exceeds the 5 MiB limit.");
+    const targetTaskId = parsed.data.taskId ?? activeAgentTaskId;
+    if (targetTaskId !== activeAgentTaskId) throw new Error("Cannot save a transcript for a Task that is no longer active.");
+    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+      throw new Error("Agent is still running or changing Task; the session save was rejected.");
+    }
     const items = parseAgentSessionItems(parsed.data.items);
-    saveAgentSession(items, parsed.data.taskId);
-    const task = taskForId(parsed.data.taskId);
-    agentTraceStore.record({ sessionId: task.sessionId, traceId: randomUUID(), workspacePath: task.workspacePath, provider: agentSettings.provider, model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel, type: "session.saved", status: "completed", data: { itemCount: items.length, storage: "sqlite-session-messages" } });
+    saveAgentSession(items, targetTaskId);
+    const task = taskForId(targetTaskId);
+    recordAgentTrace("session.saved", { itemCount: items.length, storage: "sqlite-session-messages", taskId: task.id }, "completed");
   });
   ipcMain.handle("agent:clear-session", (event, input?: unknown) => {
     assertTrustedSender(event);

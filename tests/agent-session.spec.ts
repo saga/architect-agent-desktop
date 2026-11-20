@@ -51,6 +51,13 @@ describe("parseAgentSessionItems", () => {
     expect(parsed.at(-1)!.content).toBe("message 249");
   });
 
+  it("retains only the newest 2,000 items when loading an oversized legacy transcript", () => {
+    const parsed = parseAgentSessionItems(Array.from({ length: 2_010 }, (_, index) => ({ kind: "user", content: String(index) })));
+    expect(parsed).toHaveLength(2_000);
+    expect(parsed[0]!.content).toBe("10");
+    expect(parsed.at(-1)!.content).toBe("2009");
+  });
+
   it("ignores unknown tool states", () => {
     const [item] = parseAgentSessionItems([{ kind: "tool", content: "x", toolState: "running" }]);
     expect(item!.toolState).toBeUndefined();

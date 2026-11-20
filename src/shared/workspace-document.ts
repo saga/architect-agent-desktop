@@ -101,19 +101,25 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
     const members = Array.isArray(row.panelIds) ? row.panelIds.filter((id): id is string => typeof id === "string").slice(0, 64) : [];
     const active = typeof row.activePanelId === "string" && members.includes(row.activePanelId) ? row.activePanelId : members[0] || "";
     const groupId = String(row.id || "");
-    if (!groupId || groupIds.has(groupId) || members.length === 0 || new Set(members).size !== members.length || members.some((id) => !panelIds.includes(id) || groupedPanels.has(id))) throw new Error("Invalid workspace tab group.");
+    if (!groupId || groupIds.has(groupId) || members.length === 0 || new Set(members).size !== members.length || members.some((id) => !panelIds.includes(id) || groupedPanels.has(id) || floating.some((item) => item.panelId === id))) throw new Error("Invalid workspace tab group.");
     groupIds.add(groupId); members.forEach((id) => groupedPanels.add(id));
     return { id: groupId, panelIds: members, activePanelId: active };
   });
   if (floating.some((item) => allNodeIds.has(item.id))) throw new Error("Floating root ID conflicts with layout tree.");
-  const activePanelId = typeof input.activePanelId === "string" ? input.activePanelId : "browser";
-  if (!panelIds.includes(activePanelId) && !floating.some((item) => item.panelId === activePanelId)) throw new Error("Active panel is not part of the workspace.");
+  const requestedActivePanelId = typeof input.activePanelId === "string" ? input.activePanelId : "";
+  const validActivePanel = panelIds.includes(requestedActivePanelId) || floating.some((item) => item.panelId === requestedActivePanelId);
+  const activePanelId = validActivePanel ? requestedActivePanelId : panelIds.find(id => !floating.some(item => item.panelId === id)) ?? floating[0]?.panelId ?? panelIds[0]!;
   return { version: 2, root, tabGroups, floating, activePanelId };
 }
 
 function setPanelVisible(root: LayoutNode, panelId: string, visible: boolean): LayoutNode {
   if (root.type === "panel") return root.id === panelId ? { ...root, visible } : root;
   return { ...root, first: setPanelVisible(root.first, panelId, visible), second: setPanelVisible(root.second, panelId, visible) };
+}
+
+function firstPanelId(node: LayoutNode, excludedPanelId: string): string | null {
+  if (node.type === "panel") return node.id === excludedPanelId ? null : node.id;
+  return firstPanelId(node.first, excludedPanelId) ?? firstPanelId(node.second, excludedPanelId);
 }
 
 export function createFloatingPanel(
@@ -125,7 +131,9 @@ export function createFloatingPanel(
   return {
     ...document,
     root: setPanelVisible(document.root, panelId, false),
-    activePanelId: document.activePanelId === panelId ? "browser" : document.activePanelId,
+    activePanelId: document.activePanelId === panelId
+      ? firstPanelId(document.root, panelId) ?? document.floating.find(item => item.panelId !== panelId)?.panelId ?? panelId
+      : document.activePanelId,
     tabGroups: document.tabGroups.map((group) => {
       const panelIds = group.panelIds.filter((id) => id !== panelId);
       return { ...group, panelIds, activePanelId: panelIds.includes(group.activePanelId) ? group.activePanelId : panelIds[0] || "" };

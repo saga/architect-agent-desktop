@@ -87,8 +87,9 @@ parentPort.on("message", (event) => {
           },
         })));
         const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => (...values: unknown[]) => Promise<unknown>;
-        const execute = new AsyncFunction(...providerNames, "log", '"use strict"; return await (' + (message.code as string) + ')();');
-        const value = await execute(...namespaces, api.log);
+        const execute = new AsyncFunction(...providerNames, "log", '"use strict"; return (' + (message.code as string) + ');');
+        let value = await execute(...namespaces, api.log);
+        if (typeof value === "function") value = await value();
         const maxOutputBytes = Number.isSafeInteger(message.maxOutputBytes) && Number(message.maxOutputBytes) > 0
           ? Number(message.maxOutputBytes)
           : 256 * 1024;

@@ -18,6 +18,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm run test:layout:run
   platform-package:
     name: Package ${{ matrix.label }}
     strategy:

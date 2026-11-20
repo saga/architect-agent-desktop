@@ -16,6 +16,11 @@ function workspaceRoot(root: string): string {
   return resolved;
 }
 
+function isSkippableDirectoryError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EACCES" || code === "EPERM" || code === "ENOENT" || code === "ENOTDIR";
+}
+
 function assertInside(root: string, target: string, allowRoot = false): void {
   const relative = path.relative(root, target);
   if ((!allowRoot && !relative) || relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) {
@@ -85,16 +90,27 @@ export function listWorkspaceFiles(rootInput: string): string {
     if (depth > 5 || files.length >= MAX_LIST_FILES) return;
     const canonicalDirectory = realpathSync(directory);
     assertInside(root, canonicalDirectory, true);
-    for (const entry of readdirSync(canonicalDirectory, { withFileTypes: true })) {
+    let entries;
+    try {
+      entries = readdirSync(canonicalDirectory, { withFileTypes: true });
+    } catch (error) {
+      if (canonicalDirectory !== root && isSkippableDirectoryError(error)) return;
+      throw error;
+    }
+    for (const entry of entries) {
       if (files.length >= MAX_LIST_FILES) break;
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
         if (SKIP_DIRECTORIES.has(entry.name)) continue;
         const childPath = path.join(canonicalDirectory, entry.name);
-        const canonicalChild = realpathSync(childPath);
-        assertInside(root, canonicalChild);
-        if (canonicalChild !== childPath) continue;
-        walk(canonicalChild, depth + 1);
+        try {
+          const canonicalChild = realpathSync(childPath);
+          assertInside(root, canonicalChild);
+          if (canonicalChild !== childPath) continue;
+          walk(canonicalChild, depth + 1);
+        } catch (error) {
+          if (!isSkippableDirectoryError(error)) throw error;
+        }
       } else if (entry.isFile()) {
         files.push(path.relative(root, path.join(canonicalDirectory, entry.name)).split(path.sep).join("/"));
       }
@@ -113,7 +129,9 @@ export function searchWorkspaceFiles(rootInput: string, query: string): string {
   const root = workspaceRoot(rootInput);
   const needle = query.trim().toLocaleLowerCase();
   if (needle.length < 2 || needle.length > 200) throw new Error("搜索关键词长度必须为 2–200 个字符。");
-  const files = listWorkspaceFiles(root).split("\n").filter(Boolean);
+  const listing = listWorkspaceFiles(root);
+  if (listing === "工作区中没有可列出的文件。") return "没有找到匹配内容。";
+  const files = listing.split("\n").filter(Boolean);
   const matches: string[] = [];
   for (const relativePath of files) {
     if (matches.length >= MAX_SEARCH_MATCHES) break;

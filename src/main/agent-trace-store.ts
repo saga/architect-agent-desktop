@@ -37,18 +37,22 @@ function redactString(value: string): string {
     .replace(COMMON_TOKENS, "[REDACTED TOKEN]");
 }
 
-function redact(value: unknown, key = "", seen = new WeakSet<object>()): unknown {
+function redact(value: unknown, key = "", ancestors = new WeakSet<object>()): unknown {
   if (SECRET_KEY.test(key)) return "[REDACTED]";
   if (typeof value === "string") return redactString(value);
   if (Array.isArray(value)) {
-    if (seen.has(value)) return "[Circular]";
-    seen.add(value);
-    return value.map((item) => redact(item, "", seen));
+    if (ancestors.has(value)) return "[Circular]";
+    ancestors.add(value);
+    const result = value.map((item) => redact(item, "", ancestors));
+    ancestors.delete(value);
+    return result;
   }
   if (value && typeof value === "object") {
-    if (seen.has(value)) return "[Circular]";
-    seen.add(value);
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([name, item]) => [name, redact(item, name, seen)]));
+    if (ancestors.has(value)) return "[Circular]";
+    ancestors.add(value);
+    const result = Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([name, item]) => [name, redact(item, name, ancestors)]));
+    ancestors.delete(value);
+    return result;
   }
   return value;
 }
@@ -58,13 +62,14 @@ export class AgentTraceStore {
   private directory: string;
 
   constructor(directory: string) {
-    this.directory = path.resolve(directory);
+    this.directory = directory === ":memory:" ? ":memory:" : path.resolve(directory);
     this.open();
   }
 
   private open(): void {
-    mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    const filename = path.join(this.directory, "agent-traces.sqlite");
+    const inMemory = this.directory === ":memory:";
+    if (!inMemory) mkdirSync(this.directory, { recursive: true, mode: 0o700 });
+    const filename = inMemory ? ":memory:" : path.join(this.directory, "agent-traces.sqlite");
     this.database = new DatabaseSync(filename);
     this.database.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
     this.database.exec(`
@@ -104,15 +109,25 @@ export class AgentTraceStore {
       );
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, created_at, id);
     `);
-    try { chmodSync(filename, 0o600); } catch { /* Platform permissions may differ. */ }
+    if (!inMemory) try { chmodSync(filename, 0o600); } catch { /* Platform permissions may differ. */ }
   }
 
   setDirectory(directory: string): void {
     const next = path.resolve(directory);
     if (next === this.directory) return;
-    this.close();
+    const previousDirectory = this.directory;
+    const previousDatabase = this.database;
+    this.database = null;
     this.directory = next;
-    this.open();
+    try {
+      this.open();
+    } catch (error) {
+      try { this.database?.close(); } catch { /* preserve the open error */ }
+      this.database = previousDatabase;
+      this.directory = previousDirectory;
+      throw error;
+    }
+    previousDatabase?.close();
   }
 
   getDirectory(): string { return this.directory; }

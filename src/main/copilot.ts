@@ -92,6 +92,14 @@ export interface BrowserAgentTools {
  cdp(method:string,params?:unknown):Promise<string>;
 }
 export interface CopilotEvent { type:"status"|"delta"|"message"|"error"|"done"|"tool"; status?:"starting"|"ready"|"unauthenticated"; text?:string; toolName?:string; toolDetail?:string; toolState?:"done"|"error"; }
+export const AGENT_TOOL_IDS = new Set([
+  "browser_get_current_page", "browser_snapshot", "browser_screenshot", "browser_console",
+  "browser_list_tabs", "browser_navigate", "browser_open_tab", "browser_switch_tab",
+  "browser_click", "browser_fill", "browser_scroll",
+  "workspace_list_files", "workspace_read_file", "workspace_search_files", "workspace_write_file",
+  "browser_execute_javascript", "browser_inject_css", "browser_cdp", "execute_code",
+]);
+
 function codeBuddyWorkspace(): string {
  const dir = path.join(app.getPath("userData"), "codebuddy-workspace");
  mkdirSync(dir, { recursive: true });
@@ -104,8 +112,8 @@ const BASE_INSTRUCTIONS = [
 ].join("\n");
 const BROWSER_ONLY_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser.",
-"The only desktop APIs available are the browser tools: browser_get_current_page, browser_snapshot, browser_screenshot, browser_console, browser_list_tabs, browser_navigate, browser_open_tab, browser_switch_tab, browser_click, browser_fill and browser_scroll. execute_code is only an orchestration wrapper over these same APIs; it grants no additional capability.",
-"You have NO local file, shell, or network tool in this permission mode. Browser-page JavaScript evaluation and CSS injection are also unavailable. Code Mode JavaScript may orchestrate only the APIs explicitly listed in its tool description; it does not grant browser-page JavaScript evaluation.",
+"The only desktop APIs available are the browser tools: browser_get_current_page, browser_snapshot, browser_screenshot, browser_console, browser_list_tabs, browser_navigate, browser_open_tab, browser_switch_tab, browser_click, browser_fill and browser_scroll.",
+"You have NO local file, shell, or network tool in this permission mode. Browser-page JavaScript evaluation, CSS injection and generated-code execution are unavailable.",
 "When the user asks about the current page, call browser_get_current_page first instead of guessing. Before clicking or filling, call browser_snapshot and use the eN uid for that element.",
 "When asked to interact with the browser, use the browser tools above and report what actually changed.",
 "If a request cannot be done with these tools (for example changing page background color, injecting CSS/JS, editing page source, or filling password fields), say clearly that it is unsupported and give the user manual steps instead.",
@@ -113,13 +121,13 @@ const BROWSER_ONLY_INSTRUCTIONS = [
 ].join("\n");
 const ASSISTED_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser with assisted permissions.",
-"Browser tools are always available. Read-only local tools are available for the selected workspace: workspace_list_files, workspace_read_file and workspace_search_files. execute_code may orchestrate only these same permission-approved APIs; it does not add capabilities.",
-"Never use shell, file-writing, editing, deployment or other consequential tools. Browser-page JavaScript evaluation and CSS injection are not available in this mode. Code Mode may orchestrate only the read-only APIs explicitly listed in its tool description. If a task requires a restricted operation, ask the user to switch permissions to Allow all or perform it themselves.",
+"Browser tools are always available. Read-only local tools are available for the selected workspace: workspace_list_files, workspace_read_file and workspace_search_files.",
+"Never use shell, file-writing, editing, deployment or other consequential tools. Browser-page JavaScript evaluation, CSS injection and generated-code execution are not available in this mode. If a task requires a restricted operation, ask the user to switch permissions to Allow all or perform it themselves.",
 "Prefer browser tools for page questions and page actions; report what actually changed."
 ].join("\n");
 const ALLOW_ALL_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser with Allow all permissions.",
-"The user has enabled all available tools. Workspace file tools may read and write files inside the selected project root. CodeBuddy also exposes its built-in shell tools; Copilot does not expose a shell tool in this app. execute_code orchestrates the desktop APIs listed in its current tool description.",
+"The user has enabled all available tools. Workspace file tools may read and write files inside the selected project root. CodeBuddy also exposes its built-in shell tools; Copilot does not expose a shell tool in this app. execute_code runs generated JavaScript in a Node.js UtilityProcess with the current user's Node.js capabilities; it can access local resources directly and is not constrained by the Tool Broker. Use it only in this explicitly selected Allow all mode.",
 "Browser tools remain the preferred way to inspect and operate the current page: browser_get_current_page, browser_snapshot, browser_screenshot, browser_console, browser_list_tabs, browser_navigate, browser_open_tab, browser_switch_tab, browser_click, browser_fill, browser_scroll, browser_cdp.",
 "Allow all also enables browser_execute_javascript, browser_inject_css and browser_cdp. Use browser_inject_css for page styling requests such as changing the background color, browser_execute_javascript for page behavior, and browser_cdp only for read-only diagnostics; it does not expose page JavaScript execution or synthetic input. Verify the result with browser_get_current_page or browser_screenshot when practical.",
 "Treat \"current page\" as the active tab. Do not substitute a new local HTML file or the macOS wallpaper unless the user explicitly asks for that.",
@@ -127,7 +135,7 @@ const ALLOW_ALL_INSTRUCTIONS = [
 ].join("\n");
 function instructionsFor(permission: AgentSettings["toolPermission"]): string {
   const mode = permission === "allow-all" ? ALLOW_ALL_INSTRUCTIONS : permission === "assisted" ? ASSISTED_INSTRUCTIONS : BROWSER_ONLY_INSTRUCTIONS;
-  return mode + "\n\n" + BASE_INSTRUCTIONS + "\n\n" + CODE_MODE_SYSTEM_INSTRUCTIONS;
+  return mode + "\n\n" + BASE_INSTRUCTIONS + (permission === "allow-all" ? "\n\n" + CODE_MODE_SYSTEM_INSTRUCTIONS : "");
 }
 function historyPrompt(history: AgentChatMessage[] | undefined, prompt: string): string {
   const recent = (history ?? []).filter((item) => item.content.trim()).slice(-12);
@@ -166,7 +174,7 @@ export class CopilotDesktopAgent {
  }
 
  getSettings():AgentSettings{return {...this.settings};}
- async status():Promise<{status:string;message?:string;provider:AgentProvider}>{if(this.settings.provider==="codebuddy")return{status:"not_checked",message:"CodeBuddy authentication is checked on the first request.",provider:this.settings.provider};try{await this.ensureCopilotSession();return{status:"ready",provider:this.settings.provider};}catch(error){const message=error instanceof Error?error.message:String(error);const authFailure=/unauthenticated|not authenticated|authentication|login required|unauthorized|token expired/i.test(message);return{status:authFailure?"unauthenticated":"error",message,provider:this.settings.provider};}}
+ async status():Promise<{status:string;message?:string;provider:AgentProvider}>{if(this.settings.provider==="codebuddy")return{status:"not_checked",message:"CodeBuddy authentication is checked on the first request.",provider:this.settings.provider};if(this.session)return{status:"ready",provider:this.settings.provider};return{status:"not_checked",message:"Copilot authentication is checked when the first request starts.",provider:this.settings.provider};}
  private async handlers(){
   const b=this.browser;
   const permission=this.effectivePermission();
@@ -234,33 +242,108 @@ export class CopilotDesktopAgent {
   for(const provider of resolvedProviders) {
    for(const [method,fn] of Object.entries(provider.fns)) providerMethods.set(provider.name+"."+method,fn);
   }
-  tools.push({
-   name:"execute_code",
-   description:createCodeModeDescription(resolvedProviders),
-   schema:z.object({code:z.string().min(1).max(100000)}),
-   handler:async({code}:{code:string})=>{
-    const abortController=new AbortController();
-    this.codeRuntimeAbortControllers.add(abortController);
-    try {
-     const result=await this.codeRuntime.executeGeneratedCode({
-      mode:"generated-code",code:normalizeCode(code),providers:resolvedProviders.map(provider=>provider.name),
-      workspaceRoot:this.workspacePath??undefined,signal:abortController.signal,
-      capabilities:["tools.call"],limits:{timeoutMs:30000,maxOutputBytes:256*1024,maxLogEntries:200}
-     }, async(name,input)=>{
-      const method=providerMethods.get(name);
-      if(!method) throw new Error("Tool is not available in the current permission mode: "+name);
-      return method(input);
-     });
-     if(result.status!=="completed") throw new Error(result.error??"Code Mode execution failed.");
-     return JSON.stringify({result:result.result,logs:result.logs});
-    } finally {
-     this.codeRuntimeAbortControllers.delete(abortController);
+  if(permission==="allow-all") {
+   tools.push({
+    name:"execute_code",
+    description:createCodeModeDescription(resolvedProviders),
+    schema:z.object({code:z.string().min(1).max(100000)}),
+    handler:async({code}:{code:string})=>{
+     const abortController=new AbortController();
+     this.codeRuntimeAbortControllers.add(abortController);
+     try {
+      const result=await this.codeRuntime.executeGeneratedCode({
+       mode:"generated-code",code:normalizeCode(code),providers:resolvedProviders.map(provider=>provider.name),
+       workspaceRoot:this.workspacePath??undefined,signal:abortController.signal,
+       capabilities:["tools.call"],limits:{timeoutMs:30000,maxOutputBytes:256*1024,maxLogEntries:200}
+      }, async(name,input)=>{
+       const method=providerMethods.get(name);
+       if(!method) throw new Error("Tool is not available in the current permission mode: "+name);
+       return method(input);
+      });
+      if(result.status!=="completed") throw new Error(result.error??"Code Mode execution failed.");
+      return JSON.stringify({result:result.result,logs:result.logs});
+     } finally {
+      this.codeRuntimeAbortControllers.delete(abortController);
+     }
     }
-   }
-  });
+   });
+  }
   return tools;
  }
- private async ensureCopilotSession():Promise<CopilotSession>{if(this.session)return this.session;if(!this.starting){this.starting=(async()=>{if(this.settings.copilotModel.trim()&&!this.inspectedModels.has("copilot:"+this.settings.copilotModel))await this.inspectModels("copilot");const{CopilotClient}=await import("@github/copilot-sdk");const copilotBaseDirectory=this.workspacePath??path.join(app.getPath("userData"),"copilot-session");mkdirSync(copilotBaseDirectory,{recursive:true});const client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory:copilotBaseDirectory,env:await resolvedAgentProcessEnvironment()});this.client=client;await client.start();const{defineTool,ToolSet}=await import("@github/copilot-sdk");const tools=await this.handlers();this.session=await client.createSession({streaming:true,availableTools:new ToolSet().addCustom("*"),...(this.settings.copilotModel.trim()?{model:this.settings.copilotModel.trim()}:{}),...((this.inspectedModels.get("copilot:"+this.settings.copilotModel)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),systemMessage:{mode:"append",content:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(this.effectivePermission())].filter(Boolean).join("\n\n")},tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{this.recordTrace("tool.call",{name,input},"running");try{const result=await handler(input);this.recordTrace("tool.result",{name,input,result:typeof result==="string"?result:result.text},"completed");if(typeof result==="string")return result;return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};}catch(error){this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error)},"failed");throw error;}}} as never)),onPermissionRequest:async(request)=>{this.recordTrace("permission.requested",request,"waiting");return{kind:"user-not-available"} as never;},onMcpAuthRequest:async()=>({kind:"cancelled"} as never)});this.publish({type:"status",status:"ready"});})().catch(async(error:unknown)=>{if(this.client){try{await this.client.stop();}catch{/* preserve original error */}}this.client=null;this.session=null;throw error;}).finally(()=>{this.starting=null;});}await this.starting;if(!this.session)throw new Error("Copilot session could not be initialized.");return this.session;}
+ private generation = 0;
+
+ private async ensureCopilotSession():Promise<CopilotSession>{
+  if(this.session)return this.session;
+  if(!this.starting){
+   const generation=this.generation;
+   const starting=(async()=>{
+    let client:CopilotClient|null=null;
+    try{
+     const modelId=this.settings.copilotModel.trim();
+     if(modelId&&!this.inspectedModels.has("copilot:"+modelId))await this.inspectModels("copilot");
+     if(generation!==this.generation)throw new Error("Copilot session startup was cancelled.");
+     const{CopilotClient}=await import("@github/copilot-sdk");
+     const baseDirectory=this.workspacePath??path.join(app.getPath("userData"),"copilot-session");
+     mkdirSync(baseDirectory,{recursive:true});
+     client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory,env:await resolvedAgentProcessEnvironment()});
+     this.client=client;
+     await client.start();
+     if(generation!==this.generation)throw new Error("Copilot session startup was cancelled.");
+     const{defineTool,ToolSet}=await import("@github/copilot-sdk");
+     const tools=await this.handlers();
+     if(generation!==this.generation)throw new Error("Copilot session startup was cancelled.");
+     const session=await client.createSession({
+      streaming:true,
+      availableTools:new ToolSet().addCustom("*"),
+      ...(modelId?{model:modelId}:{}),
+      ...((this.inspectedModels.get("copilot:"+modelId)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),
+      systemMessage:{mode:"append",content:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(this.effectivePermission())].filter(Boolean).join("\n\n")},
+      tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{
+       this.recordTrace("tool.call",{name,input},"running");
+       try{
+        const result=await handler(input);
+        this.recordTrace("tool.result",{name,input,result:typeof result==="string"?result:result.text},"completed");
+        if(typeof result==="string")return result;
+        return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};
+       }catch(error){
+        this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error)},"failed");
+        throw error;
+       }
+      }} as never)),
+      onPermissionRequest:async(request)=>{this.recordTrace("permission.requested",request,"waiting");return{kind:"user-not-available"} as never;},
+      onMcpAuthRequest:async()=>({kind:"cancelled"} as never),
+     });
+     if(generation!==this.generation){await client.stop().catch(()=>undefined);throw new Error("Copilot session startup was cancelled.");}
+     this.session=session;
+     this.publish({type:"status",status:"ready"});
+    }catch(error){
+     if(this.client===client)this.client=null;
+     this.session=null;
+     if(client)await client.stop().catch(()=>undefined);
+     throw error;
+    }
+   })();
+   this.starting=starting;
+   void starting.finally(()=>{if(this.starting===starting)this.starting=null;}).catch(()=>undefined);
+  }
+  const pending=this.starting;
+  if(pending)await pending;
+  if(!this.session)throw new Error("Copilot session could not be initialized.");
+  return this.session;
+ }
+ private async stopCopilotSession():Promise<void>{
+  this.generation+=1;
+  const pending=this.starting;
+  const client=this.client;
+  this.client=null;
+  this.session=null;
+  if(client)await client.stop().catch(()=>undefined);
+  if(pending)await pending.catch(()=>undefined);
+  const lateClient=this.client;
+  this.client=null;
+  this.session=null;
+  if(lateClient&&lateClient!==client)await lateClient.stop().catch(()=>undefined);
+ }
  private async sendCopilot(prompt:string,history?:AgentChatMessage[]){const session=await this.ensureCopilotSession();let sawDelta=false;const effectivePrompt=historyPrompt(history,prompt);this.recordTrace("provider.request",{prompt:effectivePrompt,model:this.settings.copilotModel,captureLevel:"sdk-call-input",providerPayloadComplete:false},"started");const off=session.on("assistant.message_delta",event=>{this.recordTrace("provider.message.delta",event);const delta=(event as unknown as{data?:{deltaContent?:string}}).data?.deltaContent;if(delta){sawDelta=true;this.publish({type:"delta",text:delta});}});try{const result=await session.sendAndWait({prompt:effectivePrompt},300000);this.recordTrace("provider.response",{result,captureLevel:"sdk-response"},"completed");const text=(result as unknown as{data?:{content?:string}}|undefined)?.data?.content;if(text&&!sawDelta)this.publish({type:"message",text});}finally{off();}}
  private async sendCodeBuddy(prompt:string,history?:AgentChatMessage[]){
   const sdk=await import("@tencent-ai/agent-sdk");
@@ -335,6 +418,6 @@ export class CopilotDesktopAgent {
  async send(prompt:string,history?:AgentChatMessage[]):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(prompt,history);else await this.sendCopilot(prompt,history);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
  async cancel():Promise<void>{for(const controller of this.codeRuntimeAbortControllers)controller.abort();if(this.settings.provider==="codebuddy"){this.codeBuddyAbortController?.abort();if(this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();}else if(this.active&&this.session)await this.session.abort();}
  isBusy():boolean{return this.active;}
- async resetConversation():Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before switching Tasks.");const client=this.client;this.client=null;this.session=null;if(client){try{await client.stop();}catch{/* already stopped */}}}
- async stop():Promise<void>{if(this.active){try{await this.cancel();}catch{/* the request is being torn down */}}for(const controller of this.codeRuntimeAbortControllers)controller.abort();await this.codeRuntime.dispose();const client=this.client;this.client=null;this.session=null;if(client){try{await client.stop();}catch{/* already stopped */}}}
+ async resetConversation():Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before switching Tasks.");await this.stopCopilotSession();}
+ async stop():Promise<void>{if(this.active){try{await this.cancel();}catch{/* the request is being torn down */}}for(const controller of this.codeRuntimeAbortControllers)controller.abort();await this.codeRuntime.dispose();await this.stopCopilotSession();}
 }

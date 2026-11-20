@@ -261,7 +261,7 @@ export class BrowserCdp {
         const type = (this.getAttribute("type") || "").toLowerCase();
         if (type === "submit" || this.tagName === "FORM" ||
             (this.closest("form") && this.tagName === "BUTTON" && type !== "button") ||
-            /pay|purchase|buy now|add to cart|checkout|place order|delete|remove account|send message|transfer|confirm payment|unsubscribe|publish|post now/i.test(text)) {
+            /pay|purchase|buy now|add to cart|checkout|place order|delete|remove account|send message|transfer|confirm payment|unsubscribe|publish|post now|支付|付款|购买|下单|加入购物车|立即购买|结算|转账|汇款|删除|移除账户|注销|发送消息|发送邮件|提交|确认支付|发布|立即发布|退订|取消订阅|确认删除|确认订单/i.test(text)) {
           return { blocked: true, reason: "Potentially consequential action blocked. Ask the user to perform it." };
         }
         const view = this.ownerDocument.defaultView;
@@ -313,6 +313,13 @@ export class BrowserCdp {
         }
         if (this instanceof HTMLInputElement && ["password","hidden","submit","button","file"].includes(this.type)) {
           throw new Error("This field type cannot be filled by the agent.");
+        }
+        const fieldHints = [
+          this.name, this.id, this.autocomplete,
+          this.getAttribute("aria-label"), this.getAttribute("placeholder"),
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (/password|passwd|secret|token|one[-_ ]?time|verification|security.?code|cvv|cvc|credit.?card|card.?number|expiry|expiration|ssn|national.?id|bank.?account|routing.?number|验证码|校验码|短信码|动态码|密码|安全码|卡号|信用卡|身份证|银行卡|账户号码|有效期|社保号/i.test(fieldHints)) {
+          throw new Error("This field appears to contain sensitive information and cannot be filled by the agent.");
         }
         this.focus({ preventScroll: true });
         const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(this), "value")?.set;

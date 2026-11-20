@@ -1,5 +1,6 @@
 import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeSync } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 /** Persisted state is private to the current user. */
 const DEFAULT_MODE = 0o600;
@@ -24,7 +25,7 @@ export function writeJsonAtomic(filePath: string, value: unknown, options: JsonW
 
   const tempPath = path.join(
     directory,
-    `.${path.basename(filePath)}.${process.pid}.${Date.now().toString(36)}.tmp`
+    `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`
   );
 
   let handle: number | undefined;

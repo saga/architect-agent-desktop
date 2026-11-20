@@ -2,7 +2,7 @@
 
 ## 设计原则
 
-Code Mode 是 Agent 的执行策略，不是新的模型 Provider，也不是新的权限级别。Copilot 与 CodeBuddy 共用同一套 `execute_code` 工具、System Instructions 和 Electron UtilityProcess Runtime。Provider 只负责注册工具及注入系统提示词；模型负责选择直接调用工具还是生成代码编排工具。
+Code Mode 是 Agent 的执行策略，不是新的模型 Provider。Copilot 与 CodeBuddy 共用同一套 `execute_code` 工具、System Instructions 和 Electron UtilityProcess Runtime。由于 UtilityProcess 运行的是拥有当前用户 Node.js 能力的进程，`execute_code` 只在用户明确选择 Allow all 时注册；browser-only 和 assisted 不提供生成代码执行入口。
 
 简单、独立的操作继续使用普通 Tool Calling。多步骤依赖、并行调用、批量处理、循环以及有意义的数据过滤、转换、比较和聚合适合使用 Code Mode。目标是减少模型与工具之间的往返，并让中间数据留在执行进程内处理。
 
@@ -42,7 +42,7 @@ JSON Schema 的本地 `$defs` / `definitions` 引用会在类型生成时解析�
 ## 执行链路
 
 1. Agent 在 System Prompt 中接收统一 Code Mode 执行策略。
-2. Agent 同时看到普通工具和 `execute_code` 工具。
+2. Agent 始终看到普通工具；只有 Allow all 模式才会同时看到 `execute_code`。
 3. 复杂任务时，模型通过 `execute_code({ code })` 提交 JavaScript。
 4. Code Mode 根据当前权限过滤现有工具，并将其组织为 namespace Provider。
 5. 从 Provider Schema 生成 API 类型描述，并注入 `execute_code` Tool Description。
@@ -53,10 +53,10 @@ JSON Schema 的本地 `$defs` / `definitions` 引用会在类型生成时解析�
 
 ## 权限与运行时边界
 
-- 普通工具和 Code Mode 使用同一组现有 handlers。
+- 普通工具和 Code Mode 使用同一组现有 handlers。`execute_code` 只在 Allow all 下注册；browser-only 和 assisted 不暴露它。
 - Code Mode Provider 只从当前权限模式允许的工具中构建。
 - Broker 再次校验方法 allowlist 和输入 Schema；工具调用 Trace 保持统一。
-- 生成代码的直接 Node.js API 访问不受 Tool Broker 权限约束。System Prompt 明确要求模型不得使用直接 Node.js API，但这只是模型行为约束，不是技术隔离。
+- 生成代码的直接 Node.js API 访问不受 Tool Broker 权限约束。System Prompt 明确要求模型不得使用直接 Node.js API，但这只是模型行为约束，不是技术隔离。因此不能把 `execute_code` 描述成只会编排 Broker API，也不能在低权限模式中开放它。
 - UtilityProcess 是独立 Node.js 进程，主要用于故障隔离和生命周期管理，不是安全沙箱。生成代码仍可能访问文件系统、网络、子进程及当前用户权限下的其他资源。
 - 本阶段不实现 QuickJS、`node:vm` 沙箱、容器或 OS 级隔离，也不保留相关试验代码。未来若执行不可信代码，必须另行设计 OS 级隔离并进行安全评审。
 

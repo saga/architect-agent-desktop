@@ -167,15 +167,23 @@ export function generateTypesFromJsonSchema(providers: ResolvedProvider[]): stri
 
 /** Accept fenced snippets, bare statements, and async function expressions from the model. */
 export function normalizeCode(input: string): string {
-  let code = input.trim()
+  const code = input.trim()
     .replace(/^\x60{3}(?:javascript|js|typescript|ts)?\s*/i, "")
     .replace(/\s*\x60{3}\s*$/, "")
     .trim();
   if (!code) throw new Error("Code Mode requires non-empty JavaScript.");
-  if (/^(?:async\s*)?\(?\s*\)?\s*=>/.test(code) || /^async\s+function\b/.test(code) || /^function\b/.test(code)) {
-    return code;
+
+  // Parse the complete source as one expression first. This handles async
+  // function expressions with trailing semicolons without misclassifying
+  // function declarations followed by ordinary statements.
+  const expression = code.replace(/;\s*$/, "").trim();
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (...args: string[]) => Function;
+  try {
+    new AsyncFunction("return (" + expression + ");");
+    return expression;
+  } catch {
+    return `async () => {\n${code}\n}`;
   }
-  return `async () => {\n${code}\n}`;
 }
 
 export function createCodeModeDescription(providers: ResolvedProvider[]): string {

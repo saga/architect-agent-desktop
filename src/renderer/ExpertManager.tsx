@@ -82,7 +82,18 @@ export default function ExpertManager({ onChanged }: ExpertManagerProps) {
       message.warning("请填写 Expert 的角色指令。");
       return;
     }
-    const id = draft.id.trim() || draft.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || crypto.randomUUID();
+    const requestedId = draft.id.trim();
+    const baseId = requestedId || draft.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || crypto.randomUUID();
+    let id = baseId;
+    if (creating && experts.some(item => item.id === id)) {
+      if (requestedId) {
+        message.error("Expert ID 已存在，请使用其他 ID。");
+        return;
+      }
+      let suffix = 2;
+      while (experts.some(item => item.id === baseId + "-" + suffix)) suffix += 1;
+      id = baseId + "-" + suffix;
+    }
     setSaving(true);
     try {
       const updated = await window.browser.saveAgentExpert({ ...draft, id });
