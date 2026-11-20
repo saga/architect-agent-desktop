@@ -376,7 +376,8 @@ function createAgentTaskRecord(input: { title?: string; workspacePath?: string |
   persistAgentTasks();
   return task;
 }
-async function activateAgentTask(taskId: string, publish = true): Promise<AgentTask> {
+async function activateAgentTask(taskId: string, publish = true, scheduled = false): Promise<AgentTask> {
+  if (scheduleRunnerActive && !scheduled) throw new Error("本地 Schedule 正在执行，请稍后切换 Task。");
   if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再切换 Task。");
   const task = taskForId(taskId);
   const nextWorkspace = safeWorkspaceProject(task.workspacePath);
@@ -1359,7 +1360,7 @@ async function processDueAgentSchedules(): Promise<void> {
           workspacePath: schedule.workspacePath,
           expertId: schedule.expertId,
         });
-        await activateAgentTask(runTask.id, false);
+        await activateAgentTask(runTask.id, false, true);
         activeAgentTraceId = randomUUID();
         scheduledCapture = { taskId: runTask.id, answer: "" };
         recordAgentTrace("schedule.started", { scheduleId: schedule.id, title: schedule.title, prompt: schedule.prompt }, "running");
@@ -1399,7 +1400,7 @@ async function processDueAgentSchedules(): Promise<void> {
         }
         activeAgentTraceId = null;
         if (agentTasks.some(item => item.id === previousTaskId)) {
-          try { await activateAgentTask(previousTaskId, false); }
+          try { await activateAgentTask(previousTaskId, false, true); }
           catch (error) { recordOperation("schedule", "failed to restore Task: " + (error instanceof Error ? error.message : String(error))); }
         }
         publishAgentWorkspaceSnapshot();
@@ -1433,6 +1434,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-task:create", async (event, input: unknown) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后新建 Task。");
     if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再新建 Task。");
     const parsed = z.object({
       title: z.string().trim().max(120).optional(),
@@ -1454,12 +1456,14 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-task:activate", async (event, input: unknown) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Task。");
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Task ID.");
     return activateAgentTask(parsed.data);
   });
   ipcMain.handle("agent-task:set-expert", async (event, input: unknown) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Expert。");
     const parsed = z.object({ taskId: z.string().min(1).max(100), expertId: z.string().max(100).nullable() }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Task Expert assignment.");
     if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再切换 Expert。");
@@ -1474,6 +1478,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-workspace:add", async (event) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后添加 Workspace。");
     if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再添加 Workspace。");
     const { canceled, filePaths } = await dialog.showOpenDialog({ title: "添加 Workspace 文件夹", properties: ["openDirectory"] });
     if (canceled || !filePaths[0]) return null;
@@ -1576,6 +1581,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("workspace:get-project", (event) => { assertTrustedSender(event); return { ...workspaceProject }; });
   ipcMain.handle("workspace:select-project", async (event) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Workspace。");
     if (copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再切换工作区。");
     const { canceled, filePaths } = await dialog.showOpenDialog({ title: "选择本地工作区", properties: ["openDirectory"] });
     if (canceled || !filePaths[0]) return null;
@@ -1591,6 +1597,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("workspace:clear-project", async (event) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Workspace。");
     if (copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再清除工作区。");
     const task = taskForId();
     task.workspacePath = null;
@@ -1822,6 +1829,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:save-settings", async (event, input: unknown) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后修改 Agent 配置。");
     const parsed = z.object({
       provider: z.enum(["copilot", "codebuddy"]),
       copilotModel: z.string().max(200),
@@ -1841,6 +1849,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("copilot:send", async (event, input: unknown) => {
     assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后提交新的 Agent 请求。");
     const parsed = z.object({
       prompt: z.string().trim().min(1).max(30000),
       taskId: z.string().min(1).max(100).optional(),
@@ -1944,6 +1953,7 @@ if (hasSingleInstanceLock) {
     createMainWindow();
     schedulerTimer = setInterval(() => { void processDueAgentSchedules(); }, 15_000);
     schedulerTimer.unref();
+    void processDueAgentSchedules();
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
