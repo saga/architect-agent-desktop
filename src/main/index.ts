@@ -151,6 +151,13 @@ let agentWorkspacePreferences = parseAgentWorkspacePreferences(loadJsonValue(AGE
 const savedActiveTask = loadJsonValue(ACTIVE_AGENT_TASK_PATH) as { taskId?: unknown } | null;
 activeAgentTaskId = typeof savedActiveTask?.taskId === "string" && agentTasks.some(task => task.id === savedActiveTask.taskId) ? savedActiveTask.taskId : agentTasks[0].id;
 writeJsonAtomic(ACTIVE_AGENT_TASK_PATH, { taskId: activeAgentTaskId });
+const startupTask = agentTasks.find(task => task.id === activeAgentTaskId);
+if (startupTask) {
+  try {
+    const root = startupTask.workspacePath ? realpathSync(startupTask.workspacePath) : null;
+    workspaceProject = root && statSync(root).isDirectory() ? { path: root, name: path.basename(root) || root } : { path: null, name: null };
+  } catch { workspaceProject = { path: null, name: null }; }
+}
 function currentAgentSessionPath(sessionId = currentTraceSessionId()): string {
   return path.join(AGENT_SESSION_ROOT, sessionId + ".json");
 }
@@ -308,6 +315,100 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
 }, agentSettings, (skills) => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, expert?.tools.length ? expert.tools : undefined); }, workspaceProject.path, (type, data, status) => recordAgentTrace(type, data, status));
+function persistAgentTasks(): void {
+  agentTasks.sort((a, b) => b.updatedAt - a.updatedAt);
+  writeJsonAtomic(AGENT_TASKS_PATH, agentTasks);
+}
+function persistAgentExperts(): void { writeJsonAtomic(AGENT_EXPERTS_PATH, agentExperts); }
+function persistAgentSchedules(): void { writeJsonAtomic(AGENT_SCHEDULES_PATH, agentSchedules); }
+function safeWorkspaceProject(rootInput: string | null): WorkspaceProject {
+  if (!rootInput) return { path: null, name: null };
+  const root = realpathSync(rootInput);
+  if (!statSync(root).isDirectory()) throw new Error("所选 Workspace 不是目录。");
+  return { path: root, name: path.basename(root) || root };
+}
+function buildAgentWorkspaceSnapshot(): AgentWorkspaceSnapshot {
+  const grouped = new Map<string, AgentWorkspaceSnapshot["workspaces"][number]>();
+  for (const task of agentTasks) {
+    const key = task.workspacePath ?? "";
+    const current = grouped.get(key);
+    if (current) {
+      current.taskCount += 1;
+      current.updatedAt = Math.max(current.updatedAt, task.updatedAt);
+    } else {
+      grouped.set(key, {
+        path: task.workspacePath,
+        name: task.workspacePath ? path.basename(task.workspacePath) || task.workspacePath : "个人工作区",
+        taskCount: 1,
+        updatedAt: task.updatedAt,
+      });
+    }
+  }
+  return {
+    tasks: [...agentTasks].sort((a, b) => b.updatedAt - a.updatedAt),
+    activeTaskId: activeAgentTaskId,
+    workspaces: [...grouped.values()].sort((a, b) => b.updatedAt - a.updatedAt),
+    experts: [...agentExperts],
+    schedules: [...agentSchedules],
+    preferences: { ...agentWorkspacePreferences },
+  };
+}
+function publishAgentWorkspaceSnapshot(): void {
+  const snapshot = buildAgentWorkspaceSnapshot();
+  for (const window of [mainWindow, agentPanelWindow]) {
+    if (window && !window.isDestroyed()) window.webContents.send("agent-workspace:updated", snapshot);
+  }
+}
+function createAgentTaskRecord(input: { title?: string; workspacePath?: string | null; expertId?: string | null } = {}): AgentTask {
+  const workspace = input.workspacePath === undefined ? workspaceProject : safeWorkspaceProject(input.workspacePath);
+  if (input.expertId && !agentExperts.some(expert => expert.id === input.expertId)) throw new Error("所选 Expert 不存在。");
+  const timestamp = Date.now();
+  const task: AgentTask = {
+    id: randomUUID(),
+    sessionId: randomUUID(),
+    title: (input.title?.trim() || "New task").slice(0, 120),
+    workspacePath: workspace.path,
+    expertId: input.expertId ?? null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+  agentTasks.unshift(task);
+  persistAgentTasks();
+  return task;
+}
+async function activateAgentTask(taskId: string, publish = true): Promise<AgentTask> {
+  if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再切换 Task。");
+  const task = taskForId(taskId);
+  const nextWorkspace = safeWorkspaceProject(task.workspacePath);
+  const expert = task.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined;
+  await copilotAgent.setWorkspacePath(nextWorkspace.path);
+  await copilotAgent.setTaskContext(expert ? {
+    systemPrompt: expert.systemPrompt,
+    toolPermission: expert.toolPermission,
+    skills: expert.skills,
+    tools: expert.tools,
+  } : null);
+  await copilotAgent.resetConversation();
+  activeAgentTaskId = task.id;
+  workspaceProject = nextWorkspace;
+  writeJsonAtomic(ACTIVE_AGENT_TASK_PATH, { taskId: activeAgentTaskId });
+  writeJsonAtomic(WORKSPACE_PROJECT_PATH, workspaceProject);
+  if (publish) {
+    publishWorkspaceProject();
+    publishAgentWorkspaceSnapshot();
+  }
+  return task;
+}
+function advanceSchedule(schedule: AgentSchedule, now = Date.now()): void {
+  const next = nextScheduleRunAt(schedule.runAt, schedule.repeat, now);
+  if (!next) {
+    schedule.enabled = false;
+  } else {
+    schedule.runAt = next;
+  }
+  schedule.updatedAt = now;
+  persistAgentSchedules();
+}
 let downloadSequence = 0;
 
 function safeWebUrl(value: string): boolean {
