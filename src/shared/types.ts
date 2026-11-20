@@ -142,6 +142,7 @@ export interface BrowserApi {
   clearWorkspace(): Promise<WorkspaceProject>;
   onWorkspaceProjectUpdated(listener: (workspace: WorkspaceProject) => void): () => void;
   getAgentWorkspaceSnapshot(): Promise<AgentWorkspaceSnapshot>;
+  onAgentWorkspaceUpdated(listener: (snapshot: AgentWorkspaceSnapshot) => void): () => void;
   createAgentTask(input?: { title?: string; workspacePath?: string | null; expertId?: string | null }): Promise<AgentTask>;
   activateAgentTask(taskId: string): Promise<AgentTask>;
   setAgentTaskExpert(taskId: string, expertId: string | null): Promise<AgentTask>;
