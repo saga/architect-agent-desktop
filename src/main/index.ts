@@ -346,7 +346,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const text=typeof result === "string" ? result : JSON.stringify(result);
     return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
-}, agentSettings, (skills) => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, expert?.tools.length ? expert.tools : undefined); }, workspaceProject.path, (type, data, status) => recordAgentTrace(type, data, status));
+}, agentSettings, (skills) => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, expert?.tools.length ? expert.tools : undefined); }, workspaceProject.path, (type, data, status) => recordAgentTrace(type, data, status), (() => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return expert ? { systemPrompt: expert.systemPrompt, toolPermission: expert.toolPermission, skills: expert.skills, tools: expert.tools } : null; })());
 function persistAgentTasks(): void {
   agentTasks.sort((a, b) => b.updatedAt - a.updatedAt);
   writeJsonAtomic(AGENT_TASKS_PATH, agentTasks);
