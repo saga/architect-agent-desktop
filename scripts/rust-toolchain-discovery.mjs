@@ -19,8 +19,9 @@ export function findExecutable(name, options = {}) {
   const directories = [
     ...(name === "wasmtime" && env.WASMTIME_HOME ? [path.join(env.WASMTIME_HOME, "bin"), env.WASMTIME_HOME] : []),
     ...((name === "rustc" || name === "cargo") ? [path.join(cargoHome, "bin"), path.join(home, ".cargo", "bin")] : []),
+    ...(name === "wasmtime" ? [path.join(path.dirname(fileURLToPath(import.meta.url)), "..", ".cache", "wasmtime", "bin")] : []),,
     ...(env.PATH || "").split(delimiter).filter(Boolean),
-    ...(name === "wasmtime" ? [path.join(path.dirname(fileURLToPath(import.meta.url)), "..", ".cache", "wasmtime", "bin"), path.join(home, ".wasmtime", "bin")] : []),
+    ...(name === "wasmtime" ? [path.join(home, ".wasmtime", "bin")] : []),
   ];
   const candidates = explicit ? [explicit] : [];
   for (const directory of [...new Set(directories)]) {
