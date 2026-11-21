@@ -46,6 +46,9 @@ export interface AgentSettings {
   codebuddyModel: string;
   thinkingLevel: AgentThinkingLevel;
   toolPermission: AgentToolPermission;
+  memoryEmbeddingProvider: "disabled" | "ollama";
+  memoryEmbeddingBaseUrl: string;
+  memoryEmbeddingModel: string;
   contextWindow?: number;
   systemPrompt: string;
 }
@@ -55,6 +58,9 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   codebuddyModel: "",
   thinkingLevel: "medium",
   toolPermission: "none",
+  memoryEmbeddingProvider: "disabled",
+  memoryEmbeddingBaseUrl: "http://127.0.0.1:11434",
+  memoryEmbeddingModel: "nomic-embed-text",
   systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt.",
 };
 
