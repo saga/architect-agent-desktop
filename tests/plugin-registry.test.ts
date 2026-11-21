@@ -93,7 +93,7 @@ describe("declarative plugin packages", () => {
   });
 
 
-  it("imports manifest-less Claude plugins and supports standard custom component paths", () => {
+  it("supports standard Claude Code custom component paths and inline commands", () => {
     const root = makeDirectory();
     const source = path.join(root, "team-tools");
     mkdirSync(path.join(source, "extra-skills", "portfolio"), { recursive: true });
@@ -122,6 +122,20 @@ describe("declarative plugin packages", () => {
     const instructions = readEnabledPluginInstructions(pluginRoot, registry);
     expect(instructions).toContain("Write a dated research note.");
     expect(instructions).toContain("Review evidence quality.");
+  });
+
+
+  it("imports a Claude Code plugin without an optional plugin.json manifest", () => {
+    const root = makeDirectory();
+    const source = path.join(root, "portable-tools");
+    mkdirSync(path.join(source, "skills", "notes"), { recursive: true });
+    writeFileSync(path.join(source, "skills", "notes", "SKILL.md"), "Write useful notes.");
+    const pluginRoot = path.join(root, "installed");
+    const registry = path.join(root, "plugins.json");
+    const imported = importPlugin(source, pluginRoot, registry);
+    expect(imported.id).toBe("portable-tools");
+    expect(imported.sourceFormat).toBe("claude-code");
+    expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("Write useful notes.");
   });
 
 });
