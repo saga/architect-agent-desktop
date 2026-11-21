@@ -336,6 +336,70 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("uses the latest retained Transcript revision as quality review evidence", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const createdAt = Date.now() - 60 * 24 * 60 * 60 * 1000;
+    const first = store.prepareDreaming("/workspace/latest-quality-source", [{
+      sessionId: "session-latest",
+      messageId: "message-latest",
+      kind: "user",
+      content: "The old project rule used USD.",
+      createdAt,
+      revision: 40,
+      changeType: "created",
+    }]);
+    const firstSource = first!.evidence[0]!.sourceId;
+    const noteId = store.commitDreaming({
+      scope: "/workspace/latest-quality-source",
+      runId: first!.id,
+      summary: "Save the first project rule.",
+      operations: [{
+        op: "upsert_note",
+        title: "Project base currency",
+        content: "The old project rule used USD.",
+        sourceRefs: [firstSource],
+        reason: "Initial transcript evidence.",
+      }],
+    }).createdNoteIds[0]!;
+
+    const second = store.prepareDreaming("/workspace/latest-quality-source", [{
+      sessionId: "session-latest",
+      messageId: "message-latest",
+      kind: "user",
+      content: "Correction: the current project base currency is EUR.",
+      createdAt,
+      revision: 41,
+      changeType: "updated",
+    }]);
+    const secondSource = second!.evidence[0]!.sourceId;
+    const note = store.getNote(noteId, "/workspace/latest-quality-source")!;
+    store.commitDreaming({
+      scope: "/workspace/latest-quality-source",
+      runId: second!.id,
+      summary: "Correct the project base currency.",
+      operations: [{
+        op: "upsert_note",
+        id: noteId,
+        baseVersion: note.version,
+        title: "Project base currency",
+        content: "The current project base currency is EUR.",
+        sourceRefs: [secondSource],
+        reason: "A later revision explicitly corrects the earlier rule.",
+      }],
+    });
+
+    const review = store.prepareQualityReview(
+      "/workspace/latest-quality-source",
+      10,
+      Date.now() + 90 * 24 * 60 * 60 * 1000,
+    );
+    expect(review?.evidence).toHaveLength(1);
+    expect(review?.evidence[0]?.revision).toBe(41);
+    expect(review?.evidence[0]?.content).toContain("EUR");
+    store.abandonDreaming("/workspace/latest-quality-source", review!.id, "test complete");
+    store.close();
+  });
+
   it("does not mark ordinary transcript review as a quality review", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const run = store.prepareDreaming("/workspace/ordinary-review", [{
