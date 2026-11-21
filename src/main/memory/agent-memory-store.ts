@@ -493,8 +493,11 @@ export class AgentMemoryStore {
         if(!source)continue;
         const key=source.sessionId+"\\0"+source.messageId;
         const previous=latestByMessage.get(key);
-        if(!previous || Number(source.revision??source.createdAt)>Number(previous.revision??previous.createdAt))
-          latestByMessage.set(key,source);
+        const isNewer=!previous ||
+          (source.revision!==undefined
+            ? previous.revision===undefined || source.revision>previous.revision
+            : previous.revision===undefined && source.createdAt>previous.createdAt);
+        if(isNewer)latestByMessage.set(key,source);
       }
       for(const [key,source] of latestByMessage){
         if(seenSources.has(key))continue;
