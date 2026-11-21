@@ -441,7 +441,7 @@ export class AgentMemoryStore {
       const vectors=this.database.prepare(
         "SELECT n.*,e.vector_json,e.dimensions FROM memory_note_embeddings e JOIN memory_notes n ON n.id=e.note_id AND n.scope_key=e.scope_key "+
         "WHERE e.scope_key IN ("+placeholders+") AND e.provider=? AND e.model=? AND e.content_hash=n.content_hash "+
-        "AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END "+
+        "AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END,"+
         "n.pinned DESC,n.importance DESC LIMIT 1000"
       ).all({},...scopeKeys,semantic.provider,semantic.model,now,workspaceKey) as Array<Record<string,unknown>>;
       for(const row of vectors){
