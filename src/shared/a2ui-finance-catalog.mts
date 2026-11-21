@@ -33,6 +33,7 @@ export const KnowledgeGraphApi = {
     title: CommonSchemas.DynamicString.optional(),
     height: CommonSchemas.DynamicNumber.optional(),
     interactive: CommonSchemas.DynamicBoolean.optional(),
+    selectedNodeId: CommonSchemas.DynamicString.optional(),
     onNodeSelect: CommonSchemas.Action.optional(),
   }).strict(),
 };
@@ -68,7 +69,7 @@ export function createAgentFinanceCatalog(): Catalog<ComponentApi> {
     [...basicCatalog.functions.values()],
     {
       themeSchema: basicCatalog.themeSchema,
-      instructions: "Use FinanceChart for quantitative analysis, KnowledgeGraph for read-only entity relationships, and WorkflowDiagram for editable process/data lineage diagrams. Do not generate component code.",
+      instructions: "Use FinanceChart for quantitative analysis. KnowledgeGraph is a read-only relationship view; when node selection should notify the Agent, bind selectedNodeId to a data-model @path and define onNodeSelect with an action.event context that references that same @path. WorkflowDiagram is for editable processes and lineage; bind graphData to a data-model @path, set editable=true, and define onSave with an action.event context containing graphData bound to that @path so the edited JSON is synchronized. Keep large datasets in the initial surface dataModel rather than duplicating them in component structure. Do not generate component code.",
     },
   );
 }
