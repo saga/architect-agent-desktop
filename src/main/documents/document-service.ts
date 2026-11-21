@@ -84,7 +84,6 @@ async function parsePdf(filePath: string, buffer: Buffer): Promise<ParsedDocumen
   const document = await pdfjs.getDocument({
     data: new Uint8Array(buffer),
     useSystemFonts: true,
-    isEvalSupported: false,
     disableFontFace: true,
   }).promise;
   const chunks: string[] = [];
