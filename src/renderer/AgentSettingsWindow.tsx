@@ -288,7 +288,7 @@ export default function AgentSettingsWindow() {
               title={<Space wrap><span>{plugin.name}</span><Tag>{plugin.version}</Tag>{plugin.sourceFormat === "claude-code" && <Tag color="geekblue">Claude Code Plugin</Tag>}</Space>}
               description={<>
                 <div>{plugin.description || plugin.id}</div>
-                <div className="settings-field-help">Skills {plugin.skills.length} · Commands {plugin.commands.length + plugin.inlineCommands.length} · Agents {plugin.agents.length} · Tools {plugin.tools.length} · Workflows {plugin.workflows.length}</div>
+                <div className="settings-field-help">Skills {plugin.skills.length} · Commands {plugin.commands.length + plugin.inlineCommands.length} · Agents {plugin.agents.length}</div>
               </>}
             />
           </List.Item>}
