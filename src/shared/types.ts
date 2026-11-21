@@ -58,11 +58,11 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt.",
 };
 
-export interface CopilotEvent { type: "status" | "delta" | "thinking" | "message" | "error" | "done" | "tool" | "a2ui"; taskId?: string; status?: string; text?: string; streaming?: boolean; toolId?: string; toolName?: string; toolDetail?: string; toolState?: "running" | "done" | "error"; }
+export interface CopilotEvent { type: "status" | "delta" | "thinking" | "message" | "error" | "done" | "tool" | "a2ui" | "a2ui-v1"; taskId?: string; status?: string; text?: string; streaming?: boolean; toolId?: string; toolName?: string; toolDetail?: string; toolState?: "running" | "done" | "error"; }
 
 export interface AgentSessionItem {
   id: string;
-  kind: "user" | "assistant" | "thinking" | "tool" | "error" | "a2ui";
+  kind: "user" | "assistant" | "thinking" | "tool" | "error" | "a2ui" | "a2ui-v1";
   content: string;
   toolName?: string;
   toolState?: "running" | "done" | "error";
@@ -233,6 +233,7 @@ export interface BrowserApi {
   agentSaveSettings(settings: AgentSettings): Promise<AgentSettings>;
   agentPickFiles(): Promise<string[]>;
   copilotSend(prompt: string, history?: AgentChatMessage[], taskId?: string, attachments?: string[]): Promise<void>;
+  agentA2uiMessage(message: unknown, taskId: string): Promise<void>;
   copilotCancel(): Promise<void>;
   agentLoadSession(taskId?: string): Promise<AgentSessionItem[]>;
   agentSaveSession(items: AgentSessionItem[], taskId?: string): Promise<void>;
