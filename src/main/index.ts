@@ -1650,6 +1650,17 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
         "最后调用 memory_prune_expired 清理已过期且未置顶的 Note。不得归档置顶或唯一知识，不得删除原始 Transcript。任何版本冲突都应停止该项更新并报告，不允许覆盖新版本。"
       ].join("\\n\\n");
       await copilotAgent.send(prompt, []);
+      const toolResults = agentTraceStore.query({ traceId: runId, type: "tool.result", limit: 1000 });
+      const completedTools = new Set(toolResults.flatMap(event => {
+        const data = event.data && typeof event.data === "object" ? event.data as Record<string, unknown> : {};
+        return typeof data.name === "string" ? [data.name] : [];
+      }));
+      const hasTranscriptAssessment = completedTools.has("memory_dreaming_prepare") || completedTools.has("memory_dreaming_get_run");
+      const hasQualityAssessment = completedTools.has("memory_quality_review_prepare");
+      const hasExpiryCleanup = completedTools.has("memory_prune_expired");
+      if (!hasTranscriptAssessment || !hasQualityAssessment || !hasExpiryCleanup) {
+        failure = "自动 Dreaming 未完成全部维护步骤。请检查本次 Trace 中的 memory_dreaming_prepare/get_run、memory_quality_review_prepare 和 memory_prune_expired 工具结果。";
+      }
       const afterRun = copilotAgent.getMemorySnapshot(schedule.scope);
       const pendingRun = afterRun.dreamRuns.find(run => String(run.status) === "prepared");
       if (pendingRun) failure = "自动 Dreaming 留下了未提交 Run：" + String(pendingRun.id) + "。该 Run 已保留，可在 Memory 管理界面继续处理。";
