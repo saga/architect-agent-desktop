@@ -204,6 +204,27 @@ export default function AgentSettingsWindow() {
             placeholder="补充 Agent 的角色、回答风格、工作约束等。浏览器安全规则仍由应用强制执行。" />
           <div className="settings-field-help">自定义提示作为额外系统指令传入模型。应用强制执行的浏览器安全规则优先级更高。</div>
         </Form.Item>
+        <Divider />
+        <Form.Item label="Memory 语义检索">
+          <Radio.Group value={settings.memoryEmbeddingProvider}
+            onChange={event => update("memoryEmbeddingProvider", event.target.value as AgentSettings["memoryEmbeddingProvider"])}>
+            <Radio value="disabled">关闭（仅使用 FTS5/关键词检索）</Radio>
+            <Radio value="ollama">本机 Ollama Embedding</Radio>
+          </Radio.Group>
+          <div className="settings-field-help">开启后，Memory Search 使用本机向量 + FTS5 混合召回。仅允许访问 localhost / 127.0.0.1 / ::1；不支持远程 Embedding 服务。需先在本机安装并启动 Ollama，下载所选 Embedding 模型。</div>
+        </Form.Item>
+        {settings.memoryEmbeddingProvider === "ollama" && <>
+          <Form.Item label="Ollama 本机地址">
+            <Input value={settings.memoryEmbeddingBaseUrl} onChange={event => update("memoryEmbeddingBaseUrl", event.target.value)}
+              maxLength={300} placeholder="http://127.0.0.1:11434" />
+            <div className="settings-field-help">地址必须指向本机回环接口。远程主机、代理地址和带凭据 URL 会被拒绝。</div>
+          </Form.Item>
+          <Form.Item label="Embedding 模型">
+            <Input value={settings.memoryEmbeddingModel} onChange={event => update("memoryEmbeddingModel", event.target.value)}
+              maxLength={120} placeholder="nomic-embed-text" />
+            <div className="settings-field-help">例如 nomic-embed-text。请确保该模型已在 Ollama 中下载；更换模型后需要重新建立索引。</div>
+          </Form.Item>
+        </>}
       </Form>
       <Divider />
       <section className="plugin-manager">
