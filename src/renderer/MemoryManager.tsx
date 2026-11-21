@@ -99,7 +99,7 @@ export default function MemoryManager() {
       const before = await window.browser.agentMemoryGetSnapshot(taskId);
       const beforeStatuses = new Map(before.dreamRuns.map(run => [valueOf(run, "id"), valueOf(run, "status")]));
       await window.browser.copilotSend(
-        "请对当前 Workspace 执行完整的 Memory Dreaming 生命周期。先调用 memory_dreaming_prepare 读取新的 Transcript 证据；若没有新证据就明确报告 up_to_date。检查当前 Memory Notes、知识页和关系，识别长期有效的项目事实、业务定义、明确偏好、成功流程、已解决问题、反复出现的失败与相互矛盾的信息。只保留可复用且有证据的内容；每条变更必须引用本次 Run 的 sourceId 并给出 reason，更新已有 Note 必须带 baseVersion。证据不足保持 unverified；冲突用 contradicts 关系或 disputed 表示；不要为了精简而归档唯一或置顶知识。如果没有任何长期知识需要新增、更新或归档，也要用 operations=[] 提交一个 no-op Run，表示这批 Transcript 已经完成评估，避免下次重复处理。最后读取 Run 审计结果汇报新增、更新、归档、关系和知识页。禁止把本次整理操作本身或模型猜测当作事实。",
+        "请对当前 Workspace 执行完整的 Memory Dreaming 生命周期。先调用 memory_dreaming_prepare 读取新的 Transcript 证据；若没有新证据就明确报告 up_to_date。检查当前 Memory Notes、知识页和关系，识别长期有效的项目事实、业务定义、明确偏好、成功流程、已解决问题、反复出现的失败与相互矛盾的信息。对重要、高风险或可能变化的已有 Note，读取其 sourceRefs 并调用 memory_read_source 复核原始证据；必要时用 memory_search_history 检查更早 Transcript，不能只凭旧 Note 自身内容验证它。只保留可复用且有证据的内容；每条变更必须引用本次 Run 的 sourceId 并给出 reason，更新已有 Note 必须带 baseVersion，更新或归档知识页必须使用当前 baseVersion。证据不足保持 unverified；冲突用 contradicts 关系或 disputed 表示；失效知识页可以 archive_knowledge，但不要为了精简而归档唯一或置顶知识。如果没有任何长期知识需要新增、更新或归档，也要用 operations=[] 提交一个 no-op Run，表示这批 Transcript 已经完成评估，避免下次重复处理。最后读取 Run 审计结果汇报新增、更新、归档、关系和知识页。禁止把本次整理操作本身或模型猜测当作事实。",
         [], taskId,
       );
       const after = await window.browser.agentMemoryGetSnapshot(taskId);
@@ -128,7 +128,7 @@ export default function MemoryManager() {
     setRunning(true);
     try {
       await window.browser.copilotSend(
-        "请继续当前 Workspace 中已经准备好的 Memory Dreaming Run，不要重新调用 prepare，也不要创建新 Run。目标 Run ID：" + runId + "。先调用 memory_dreaming_get_run 读取完整固定证据集；再检查当前 Notes、知识页和关系，必要时读取该 Run 的历史操作。对每项变更引用该 Run 的 sourceId 并说明 reason；更新已有 Note 必须使用当前 baseVersion，更新已有知识页必须使用当前 baseVersion。遇到版本冲突时不要覆盖，保留 Run 为 prepared 并报告冲突。若证据已评估且没有需要变更的长期知识，提交 operations=[]。成功后读取 Run 与审计记录，汇报结果。",
+        "请继续当前 Workspace 中已经准备好的 Memory Dreaming Run，不要重新调用 prepare，也不要创建新 Run。目标 Run ID：" + runId + "。先调用 memory_dreaming_get_run 读取完整固定证据集；再检查当前 Notes、知识页和关系，必要时读取该 Run 的历史操作。对重要或可能变化的旧 Note，使用 memory_read_source 读取 sourceRefs 对应的历史证据，必要时搜索更早 Transcript。对每项变更引用该 Run 的 sourceId 并说明 reason；更新已有 Note 必须使用当前 baseVersion，更新或归档已有知识页必须使用当前 baseVersion。遇到版本冲突时不要覆盖，保留 Run 为 prepared 并报告冲突。若证据已评估且没有需要变更的长期知识，提交 operations=[]。成功后读取 Run 与审计记录，汇报结果。",
         [],
         taskId,
       );
