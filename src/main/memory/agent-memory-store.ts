@@ -350,22 +350,41 @@ export class AgentMemoryStore {
         "ORDER BY CASE WHEN scope_key=? THEN 0 ELSE 1 END,pinned DESC,importance DESC,updated_at DESC LIMIT ?"
       ).all({},...scopeKeys,now,workspaceKey,safeLimit) as Record<string,unknown>[];
     }else{
+      const cjkSequences=term.match(/[\u3400-\u9fff]+/g)??[];
+      const cjkBigrams=cjkSequences.flatMap(sequence=>{
+        const chars=Array.from(sequence);
+        return chars.slice(0,80).slice(0,-1).map((char,index)=>char+chars[index+1]);
+      });
+      const lexicalTokens=[...new Set([
+        ...((term.match(/[\p{L}\p{N}_]+/gu)??[]).map(token=>token.toLocaleLowerCase())),
+        ...cjkBigrams,
+      ])].slice(0,24);
+      const ftsTokens=lexicalTokens.length?lexicalTokens:[term];
+      const fts=ftsTokens.map(token=>'"'+token.replace(/"/g,'""')+'"').join(" OR ");
+      const likeNeedle="%"+term.replace(/[%_]/g,"")+"%";
       try{
-        const fts=term.split(/\s+/).filter(Boolean).map(token=>'"'+token.replace(/"/g,'""')+'"').join(" AND ");
         rows=this.database.prepare(
           "SELECT n.* FROM memory_notes n JOIN memory_notes_fts f ON f.id=n.id "+
           "WHERE n.scope_key IN ("+placeholders+") AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) AND memory_notes_fts MATCH ? "+
-          "ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END,n.pinned DESC,n.importance DESC,"+
-          "CASE n.validation WHEN 'validated' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END,bm25(memory_notes_fts),n.updated_at DESC LIMIT ?"
-        ).all({},...scopeKeys,now,fts,workspaceKey,safeLimit) as Record<string,unknown>[];
+          "ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END,"+
+          "CASE WHEN lower(n.title)=? THEN 0 WHEN lower(n.title) LIKE ? THEN 1 WHEN lower(n.content) LIKE ? THEN 2 ELSE 3 END,"+
+          "n.pinned DESC,n.importance DESC,CASE n.validation WHEN 'validated' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END,"+
+          "bm25(memory_notes_fts),n.updated_at DESC LIMIT ?"
+        ).all({},...scopeKeys,now,fts,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,safeLimit) as Record<string,unknown>[];
       }catch{rows=[];}
       if(!rows.length){
-        const like="%"+term.replace(/[%_]/g,"")+"%";
+        const fallbackTokens=[term,...lexicalTokens.slice(0,16)];
+        const predicates=fallbackTokens.map(()=>"(title LIKE ? OR content LIKE ? OR tags_json LIKE ?)").join(" OR ");
+        const parameters=fallbackTokens.flatMap(token=>{
+          const like="%"+token.replace(/[%_]/g,"")+"%";
+          return [like,like,like];
+        });
         rows=this.database.prepare(
           "SELECT * FROM memory_notes WHERE scope_key IN ("+placeholders+") AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
-          "AND (title LIKE ? OR content LIKE ? OR tags_json LIKE ?) "+
-          "ORDER BY CASE WHEN scope_key=? THEN 0 ELSE 1 END,pinned DESC,importance DESC,updated_at DESC LIMIT ?"
-        ).all({},...scopeKeys,now,like,like,like,workspaceKey,safeLimit) as Record<string,unknown>[];
+          "AND ("+predicates+") ORDER BY CASE WHEN scope_key=? THEN 0 ELSE 1 END,"+
+          "CASE WHEN lower(title)=? THEN 0 WHEN lower(title) LIKE ? THEN 1 WHEN lower(content) LIKE ? THEN 2 ELSE 3 END,"+
+          "pinned DESC,importance DESC,updated_at DESC LIMIT ?"
+        ).all({},...scopeKeys,now,...parameters,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,safeLimit) as Record<string,unknown>[];
       }
     }
     const touch=this.database.prepare("UPDATE memory_notes SET last_accessed_at=?,access_count=access_count+1 WHERE id=? AND scope_key=?");
