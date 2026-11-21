@@ -108,7 +108,7 @@ export interface AgentMemoryDreamRunDetail {
     startedAt: number;
     completedAt: number | null;
     maxSourceCreatedAt: number;
-    evidence: Array<{ sourceId: string; sessionId: string; messageId: string; kind: string; content: string; createdAt: number; contentHash: string }>;
+    evidence: Array<{ sourceId: string; sessionId: string; messageId: string; kind: string; content: string; createdAt: number; contentHash: string; revision?: number }>;
   };
   operations: Array<Record<string, unknown>>;
 }
