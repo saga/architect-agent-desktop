@@ -13,8 +13,8 @@ export interface KnowledgeGraphProps {
 }
 
 interface GraphData {
-  nodes: Array<Record<string, unknown>>;
-  edges: Array<Record<string, unknown>>;
+  nodes: Array<{ id: string; [key: string]: unknown }>;
+  edges: Array<{ id: string; source: string; target: string; [key: string]: unknown }>;
 }
 
 function normaliseGraphData(nodes: unknown, edges: unknown): GraphData | null {
@@ -25,13 +25,13 @@ function normaliseGraphData(nodes: unknown, edges: unknown): GraphData | null {
     ...node,
     id: String(node.id ?? "node-" + index),
     data: isRecord(node.data) ? node.data : {},
-  }));
+  })) as GraphData["nodes"];
   const normalizedEdges = edgeList.filter(isRecord).map((edge, index) => ({
     ...edge,
     id: String(edge.id ?? "edge-" + index),
     source: String(edge.source ?? ""),
     target: String(edge.target ?? ""),
-  })).filter(edge => edge.source && edge.target);
+  })).filter(edge => edge.source && edge.target) as GraphData["edges"];
   return { nodes: normalizedNodes, edges: normalizedEdges };
 }
 
