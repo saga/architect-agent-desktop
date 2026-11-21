@@ -57,12 +57,13 @@ describe("Agent workspace persistence", () => {
 
   it("parses and sorts persisted Schedule run history", () => {
     const runs = parseAgentScheduleRuns([
-      { id: "old", scheduleId: "s1", scheduleTitle: "Daily", trigger: "scheduled", scheduledAt: "2026-11-20T09:00:00.000Z", taskId: "task-1", startedAt: 100, finishedAt: 200, durationMs: 100, status: "success" },
+      { id: "old", scheduleId: "s1", scheduleTitle: "Daily", trigger: "scheduled", scheduledAt: "2026-11-20T09:00:00.000Z", taskId: "task-1", previousTaskId: "task-before", startedAt: 100, finishedAt: 200, durationMs: 100, status: "success" },
       { id: "new", scheduleId: "s1", scheduleTitle: "Daily", trigger: "manual", scheduledAt: "2026-11-21T09:00:00.000Z", taskId: null, startedAt: 300, status: "running" },
       { id: "bad", scheduleId: "s1", scheduleTitle: "Daily", trigger: "other", scheduledAt: "invalid", taskId: null, startedAt: 400, status: "pending" },
     ]);
     expect(runs.map(run => run.id)).toEqual(["new", "old"]);
     expect(runs[0].status).toBe("running");
+    expect(runs[1].previousTaskId).toBe("task-before");
   });
 
   it("supports interval schedules and skips missed intervals", () => {
