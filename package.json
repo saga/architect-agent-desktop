@@ -35,7 +35,14 @@
     "pdfjs-dist": "^6.5.438",
     "mammoth": "^1.13.0",
     "word-extractor": "^1.0.4",
-    "node-xlsx": "^0.25.0"
+    "node-xlsx": "^0.25.0",
+    "@a2ui/agent": "^0.2.0",
+    "@a2ui/react": "^0.16.0",
+    "@a2ui/web_core": "^0.16.0",
+    "@ant-design/charts": "^2.6.7",
+    "@antv/g6": "^5.1.1",
+    "@antv/x6": "^3.1.8",
+    "zod3": "npm:zod@^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
