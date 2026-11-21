@@ -638,14 +638,25 @@ export class AgentMemoryStore {
       status:domains.size>=2?"multi_domain_sources_recorded":"single_domain_sources_recorded",
       sources,recordedAt:Date.now(),note:redactSecrets(input.note.trim(),500),
     };
-    const version=Number(before.version)+1,now=Date.now();
-    const refs=[...new Set([...parseJson<string[]>(before.source_refs_json,[]),...input.sources.map(source=>source.sourceRef)])].slice(-100);
-    this.database.prepare(
-      "UPDATE memory_notes SET external_verification_json=?,source_refs_json=?,validation='unverified',confidence=0.5,validation_evidence_json=NULL,last_verified_at=NULL,updated_at=?,version=? WHERE id=? AND scope_key=?"
-    ).run({},JSON.stringify(verification),JSON.stringify(refs),now,version,input.noteId,scopeKey);
-    const after=this.getNoteRow(input.noteId,scopeKey) as Record<string,unknown>;
-    this.saveVersion(scopeKey,"note",input.noteId,version,after,null);
-    return this.toNote(after);
+    this.database.exec("BEGIN IMMEDIATE");
+    try{
+      const current=this.getNoteRow(input.noteId,scopeKey);
+      if(!current||current.status!=="active"||current.claim_type!=="external_fact"||
+        Number(current.version)!==input.baseVersion||current.validation==="disputed")
+        throw new Error("Memory Note 已变化或存在争议，请刷新后重新记录来源。");
+      const version=Number(current.version)+1,now=Date.now();
+      const refs=[...new Set([...parseJson<string[]>(current.source_refs_json,[]),...input.sources.map(source=>source.sourceRef)])].slice(-100);
+      this.database.prepare(
+        "UPDATE memory_notes SET external_verification_json=?,source_refs_json=?,validation='unverified',confidence=0.5,validation_evidence_json=NULL,last_verified_at=NULL,updated_at=?,version=? WHERE id=? AND scope_key=?"
+      ).run({},JSON.stringify(verification),JSON.stringify(refs),now,version,input.noteId,scopeKey);
+      const after=this.getNoteRow(input.noteId,scopeKey) as Record<string,unknown>;
+      this.saveVersion(scopeKey,"note",input.noteId,version,after,null);
+      this.database.exec("COMMIT");
+      return this.toNote(after);
+    }catch(error){
+      try{this.database.exec("ROLLBACK");}catch{/* preserve the original error */}
+      throw error;
+    }
   }
 
   confirmExternalVerification(scope:string|null,noteId:string,baseVersion:number):AgentMemoryNote{
@@ -672,18 +683,30 @@ export class AgentMemoryStore {
     const internal=this.buildValidationEvidence(scope,"project_fact",sourceRefs);
     if(internal.independentSessions<2||internal.directUserSources<1||internal.toolObservations<1)
       throw new Error("除不同来源域名外，还需要至少两个独立 Session，且包含用户陈述与工具观察。");
-    const now=Date.now(),version=Number(before.version)+1;
     const evidence:MemoryValidationEvidence={
       ...internal,claimType:"external_fact",eligible:true,
       policy:"human_confirmed_multi_domain_source_review",
       reason:"用户明确确认已逐一打开并核对所列来源。该记录是人工核验声明，不代表系统自动证明网页内容真实。",
     };
-    this.database.prepare(
-      "UPDATE memory_notes SET validation='validated',confidence=0.9,last_verified_at=?,source_refs_json=?,validation_evidence_json=?,updated_at=?,version=? WHERE id=? AND scope_key=?"
-    ).run({},now,JSON.stringify(sourceRefs),JSON.stringify(evidence),now,version,noteId,scopeKey);
-    const after=this.getNoteRow(noteId,scopeKey) as Record<string,unknown>;
-    this.saveVersion(scopeKey,"note",noteId,version,after,null);
-    return this.toNote(after);
+    this.database.exec("BEGIN IMMEDIATE");
+    try{
+      const current=this.getNoteRow(noteId,scopeKey);
+      if(!current||current.status!=="active"||current.claim_type!=="external_fact"||
+        current.validation==="disputed"||Number(current.version)!==baseVersion)
+        throw new Error("Memory Note 已变化或存在争议，请刷新后重新核验来源。");
+      const now=Date.now(),version=Number(current.version)+1;
+      const currentRefs=[...new Set([...parseJson<string[]>(current.source_refs_json,[]),...external.sources.map(source=>source.sourceRef)])];
+      this.database.prepare(
+        "UPDATE memory_notes SET validation='validated',confidence=0.9,last_verified_at=?,source_refs_json=?,validation_evidence_json=?,updated_at=?,version=? WHERE id=? AND scope_key=?"
+      ).run({},now,JSON.stringify(currentRefs),JSON.stringify(evidence),now,version,noteId,scopeKey);
+      const after=this.getNoteRow(noteId,scopeKey) as Record<string,unknown>;
+      this.saveVersion(scopeKey,"note",noteId,version,after,null);
+      this.database.exec("COMMIT");
+      return this.toNote(after);
+    }catch(error){
+      try{this.database.exec("ROLLBACK");}catch{/* preserve the original error */}
+      throw error;
+    }
   }
 
   archive(id:string,scope:string|null=null):void{
