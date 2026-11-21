@@ -6,6 +6,7 @@ import { Bubble, Sender, Think, ThoughtChain } from "@ant-design/x";
 import type { ThoughtChainItemType } from "@ant-design/x";
 import XMarkdown from "@ant-design/x-markdown";
 import { markdownComponents } from "./MarkdownLink";
+import AgentA2UICard from "./components/AgentA2UICard";
 import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } from "../shared/types";
 
 type ChatItem = AgentSessionItem & { streaming?: boolean };
@@ -86,6 +87,15 @@ const bubbleRoles = {
     variant: "borderless" as const,
     shape: "corner" as const,
     contentRender: () => <ToolChain steps={(data.extraInfo?.steps ?? []) as ChatItem[]} />,
+  }),
+  a2ui: (data: any) => ({
+    placement: "start" as const,
+    variant: "outlined" as const,
+    shape: "corner" as const,
+    contentRender: (content: string) => <AgentA2UICard content={content} onAction={(payload) => {
+      const handler = data.extraInfo?.onAction;
+      if (typeof handler === "function") handler(payload);
+    }} />,
   }),
   error: {
     placement: "start" as const,
@@ -195,6 +205,9 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
           }
           return next;
         });
+        if (event.type === "a2ui" && event.text) {
+          setItems((current) => [...current, { id: crypto.randomUUID(), kind: "a2ui", content: event.text ?? "", createdAt: Date.now() }]);
+        }
         if (event.type === "message" && event.text) setItems((current) => {
           const next = [...current];
           finalizeThinking(next);
@@ -312,7 +325,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     const prompt = value.trim();
     if (!prompt || loading) return;
     const contextLines = [
-      ...(attachments.length ? ["Attached files:", ...attachments.map((file) => "- " + file)] : []),
+      ...(attachments.length ? ["Attached files (parsed locally):", ...attachments.map((file) => "- " + shortPath(file))] : []),
       ...(references.length ? ["References:", ...references.map((url) => "- " + url)] : []),
     ];
     const effectivePrompt = contextLines.length ? contextLines.join("\n") + "\n\n" + prompt : prompt;
@@ -323,7 +336,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     setItems((current) => [...current, { id: crypto.randomUUID(), kind: "user", content: prompt, createdAt: Date.now() }]);
     setLoading(true);
     try {
-      await window.browser.copilotSend(effectivePrompt, history, taskId);
+      await window.browser.copilotSend(effectivePrompt, history, taskId, attachments);
       setAttachments([]);
       setReferences([]);
       setSenderPanel(null);
@@ -389,7 +402,14 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
         key: item.id,
         role: item.kind,
         content: item.content,
-        extraInfo: { streaming: item.streaming === true },
+        extraInfo: {
+          streaming: item.streaming === true,
+          ...(item.kind === "a2ui" ? {
+            onAction: (payload: unknown) => {
+              void send("A2UI 交互事件：" + JSON.stringify(payload) + "。请根据用户的交互继续分析或更新卡片。");
+            },
+          } : {}),
+        },
         loading: item.kind !== "thinking" && item.streaming === true && !item.content,
       });
     }
