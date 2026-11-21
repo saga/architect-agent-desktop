@@ -1,6 +1,6 @@
 export const AGENT_A2UI_CATALOG_ID = "architect-agent-desktop://catalog/finance/v1";
 export const AGENT_A2UI_COMPONENTS = [
-  "Column", "Row", "Card", "Text", "Metric", "FinancialChart", "DataTable", "Divider",
+  "Column", "Row", "Card", "Text", "Metric", "FinancialChart", "DataTable", "Divider", "Button",
 ] as const;
 
 export type AgentA2UICommand = Record<string, unknown>;
@@ -53,6 +53,11 @@ export function validateAgentA2UICommands(input: unknown): AgentA2UICommand[] {
             if (!isRecord(component.option)) throw new Error("FinancialChart 必须包含 JSON ECharts option。");
             if (JSON.stringify(component.option).length > 50_000) throw new Error("FinancialChart option 超过 50 KB。");
           }
+          if (component.component === "Button") {
+            if (!isRecord(component.action) || !isRecord(component.action.event) || !boundedString(component.action.event.name, 80)) {
+              throw new Error("A2UI Button 必须定义有限长度的 action.event.name。");
+            }
+          }
         }
       }
       if (operation === "updateDataModel" && (!boundedString(payload.path, 500) || !("value" in payload))) {
@@ -60,6 +65,17 @@ export function validateAgentA2UICommands(input: unknown): AgentA2UICommand[] {
       }
     }
     result.push(raw);
+  }
+  const components = result.flatMap(command => {
+    if (!isRecord(command.updateComponents) || !Array.isArray(command.updateComponents.components)) return [];
+    return command.updateComponents.components.filter(isRecord);
+  });
+  const ids = new Set(components.map(component => String(component.id)));
+  if (!ids.has("root")) throw new Error("A2UI Surface 必须包含 id 为 root 的根组件。");
+  for (const component of components) {
+    if (Array.isArray(component.children) && component.children.some(child => !ids.has(String(child)))) {
+      throw new Error("A2UI 组件引用了不存在的 children id。");
+    }
   }
   if (!result.some(command => isRecord(command.createSurface))) throw new Error("A2UI v0.9 必须先创建 Surface。");
   return result;
