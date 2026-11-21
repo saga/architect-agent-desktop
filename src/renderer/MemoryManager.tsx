@@ -255,6 +255,13 @@ export default function MemoryManager() {
     {taskId && loading && <div style={{ padding: 40, textAlign: "center" }}><Spin /></div>}
     {snapshot && !loading && <>
       <Alert
+        type="warning"
+        showIcon
+        message="Dreaming 的工具权限要求"
+        description="当前 Task 使用的 Expert 需要启用“长期记忆”工具组，并将 Agent 工具权限设置为 assisted 或 allow-all。若工具未开放，点击整理不会推进 Transcript 游标。"
+        style={{ marginBottom: 10 }}
+      />
+      <Alert
         type="info"
         showIcon
         message={snapshot.workspacePath ? "当前记忆范围：" + snapshot.workspacePath : "当前为个人记忆空间"}
