@@ -59,7 +59,7 @@ describe("parseAgentSessionItems", () => {
   });
 
   it("ignores unknown tool states", () => {
-    const [item] = parseAgentSessionItems([{ kind: "tool", content: "x", toolState: "waiting" as never }]);
+    const [item] = parseAgentSessionItems([{ kind: "tool", content: "x", toolState: "waiting" }]);
     expect(item!.toolState).toBeUndefined();
   });
 });
