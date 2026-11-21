@@ -287,6 +287,11 @@ export class AgentMemoryStore {
     this.ensureColumns("memory_dream_sources", { source_revision: "INTEGER" });
     this.database.exec("UPDATE memory_dream_runs SET started_at=created_at WHERE started_at=0;");
     this.database.exec("UPDATE memory_dream_runs SET cursor_after_created_at=max_source_created_at WHERE cursor_after_created_at=0 AND max_source_created_at>0;");
+    // Remove stale vectors from pre-guard Personal Notes that were project-specific.
+    this.database.prepare(
+      "DELETE FROM memory_note_embeddings WHERE scope_key=? AND note_id IN ("+
+      "SELECT id FROM memory_notes WHERE scope_key=? AND claim_type NOT IN ('user_preference','user_intent'))"
+    ).run({},normalizeScope(null),normalizeScope(null));
   }
 
   private ensureColumns(table: string, columns: Record<string, string>): void {
@@ -352,7 +357,8 @@ export class AgentMemoryStore {
     const previousExternal=parseJson<AgentMemoryExternalVerification|null>(before?.external_verification_json,null);
     const preservesHumanExternalReview=validation==="validated"&&unchanged&&sourceRefsUnchanged&&claimType==="external_fact"&&
       previousEvidence?.eligible===true&&previousEvidence.policy==="human_confirmed_multi_domain_source_review"&&
-      previousExternal?.status==="multi_domain_sources_recorded"&&new Set(previousExternal.sources.map(source=>source.domain)).size>=2;
+      previousExternal?.status==="multi_domain_sources_recorded"&&
+      new Set(previousExternal.sources.map(source=>sourceRegistrableDomain(source.domain))).size>=2;
     const evidenceProfile:MemoryValidationEvidence|null=validation!=="validated"?null:
       preservesHumanExternalReview?previousEvidence:this.requireValidationEvidence(input.scope??null,claimType,sourceRefs);
     const source = sourceRefs.length ? this.getSourceById(sourceRefs[0]!, input.scope) : null;
@@ -1131,6 +1137,7 @@ export class AgentMemoryStore {
   }
 
   private dreamSupersedeNote(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"supersede_note"}>,refs:string[],reason:string):void{
+    if(scopeKey===normalizeScope(null))throw new Error("Personal Memory 不建立 Note 替代关系；请更新对应偏好或用户意图 Note。");
     const before=this.getNoteRow(op.id,scopeKey),replacement=this.getNoteRow(op.replacementId,scopeKey);
     if(!before||before.status!=="active"||!replacement||replacement.status!=="active")throw new Error("supersede_note 必须引用同一 Workspace 的活动 Note。");
     if(Number(before.version)!==op.baseVersion)throw new Error("被替代 Note 的版本已变化："+op.id);
@@ -1143,6 +1150,7 @@ export class AgentMemoryStore {
   }
 
   private dreamLinkNotes(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"link_notes"}>,refs:string[],reason:string):void{
+    if(scopeKey===normalizeScope(null))throw new Error("Personal Memory 不建立项目知识关系；关系应保留在对应 Workspace。");
     this.insertRelationship(runId,sequence,scopeKey,op.sourceId,op.targetId,op.relationship,reason,refs);
   }
 
@@ -1169,6 +1177,7 @@ export class AgentMemoryStore {
   }
 
   private dreamArchiveKnowledge(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"archive_knowledge"}>,refs:string[],reason:string):void{
+    if(scopeKey===normalizeScope(null))throw new Error("Personal Memory 不管理项目知识页；请在对应 Workspace 中归档。");
     const slug=op.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,80);
     if(!slug)throw new Error("archive_knowledge 必须提供有效的 slug。");
     const id=createHash("sha256").update(scopeKey+":"+slug).digest("hex").slice(0,32);
