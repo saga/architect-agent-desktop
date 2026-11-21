@@ -7,14 +7,18 @@ import {
 import type { AgentToRendererMessage, RendererToAgentMessage } from "@a2ui/agent";
 import { createAgentFinanceCatalog, FINANCE_A2UI_CATALOG_ID } from "../shared/a2ui-finance-catalog";
 
+export type A2UIPart =
+  | { type: "text"; text: string }
+  | { type: "a2ui"; messages: AgentToRendererMessage[] };
+
 export interface A2UITurn {
   promptSnippet: string;
-  feed(chunk: string): Array<{ type: "text"; text: string } | { type: "a2ui"; messages: AgentToRendererMessage[] }>;
-  close(): Array<{ type: "text"; text: string } | { type: "a2ui"; messages: AgentToRendererMessage[] }>;
-  parse(content: string): Array<{ type: "text"; text: string } | { type: "a2ui"; messages: AgentToRendererMessage[] }>;
+  feed(chunk: string): A2UIPart[];
+  close(): A2UIPart[];
+  parse(content: string): A2UIPart[];
 }
 
-function normalizeParts(parts: unknown[]): A2UITurn["feed"] extends (...args: never[]) => infer R ? R : never {
+function normalizeParts(parts: unknown[]): A2UIPart[] {
   return parts.flatMap((raw) => {
     if (!raw || typeof raw !== "object") return [];
     const part = raw as { type?: string; text?: string; a2ui?: AgentToRendererMessage[] };
@@ -25,7 +29,7 @@ function normalizeParts(parts: unknown[]): A2UITurn["feed"] extends (...args: ne
       return [{ type: "a2ui" as const, messages: part.a2ui }];
     }
     return [];
-  }) as A2UITurn["feed"] extends (...args: never[]) => infer R ? R : never;
+  }) as A2UIPart[];
 }
 
 /**
