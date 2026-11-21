@@ -160,13 +160,24 @@ export default function MemoryManager() {
     if (!taskId || preparedRuns.length) return;
     setRunning(true);
     try {
+      const before = await window.browser.agentMemoryGetSnapshot(taskId);
+      const beforeStatuses = new Map(before.dreamRuns.map(run => [valueOf(run, "id"), valueOf(run, "status")]));
       await window.browser.copilotSend(
-        "请只执行当前 Workspace 的长期记忆质量复查，不要读取或推进 Transcript 游标。调用 memory_quality_review_prepare；若 up_to_date 则报告没有到期候选。若创建 prepared Run，调用 memory_quality_review_list({runId})，只处理返回的候选 Note；若没有候选映射，调用 memory_dreaming_abandon 放弃该 Run。通过 memory_read_source 读取其历史来源；遇到 [TRUNCATED] 必须用 memory_search_history 查找完整 Transcript。对每条 Note 按来源可靠性、直接性、内容清晰度、当前有效性和交叉印证给出 0–1 的 qualityScore。用 review_note 提交当前 baseVersion、该候选的 qualityReviewSourceRefs、confidence 和 qualityScore；遇到 [TRUNCATED] 先用 memory_search_history 回查原文。证据不足保持 unverified，存在冲突标 disputed，不能仅凭旧 validation 状态自我验证。提交 memory_dreaming_commit 后读取 Run 审计。质量复查不能推进 Transcript cursor。",
+        "请只执行当前 Workspace 的长期记忆质量复查，不要读取或推进 Transcript 游标。调用 memory_quality_review_prepare；若 up_to_date 则报告没有到期候选。若创建 prepared Run，调用 memory_quality_review_list({runId})，只处理返回的候选 Note；若没有候选映射，调用 memory_dreaming_abandon 放弃该 Run。通过 memory_read_source 读取其历史来源；遇到 [TRUNCATED] 必须用 memory_search_history 查找完整 Transcript。对每条 Note 按来源可靠性、直接性、内容清晰度、当前有效性和交叉印证给出 0–1 的 qualityScore。用 review_note 提交当前 baseVersion、该候选的 qualityReviewSourceRefs、confidence 和 qualityScore；证据不足保持 unverified，存在冲突标 disputed，不能仅凭旧 validation 状态自我验证。提交 memory_dreaming_commit 后读取 Run 审计。质量复查不能推进 Transcript cursor。",
         [],
         taskId,
       );
+      const after = await window.browser.agentMemoryGetSnapshot(taskId);
+      setSnapshot(after);
+      const changed = after.dreamRuns.find(run => beforeStatuses.get(valueOf(run, "id")) !== valueOf(run, "status"));
+      if (changed && valueOf(changed, "status") === "completed" && valueOf(changed, "purpose") === "quality_review") {
+        message.success("记忆质量复查已提交。");
+      } else if (changed && valueOf(changed, "status") === "prepared") {
+        message.warning("质量复查仍有待处理 Run，请在 Dreaming Runs 中继续处理或放弃。");
+      } else {
+        message.info("没有检测到新的质量复查提交；可能没有到期 Note 或当前 Expert 未开放所需工具。");
+      }
       await refresh(taskId);
-      message.success("质量复查流程已执行，请查看 Dreaming Runs 的复查记录。");
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
