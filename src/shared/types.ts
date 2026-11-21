@@ -141,6 +141,7 @@ export interface AgentWorkspacePreferences {
 }
 export interface AgentWorkspaceSnapshot {
   tasks: AgentTask[];
+  scheduleRunTasks: AgentTask[];
   activeTaskId: string;
   workspaces: AgentWorkspaceSummary[];
   experts: AgentExpert[];
