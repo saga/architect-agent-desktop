@@ -7,8 +7,7 @@ export interface WorkflowDiagramProps {
   title?: string;
   height?: number;
   editable?: boolean;
-  onChange?: (json: Record<string, unknown>) => void;
-  onSave?: () => void;
+  onSave?: (json: Record<string, unknown>) => void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,7 +48,7 @@ function validateGraphJson(input: unknown): Record<string, unknown> | null {
   return input;
 }
 
-export default function WorkflowDiagram({ graphData, title, height = 440, editable = false, onChange, onSave }: WorkflowDiagramProps) {
+export default function WorkflowDiagram({ graphData, title, height = 440, editable = false, onSave }: WorkflowDiagramProps) {
   const host = useRef<HTMLDivElement>(null);
   const graph = useRef<Graph | null>(null);
   const serialized = useMemo(() => validateGraphJson(graphData), [graphData]);
@@ -72,12 +71,6 @@ export default function WorkflowDiagram({ graphData, title, height = 440, editab
     instance.fromJSON(serialized);
     instance.centerContent();
     graph.current = instance;
-    const changed = () => {
-      if (editable) onChange?.(instance.toJSON() as unknown as Record<string, unknown>);
-    };
-    instance.on("cell:added", changed);
-    instance.on("cell:removed", changed);
-    instance.on("cell:changed", changed);
     const resize = new ResizeObserver(() => {
       const width = container.clientWidth;
       if (width > 0) instance.resize(width, safeHeight);
@@ -85,19 +78,16 @@ export default function WorkflowDiagram({ graphData, title, height = 440, editab
     resize.observe(container);
     return () => {
       resize.disconnect();
-      instance.off("cell:added", changed);
-      instance.off("cell:removed", changed);
-      instance.off("cell:changed", changed);
       instance.dispose();
       if (graph.current === instance) graph.current = null;
     };
-  }, [serialized, safeHeight, editable, onChange]);
+  }, [serialized, safeHeight, editable]);
 
   if (!serialized) return <Alert type="warning" showIcon message="X6 图数据无效，或节点数量超过 2,000。" />;
   return <section className="agent-workflow-diagram" style={{ width: "100%", minWidth: 0 }}>
     <Space style={{ width: "100%", justifyContent: "space-between", marginBottom: 8 }}>
       {title ? <Typography.Title level={5} style={{ margin: 0 }}>{title}</Typography.Title> : <span />}
-      {editable && <Button size="small" onClick={() => onSave?.()}>保存图</Button>}
+      {editable && <Button size="small" onClick={() => onSave?.(graph.current?.toJSON() as unknown as Record<string, unknown>)}>保存图</Button>}
     </Space>
     <div ref={host} role="img" aria-label={title || "流程图"} style={{ height: safeHeight, width: "100%", minWidth: 0, border: "1px solid var(--ant-color-border-secondary)", borderRadius: 8, overflow: "hidden" }} />
   </section>;
