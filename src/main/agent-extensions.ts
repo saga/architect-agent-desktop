@@ -222,12 +222,16 @@ export function readEnabledAgentSkillInstructions(root: string, registryFile: st
     : "";
 }
 
+type RuntimeMcpServerConfig =
+  | { type: "local" | "stdio"; command: string; args?: string[]; env?: Record<string, string>; workingDirectory?: string; cwd?: string; timeout?: number; tools?: string[] }
+  | { type: "http"; url: string; headers?: Record<string, string>; timeout?: number; tools?: string[] };
+
 export function resolveMcpServerConfigs(
   servers: McpServerConfig[],
   provider: "copilot" | "codebuddy",
   environment: Record<string, string | undefined>,
-): Record<string, Record<string, unknown>> {
-  const result: Record<string, Record<string, unknown>> = {};
+): Record<string, RuntimeMcpServerConfig> {
+  const result: Record<string, RuntimeMcpServerConfig> = {};
   for (const server of servers.filter(item => item.enabled)) {
     const resolveValue = (value: string): string => value.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/g, (_match, key: string) => {
       const resolved = environment[key] ?? process.env[key];
