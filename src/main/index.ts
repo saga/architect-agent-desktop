@@ -2697,6 +2697,57 @@ function registerIpcHandlers(): void {
     return result;
   });
 
+  ipcMain.handle("agent:memory-record-external-sources", (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+      throw new Error("Agent 正在运行，请完成当前任务后再记录外部来源。");
+    }
+    const parsed = z.object({
+      taskId: z.string().min(1).max(100),
+      noteId: z.string().min(1).max(100),
+      baseVersion: z.number().int().min(1),
+      sources: z.array(z.object({
+        sourceRef: z.string().min(1).max(120),
+        url: z.string().url().max(2048),
+        publisher: z.string().min(1).max(160),
+        publishedAt: z.string().max(40).nullable().optional(),
+      })).min(1).max(4),
+      note: z.string().max(500),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid external fact source record.");
+    const task = taskForId(parsed.data.taskId);
+    const note = copilotAgent.recordExternalMemorySources(task.workspacePath, {
+      noteId: parsed.data.noteId, baseVersion: parsed.data.baseVersion,
+      sources: parsed.data.sources, note: parsed.data.note,
+    });
+    recordTaskTrace(task, "memory.external-sources.recorded", {
+      noteId: note.id, version: note.version, status: note.externalVerification?.status,
+      domains: note.externalVerification?.sources.map(source => source.domain) ?? [],
+    });
+    return note;
+  });
+
+  ipcMain.handle("agent:memory-confirm-external-verification", (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+      throw new Error("Agent 正在运行，请完成当前任务后再确认外部事实来源。");
+    }
+    const parsed = z.object({
+      taskId: z.string().min(1).max(100),
+      noteId: z.string().min(1).max(100),
+      baseVersion: z.number().int().min(1),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid external verification confirmation.");
+    const task = taskForId(parsed.data.taskId);
+    const note = copilotAgent.confirmExternalMemoryVerification(task.workspacePath, parsed.data.noteId, parsed.data.baseVersion);
+    recordTaskTrace(task, "memory.external-verification.confirmed", {
+      noteId: note.id, version: note.version, validation: note.validation,
+      domains: note.externalVerification?.sources.map(source => source.domain) ?? [],
+      confirmation: "user_attested",
+    });
+    return note;
+  });
+
   ipcMain.handle("agent:memory-save-dream-schedule", (event, input: unknown) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
