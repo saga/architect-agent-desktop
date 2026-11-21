@@ -236,7 +236,16 @@ for (const run of agentScheduleRuns) {
 if (recoveredScheduleRuns) writeJsonAtomic(AGENT_SCHEDULE_RUNS_PATH, agentScheduleRuns);
 let agentWorkspacePreferences = parseAgentWorkspacePreferences(loadJsonValue(AGENT_WORKSPACE_PREFERENCES_PATH));
 const savedActiveTask = loadJsonValue(ACTIVE_AGENT_TASK_PATH) as { taskId?: unknown } | null;
-activeAgentTaskId = typeof savedActiveTask?.taskId === "string" && agentTasks.some(task => task.id === savedActiveTask.taskId) ? savedActiveTask.taskId : (agentTasks.find(task => task.sessionId === initialSessionId)?.id ?? agentTasks[0].id);
+const interruptedScheduleRun = typeof savedActiveTask?.taskId === "string"
+  ? agentScheduleRuns.find(run => run.taskId === savedActiveTask.taskId && run.error === "应用在上次执行期间退出，任务未能完成。")
+  : undefined;
+const recoveredActiveTaskId = interruptedScheduleRun?.previousTaskId;
+const preferredActiveTaskId = recoveredActiveTaskId && agentTasks.some(task => task.id === recoveredActiveTaskId)
+  ? recoveredActiveTaskId
+  : savedActiveTask?.taskId;
+activeAgentTaskId = typeof preferredActiveTaskId === "string" && agentTasks.some(task => task.id === preferredActiveTaskId)
+  ? preferredActiveTaskId
+  : (agentTasks.find(task => task.sessionId === initialSessionId)?.id ?? agentTasks[0].id);
 writeJsonAtomic(ACTIVE_AGENT_TASK_PATH, { taskId: activeAgentTaskId });
 const startupTask = agentTasks.find(task => task.id === activeAgentTaskId);
 if (startupTask) {
@@ -1539,6 +1548,7 @@ async function processDueAgentSchedules(manualScheduleId?: string): Promise<void
         trigger: manual ? "manual" : "scheduled",
         scheduledAt: manual ? new Date(runStartedAt).toISOString() : schedule.runAt,
         taskId: null,
+        previousTaskId,
         startedAt: runStartedAt,
         status: "running",
       };
