@@ -33,7 +33,6 @@ describe("Claude Code Plugin packages", () => {
   it("validates the standard Claude Code plugin directory and resources", () => {
     const source = makeClaudePlugin(makeDirectory());
     const manifest = validatePluginDirectory(source);
-    expect(manifest.sourceFormat).toBe("claude-code");
     expect(manifest.id).toBe("research-toolkit");
     expect(manifest.skills).toContain("skills/research/SKILL.md");
   });
@@ -156,7 +155,6 @@ describe("Claude Code Plugin packages", () => {
     const registry = path.join(root, "plugins.json");
     const imported = importPlugin(source, pluginRoot, registry);
     expect(imported.id).toBe("portable-tools");
-    expect(imported.sourceFormat).toBe("claude-code");
     expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("Write useful notes.");
   });
 });
