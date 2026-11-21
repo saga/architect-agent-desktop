@@ -35,7 +35,7 @@ export interface AgentModelInfo {
   credits?: number;
 }
 export type AgentThinkingLevel = "low" | "medium" | "high" | "xhigh";
-export type AgentToolPermission = "browser-only" | "assisted" | "allow-all";
+export type AgentToolPermission = "none" | "browser-only" | "assisted" | "allow-all";
 export interface AgentChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -54,7 +54,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   copilotModel: "",
   codebuddyModel: "",
   thinkingLevel: "medium",
-  toolPermission: "browser-only",
+  toolPermission: "none",
   systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt.",
 };
 
@@ -93,6 +93,8 @@ export interface AgentExpert {
   description: string;
   systemPrompt: string;
   toolPermission: AgentToolPermission;
+  /** Explicitly bypass the Expert tool allow-list; still constrained by global Agent permission. */
+  allowAllTools: boolean;
   skills: string[];
   tools: string[];
   createdAt: number;
