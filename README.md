@@ -119,11 +119,13 @@ Agent 支持从系统文件选择器读取 PDF、Word、Excel、CSV、TSV、JSON
 
 详细设计、数据边界和当前限制见 [Agent 数据分析、文件理解、A2UI 与长期记忆设计](docs/architecture/AGENT-ANALYTICS-DOCUMENTS-A2UI-MEMORY.md)。当前不包含后台定时 Dreaming、跨 Workspace 全局记忆、向量检索、扫描 PDF OCR 或防篡改审计账本。
 
-## Plugins
+## Claude Code Plugins
 
-Open **Agent 与插件配置** from the application settings, then import a plugin directory. The repository includes a working example at `examples/plugins/research-assistant`.
+The plugin manager supports importing the **Claude Code Plugin directory format**. Its manifest is `.claude-plugin/plugin.json`; Markdown components are discovered from `skills/`, `commands/`, and `agents/`. The earlier application-specific `manifest.json` format remains supported for existing local plugins.
 
-A plugin directory contains `manifest.json` plus the resource files referenced by that manifest. The first version supports Skills (`.md`), Workflow templates (`.md` or `.json`), references to host-provided tools, and JSON declarations for the existing Browser or Agent views. Arbitrary JavaScript is never loaded or executed.
+Browse [Claude Marketplace](https://claude.com/marketplace/plugins), select plugins marked **Works with: Claude Code**, obtain the plugin source directory, then choose **Agent 与插件配置 → Plugins → 导入 Claude Plugin 目录**. Import the plugin root directory (the one containing `.claude-plugin/`), not the marketplace website or the repository's marketplace catalog folder.
+
+The current host loads Markdown Skills, Commands, and Agent definitions as Agent instructions. It does not execute Claude Code Hooks, Mod JavaScript, plugin scripts, or automatically start the plugin's `.mcp.json` / LSP servers. Plugins that require those runtime components will only work partially; configure required MCP services separately in **MCP Servers**. Plugin files are treated as untrusted input and are not executed during import.
 
 Imported plugins are stored locally under the application's user-data directory. Enable/disable state is local to this installation. Export writes a copy of the plugin directory to a folder you choose.
 
