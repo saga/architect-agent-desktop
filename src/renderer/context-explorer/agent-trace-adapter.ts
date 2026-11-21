@@ -79,8 +79,14 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
       includeRaw: options.includeRaw,
       redactSecrets: options.redactSecrets,
     });
-  const usage = usageOf(event.usage) ?? usageOf(snapshot.usage);
-  const contextUsage = contextUsageOf(event.contextUsage);
+  const resultData = object(data.result);
+  const nestedResultData = object(resultData.data);
+  const usage = usageOf(event.usage)
+    ?? usageOf(data.usage)
+    ?? usageOf(resultData.usage)
+    ?? usageOf(nestedResultData.usage)
+    ?? usageOf(snapshot.usage);
+  const contextUsage = contextUsageOf(event.contextUsage ?? data.contextUsage);
   const completed = response !== undefined || /completed|success|finished|fail|error|cancel|abort/i.test(event.status ?? '');
   const runStatus: ContextRun['status'] = /fail|error/i.test(event.status ?? '') ? 'failed' : /cancel/i.test(event.status ?? '') ? 'cancelled' : /abort/i.test(event.status ?? '') ? 'aborted' : completed ? 'completed' : 'running';
   const attempt = number(data.attempt);
@@ -189,8 +195,8 @@ function toContextEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOp
     ...(data.arguments !== undefined ? { input: redactContextPayload(data.arguments, options.redactSecrets ?? true) } : data.input !== undefined ? { input: redactContextPayload(data.input, options.redactSecrets ?? true) } : {}),
     ...(data.result !== undefined ? { output: redactContextPayload(data.result, options.redactSecrets ?? true) } : data.output !== undefined ? { output: redactContextPayload(data.output, options.redactSecrets ?? true) } : {}),
     data: redactContextPayload(event.data, options.redactSecrets ?? true), ...(event.metadata ? { metadata: redactContextPayload(event.metadata, options.redactSecrets ?? true) } : {}),
-    ...(usageOf(event.usage) ? { usage: usageOf(event.usage) } : {}),
-    ...(contextUsageOf(event.contextUsage) ? { contextUsage: contextUsageOf(event.contextUsage) } : {}),
+    ...(usageOf(event.usage ?? object(event.data).usage ?? object(object(event.data).result).usage) ? { usage: usageOf(event.usage ?? object(event.data).usage ?? object(object(event.data).result).usage) } : {}),
+    ...(contextUsageOf(event.contextUsage ?? object(event.data).contextUsage) ? { contextUsage: contextUsageOf(event.contextUsage ?? object(event.data).contextUsage) } : {}),
     ...(event.payloadComplete !== undefined ? { payloadComplete: event.payloadComplete } : {}),
   };
 }
