@@ -135,7 +135,7 @@ export default function MemoryManager() {
     try {
       const detail = await window.browser.agentMemoryGetDreamRun(taskId, runId);
       const prompt = detail.run.purpose === "quality_review"
-        ? "请继续当前 Workspace 已准备好的质量复查 Run，不要重新 prepare。目标 Run ID：" + runId + "。调用 memory_quality_review_list({runId}) 查看该 Run 的候选 Note；根据固定证据集和 memory_read_source 读取的原始来源，逐条使用 review_note 提交当前 baseVersion、候选记录的 qualityReviewSourceRefs、confidence 和 qualityScore（0–1）。不能仅凭旧 validation 状态判断正确；证据不足保留 unverified，冲突标 disputed。遇到版本冲突不覆盖，报告并保留 prepared。全部复核后提交 memory_dreaming_commit，并读取审计结果。"
+        ? "请继续当前 Workspace 已准备好的质量复查 Run，不要重新 prepare。目标 Run ID：" + runId + "。调用 memory_quality_review_list({runId}) 查看该 Run 的候选 Note；若没有候选映射则调用 memory_dreaming_abandon 放弃该 Run。根据固定证据集和 memory_read_source 读取的原始来源，逐条使用 review_note 提交当前 baseVersion、候选记录的 qualityReviewSourceRefs、confidence 和 qualityScore（0–1）。不能仅凭旧 validation 状态判断正确；证据不足保留 unverified，冲突标 disputed。遇到版本冲突不覆盖，报告并保留 prepared。全部复核后提交 memory_dreaming_commit，并读取审计结果。"
         : "请继续当前 Workspace 中已经准备好的 Memory Dreaming Run，不要重新调用 prepare，也不要创建新 Run。目标 Run ID：" + runId + "。先调用 memory_dreaming_get_run 读取完整固定证据集；再检查当前 Notes、知识页和关系。对重要或可能变化的旧 Note，使用 memory_read_source 读取 sourceRefs 对应的历史证据，必要时搜索更早 Transcript。任何含 [TRUNCATED] 标记的证据都只是预览，必须先用 memory_search_history 检查原始 Transcript。对每项变更引用该 Run 的 sourceId 并说明 reason；更新已有 Note 必须使用当前 baseVersion，更新或归档已有知识页必须使用当前 baseVersion。遇到版本冲突时不要覆盖，保留 Run 为 prepared 并报告冲突。若证据已评估且没有需要变更的长期知识，提交 operations=[]。成功后读取 Run 与审计记录，汇报结果。";
       await window.browser.copilotSend(prompt, [], taskId);
       const after = await window.browser.agentMemoryGetSnapshot(taskId);
@@ -161,7 +161,7 @@ export default function MemoryManager() {
     setRunning(true);
     try {
       await window.browser.copilotSend(
-        "请只执行当前 Workspace 的长期记忆质量复查，不要读取或推进 Transcript 游标。调用 memory_quality_review_prepare；若 up_to_date 则报告没有到期候选。若创建 prepared Run，调用 memory_quality_review_list({runId})，只处理返回的候选 Note；通过 memory_read_source 读取其历史来源，必要时用 memory_search_history 查找完整 Transcript。对每条 Note 按来源可靠性、直接性、内容清晰度、当前有效性和交叉印证给出 0–1 的 qualityScore。用 review_note 提交当前 baseVersion、该候选的 qualityReviewSourceRefs、confidence 和 qualityScore；证据不足保持 unverified，存在冲突标 disputed，不能仅凭旧 validation 状态自我验证。提交 memory_dreaming_commit 后读取 Run 审计。质量复查不能推进 Transcript cursor。",
+        "请只执行当前 Workspace 的长期记忆质量复查，不要读取或推进 Transcript 游标。调用 memory_quality_review_prepare；若 up_to_date 则报告没有到期候选。若创建 prepared Run，调用 memory_quality_review_list({runId})，只处理返回的候选 Note；若没有候选映射，调用 memory_dreaming_abandon 放弃该 Run。通过 memory_read_source 读取其历史来源；遇到 [TRUNCATED] 必须用 memory_search_history 查找完整 Transcript。对每条 Note 按来源可靠性、直接性、内容清晰度、当前有效性和交叉印证给出 0–1 的 qualityScore。用 review_note 提交当前 baseVersion、该候选的 qualityReviewSourceRefs、confidence 和 qualityScore；遇到 [TRUNCATED] 先用 memory_search_history 回查原文。证据不足保持 unverified，存在冲突标 disputed，不能仅凭旧 validation 状态自我验证。提交 memory_dreaming_commit 后读取 Run 审计。质量复查不能推进 Transcript cursor。",
         [],
         taskId,
       );
