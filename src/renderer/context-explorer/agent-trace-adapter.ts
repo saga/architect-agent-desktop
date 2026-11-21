@@ -224,7 +224,7 @@ function mergeRequestRuns(runs: ContextRun[]): ContextRun[] {
         ? responseSnapshot.responseMessages
         : previous.snapshot.responseMessages,
       usage: run.usage ?? previous.usage ?? responseSnapshot.usage,
-      warnings: [...new Set([...previous.snapshot.warnings, ...responseSnapshot.warnings])],
+      warnings: [...new Set([...(previous.snapshot.warnings ?? []), ...(responseSnapshot.warnings ?? [])])],
       provenance: previous.snapshot.provenance ?? responseSnapshot.provenance,
     };
     const merged: ContextRun = {
