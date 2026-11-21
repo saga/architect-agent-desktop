@@ -2684,6 +2684,22 @@ function registerIpcHandlers(): void {
     return result;
   });
 
+  ipcMain.handle("agent:memory-check-embedding", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+      throw new Error("Agent 正在运行，请等当前任务完成后再测试本机 Embedding。");
+    }
+    const parsed = z.object({
+      provider: z.literal("ollama"),
+      baseUrl: z.string().max(300),
+      model: z.string().min(1).max(120),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid local Embedding connection test.");
+    const result = await copilotAgent.checkMemoryEmbedding(parsed.data);
+    recordOperation("memory-embedding", "local Ollama check passed: " + result.model + " · " + result.dimensions + " dimensions");
+    return result;
+  });
+
   ipcMain.handle("agent:memory-reindex-embeddings", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
