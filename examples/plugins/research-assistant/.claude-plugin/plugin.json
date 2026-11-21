@@ -1,0 +1,6 @@
+{
+  "name": "research-assistant",
+  "displayName": "研究助手",
+  "version": "1.0.0",
+  "description": "Claude Code Plugin 示例：提供研究规范和研究简报命令。"
+}
