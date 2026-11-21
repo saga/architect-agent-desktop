@@ -16,9 +16,7 @@ const inlineCommandSchema = z.object({
   content: z.string().min(1).max(20_000),
 }).strict();
 
-export const pluginManifestSchema = z.object({
-  manifestVersion: z.literal(1),
-  sourceFormat: z.literal("claude-code"),
+export const normalizedClaudePluginSchema = z.object({
   id: z.string().min(1).max(100).regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/),
   name: z.string().trim().min(1).max(120),
   version: z.string().trim().min(1).max(100),
@@ -29,8 +27,8 @@ export const pluginManifestSchema = z.object({
   inlineCommands: z.array(inlineCommandSchema).max(50).default([]),
 }).strict();
 
-export type PluginManifest = z.infer<typeof pluginManifestSchema>;
-export interface PluginSummary extends PluginManifest {
+export type ClaudePlugin = z.infer<typeof normalizedClaudePluginSchema>;
+export interface PluginSummary extends ClaudePlugin {
   enabled: boolean;
 }
 interface RegistryState { version: 1; enabled: Record<string, boolean>; }
@@ -144,7 +142,7 @@ function collectMarkdownFiles(root: string, entryPath: string, kind: "skill" | "
   return found;
 }
 
-function normalizeClaudePluginDirectory(root: string): PluginManifest {
+function normalizeClaudePluginDirectory(root: string): ClaudePlugin {
   const pluginJsonPath = path.join(root, ".claude-plugin", "plugin.json");
   let raw: Record<string, unknown> = {};
   if (existsSync(pluginJsonPath)) {
@@ -212,9 +210,7 @@ function normalizeClaudePluginDirectory(root: string): PluginManifest {
     });
   }
 
-  const manifest = pluginManifestSchema.parse({
-    manifestVersion: 1,
-    sourceFormat: "claude-code",
+  const manifest = normalizedClaudePluginSchema.parse({
     id: name,
     name: displayName,
     version,
@@ -227,7 +223,7 @@ function normalizeClaudePluginDirectory(root: string): PluginManifest {
   return manifest;
 }
 
-export function validatePluginDirectory(directory: string): PluginManifest {
+export function validatePluginDirectory(directory: string): ClaudePlugin {
   const root = path.resolve(directory);
   assertSafeTree(root);
   const manifest = normalizeClaudePluginDirectory(root);
