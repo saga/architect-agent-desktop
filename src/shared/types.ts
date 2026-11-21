@@ -196,6 +196,8 @@ export interface BrowserApi {
   agentMcpRemove(id: string): Promise<McpServerConfig[]>;
   agentSkillList(): Promise<AgentSkillSummary[]>;
   agentSkillImport(): Promise<AgentSkillSummary | null>;
+  agentSkillImportZip(): Promise<AgentSkillSummary | null>;
+  agentSkillInstallSample(): Promise<AgentSkillSummary>;
   agentSkillSetEnabled(id: string, enabled: boolean): Promise<AgentSkillSummary[]>;
   agentSkillRemove(id: string): Promise<AgentSkillSummary[]>;
   agentGetSettings(): Promise<AgentSettings>;
