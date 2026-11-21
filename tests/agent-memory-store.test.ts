@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -176,6 +177,119 @@ describe("AgentMemoryStore", () => {
     expect(store.getDreamCursor("/workspace/conflict").createdAt).toBe(0);
     expect(store.getNote(note.id, "/workspace/conflict")?.content).toContain("避免保留字");
     store.abandonDreaming("/workspace/conflict", first!.id, "版本冲突后放弃");
+    store.close();
+  });
+
+  it("rejects a Dreaming knowledge-page update when its base version is stale", () => {
+    const directory = temporaryDirectory();
+    const store = new AgentMemoryStore(path.join(directory, "memory.sqlite"));
+    const note = store.saveNote({
+      scope: "/workspace/knowledge-conflict",
+      title: "Portfolio calculation rule",
+      content: "Use the approved valuation date.",
+    });
+    const initialPage = store.publishRepresentation({
+      scope: "/workspace/knowledge-conflict",
+      slug: "portfolio-method",
+      title: "Portfolio method",
+      content: "Version one.",
+      sourceNoteIds: [note.id],
+    });
+    const run = store.prepareDreaming("/workspace/knowledge-conflict", [{
+      sessionId: "session-knowledge",
+      messageId: "message-knowledge",
+      kind: "user",
+      content: "Use the approved valuation date and reporting currency.",
+      createdAt: Date.now(),
+    }]);
+    store.publishRepresentation({
+      scope: "/workspace/knowledge-conflict",
+      slug: "portfolio-method",
+      title: "Portfolio method",
+      content: "A newer manual revision.",
+      sourceNoteIds: [note.id],
+    });
+
+    expect(() => store.commitDreaming({
+      scope: "/workspace/knowledge-conflict",
+      runId: run!.id,
+      summary: "Attempt to update a knowledge page from a stale snapshot.",
+      operations: [{
+        op: "publish_knowledge",
+        slug: "portfolio-method",
+        title: "Portfolio method",
+        content: "A stale Dreaming revision.",
+        sourceNoteIds: [note.id],
+        baseVersion: initialPage.version,
+        sourceRefs: [run!.evidence[0]!.sourceId],
+        reason: "This update must not overwrite a newer knowledge-page revision.",
+      }],
+    })).toThrow(/知识页版本已变化/);
+    expect(store.getRepresentations("/workspace/knowledge-conflict")[0]?.content).toBe("A newer manual revision.");
+    expect(store.getDreamCursor("/workspace/knowledge-conflict").createdAt).toBe(0);
+    store.abandonDreaming("/workspace/knowledge-conflict", run!.id, "stale knowledge page");
+    store.close();
+  });
+
+  it("stores before and after versions when expired notes are pruned", () => {
+    const directory = temporaryDirectory();
+    const databasePath = path.join(directory, "memory.sqlite");
+    const store = new AgentMemoryStore(databasePath);
+    const note = store.saveNote({
+      scope: "/workspace/expiry",
+      title: "Temporary project decision",
+      content: "This decision is valid only for a short period.",
+      expiresAt: 100,
+    });
+
+    expect(store.pruneExpired("/workspace/expiry", 101)).toEqual({ archived: 1 });
+    const archived = store.listNotes("/workspace/expiry", true).find(item => item.id === note.id);
+    expect(archived?.status).toBe("archived");
+    expect(archived?.version).toBe(note.version + 1);
+    store.close();
+
+    const database = new DatabaseSync(databasePath);
+    try {
+      const rows = database.prepare(
+        "SELECT version,snapshot_json FROM memory_versions WHERE entity_type='note' AND entity_id=? ORDER BY version"
+      ).all(note.id) as Array<{ version: number; snapshot_json: string }>;
+      expect(rows.map(row => row.version)).toContain(note.version + 1);
+      const archivedSnapshot = rows.find(row => row.version === note.version + 1);
+      expect(archivedSnapshot).toBeDefined();
+      expect(JSON.parse(archivedSnapshot!.snapshot_json).status).toBe("archived");
+    } finally {
+      database.close();
+    }
+  });
+
+  it("keeps priority notes ahead of large knowledge-page context", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const pinned = store.saveNote({
+      scope: "/workspace/context-priority",
+      title: "Critical workspace convention",
+      content: "Always reconcile the reporting currency before comparing portfolio returns.",
+      pinned: true,
+      importance: 1,
+    });
+    for (let index = 0; index < 8; index++) {
+      const note = store.saveNote({
+        scope: "/workspace/context-priority",
+        title: "Knowledge source " + index,
+        content: "A reusable knowledge source.",
+      });
+      store.publishRepresentation({
+        scope: "/workspace/context-priority",
+        slug: "knowledge-" + index,
+        title: "Large knowledge page " + index,
+        content: "A long knowledge summary. ".repeat(400),
+        sourceNoteIds: [note.id],
+      });
+    }
+
+    const context = store.getInjectedContext("/workspace/context-priority", 1000);
+    expect(context).toContain(pinned.title);
+    expect(context.indexOf(pinned.title)).toBeLessThan(context.indexOf("Knowledge Page Index"));
+    expect(context.length).toBeLessThanOrEqual(1000);
     store.close();
   });
 
