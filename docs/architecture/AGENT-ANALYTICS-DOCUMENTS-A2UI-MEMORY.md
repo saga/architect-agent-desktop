@@ -212,7 +212,7 @@ Run 状态：
 
 **Agent 的整理策略**
 
-对重要任务，系统提示要求 Agent 主动执行 prepare → evidence review → commit。整理目标不局限于失败记录，还包括成功流程、稳定的用户偏好、项目约定、业务定义、数据口径、重复出现的错误和已解决问题。模型必须区分事实、推测、冲突和时效性信息；证据不足时保持 unverified，矛盾并存时记录 contradicts 或 disputed，不为了减少 Note 数量而删除唯一知识。
+对重要任务，系统提示要求 Agent 主动执行 prepare → evidence review → commit。整理目标不局限于失败记录，还包括成功流程、稳定的用户偏好、项目约定、业务定义、数据口径、重复出现的错误和已解决问题。模型必须区分事实、推测、冲突和时效性信息；证据不足时保持 unverified，矛盾并存时记录 contradicts 或 disputed，不为了减少 Note 数量而删除唯一知识。 对重要、高风险或可能变化的旧 Note，Agent 应通过 `memory_read_source` 按 `sourceId` 读取历史证据快照，并结合 `memory_search_history` 搜索更早 Transcript；不能只凭 Note 自身内容完成自我验证。
 
 当前是 Agent 驱动的任务后整理，Settings → Memory & Dreaming 提供查看 Notes、知识页、关系和 Run 审计的管理界面，并允许手动启动整理、继续处理已有 prepared Run、置顶/取消置顶 Note、归档 Note、放弃 prepared Run 或回滚最近一次提交。手动整理需要当前 Expert 开放长期记忆工具，且 Agent 工具权限至少为 assisted。也可以让 Agent 在重要任务结束时执行同样的完整工具链。当前不自动启动后台定时模型调用，避免未经用户配置就产生额外成本或静默修改。
 
