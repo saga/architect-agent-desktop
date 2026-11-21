@@ -73,7 +73,11 @@ function tokenUsage(event?: TraceEvent): { input?: number; output?: number; tota
   };
 }
 
-export default function SessionExplorer({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function SessionExplorer({
+  open = true,
+  onClose = () => window.close(),
+  standalone = false,
+}: { open?: boolean; onClose?: () => void; standalone?: boolean }) {
   const [sessions, setSessions] = useState<TraceSession[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [events, setEvents] = useState<TraceEvent[]>([]);
@@ -288,44 +292,61 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
     }} /> : <Empty description="当前 Session 没有上下文来源事件" />}
   </div>;
 
+  const explorerBody = (
+        <div className="session-explorer">
+          <aside className="session-explorer-sidebar">
+            <div className="session-explorer-sidebar-title">Sessions <Text type="secondary">{sessions.length}</Text></div>
+            {loadingSessions ? <Spin /> : sessions.length ? <List dataSource={sessions} renderItem={(item) => <List.Item
+              className={"session-explorer-session" + (item.id === selectedId ? " selected" : "")}
+              onClick={() => setSelectedId(item.id)}>
+              <div>
+                <Text strong>{item.workspacePath?.split(/[\\/]/).filter(Boolean).pop() || "默认工作区"}</Text>
+                <div><Text type="secondary">{formatTime(item.updatedAt)}</Text></div>
+                <div className="session-explorer-counts">{item.messageCount ?? 0} 条消息 · {item.eventCount ?? 0} 个事件</div>
+              </div>
+            </List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 Session" />}
+          </aside>
+          <main className="session-explorer-main">
+            {error && <Text type="danger">{error}</Text>}
+            {!selected ? <Empty description="选择一个 Session 查看记录" /> : <>
+              <div className="session-explorer-summary">
+                <Text strong>{selected.workspacePath ?? "默认工作区"}</Text>
+                <Text type="secondary">Session ID：{selected.id}</Text>
+                <Text type="secondary">更新时间：{formatTime(selected.updatedAt)} · {selected.messageCount ?? 0} 条消息 · {selected.eventCount ?? 0} 个事件</Text>
+              </div>
+              <Input.Search allowClear placeholder="搜索事件类型、工具名称或内容" value={search} onChange={(event) => setSearch(event.target.value)} />
+              <Tabs defaultActiveKey="trajectory" items={[
+                { key: "trajectory", label: "执行 Trajectory", children: <AgentTrajectory events={traceContextEvents} /> },
+                { key: "context-explorer", label: "Context Explorer", children: contextSession
+                  ? <ContextDebugger session={contextSession} />
+                  : <Empty description="当前 Session 暂无可检查的上下文事件" /> },
+                { key: "messages", label: "会话记录", children: transcript },
+                { key: "timeline", label: "事件时间线", children: timeline },
+                { key: "tools", label: "工具调用", children: tools },
+                { key: "models", label: "模型分析", children: models },
+                { key: "context", label: "采集来源", children: context },
+              ]} />
+              <Text type="secondary">事件时间线显示最近最多 1,000 个事件；会话消息从 SQLite session_messages 表完整读取。</Text>
+            </>}
+          </main>
+        </div>
+  );
+
+  if (standalone) {
+    return <main className="session-explorer-window">
+      <header className="session-explorer-window-header">
+        <div><h1>Session Explorer</h1><p>执行轨迹、模型上下文和原始会话事件</p></div>
+        <div className="session-explorer-window-actions">
+          <Button icon={<ReloadOutlined />} onClick={() => void refreshSessions()} loading={loadingSessions}>刷新</Button>
+          <Button onClick={onClose}>关闭</Button>
+        </div>
+      </header>
+      {explorerBody}
+    </main>;
+  }
+
   return <Drawer className="session-explorer-drawer" title="Session Explorer" open={open} onClose={onClose} width="min(1120px, 96vw)"
     extra={<Button icon={<ReloadOutlined />} onClick={() => void refreshSessions()} loading={loadingSessions}>刷新</Button>}>
-    <div className="session-explorer">
-      <aside className="session-explorer-sidebar">
-        <div className="session-explorer-sidebar-title">Sessions <Text type="secondary">{sessions.length}</Text></div>
-        {loadingSessions ? <Spin /> : sessions.length ? <List dataSource={sessions} renderItem={(item) => <List.Item
-          className={"session-explorer-session" + (item.id === selectedId ? " selected" : "")}
-          onClick={() => setSelectedId(item.id)}>
-          <div>
-            <Text strong>{item.workspacePath?.split(/[\\/]/).filter(Boolean).pop() || "默认工作区"}</Text>
-            <div><Text type="secondary">{formatTime(item.updatedAt)}</Text></div>
-            <div className="session-explorer-counts">{item.messageCount ?? 0} 条消息 · {item.eventCount ?? 0} 个事件</div>
-          </div>
-        </List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 Session" />}
-      </aside>
-      <main className="session-explorer-main">
-        {error && <Text type="danger">{error}</Text>}
-        {!selected ? <Empty description="选择一个 Session 查看记录" /> : <>
-          <div className="session-explorer-summary">
-            <Text strong>{selected.workspacePath ?? "默认工作区"}</Text>
-            <Text type="secondary">Session ID：{selected.id}</Text>
-            <Text type="secondary">更新时间：{formatTime(selected.updatedAt)} · {selected.messageCount ?? 0} 条消息 · {selected.eventCount ?? 0} 个事件</Text>
-          </div>
-          <Input.Search allowClear placeholder="搜索事件类型、工具名称或内容" value={search} onChange={(event) => setSearch(event.target.value)} />
-          <Tabs defaultActiveKey="trajectory" items={[
-            { key: "trajectory", label: "执行 Trajectory", children: <AgentTrajectory events={traceContextEvents} /> },
-            { key: "context-explorer", label: "Context Explorer", children: contextSession
-              ? <ContextDebugger session={contextSession} />
-              : <Empty description="当前 Session 暂无可检查的上下文事件" /> },
-            { key: "messages", label: "会话记录", children: transcript },
-            { key: "timeline", label: "事件时间线", children: timeline },
-            { key: "tools", label: "工具调用", children: tools },
-            { key: "models", label: "模型分析", children: models },
-            { key: "context", label: "采集来源", children: context },
-          ]} />
-          <Text type="secondary">事件时间线显示最近最多 1,000 个事件；会话消息从 SQLite session_messages 表完整读取。</Text>
-        </>}
-      </main>
-    </div>
+    {explorerBody}
   </Drawer>;
 }
