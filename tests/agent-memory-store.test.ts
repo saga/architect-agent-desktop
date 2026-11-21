@@ -494,6 +494,42 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("persists Workspace Dreaming schedules with claims and exponential retry", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const scope = "/workspace/dream-schedule";
+    expect(store.getDreamSchedule(scope)).toMatchObject({
+      enabled: false,
+      intervalMinutes: 1440,
+      nextRunAt: null,
+      lastRunStatus: null,
+    });
+
+    const saved = store.saveDreamSchedule(scope, { enabled: true, intervalMinutes: 360 }, 1000);
+    expect(saved.nextRunAt).toBe(1000 + 360 * 60_000);
+    expect(store.listDueDreamSchedules(1000 + 360 * 60_000 - 1)).toHaveLength(0);
+    expect(store.claimDreamSchedule(scope, 1000 + 360 * 60_000)).toBe(true);
+    expect(store.claimDreamSchedule(scope, 1000 + 360 * 60_000 + 1)).toBe(false);
+    expect(store.getDreamSchedule(scope).lastRunStatus).toBe("running");
+
+    const firstFailureAt = 1000 + 360 * 60_000 + 2;
+    const failed = store.finishDreamSchedule(scope, "error", "Expert does not have the memory tools enabled.", firstFailureAt);
+    expect(failed.consecutiveFailures).toBe(1);
+    expect(failed.nextRunAt).toBe(firstFailureAt + 15 * 60_000);
+    expect(failed.lastError).toContain("memory tools");
+
+    expect(store.claimDreamSchedule(scope, failed.nextRunAt!)).toBe(true);
+    const secondFailureAt = failed.nextRunAt! + 1;
+    const retried = store.finishDreamSchedule(scope, "error", "Provider temporarily unavailable.", secondFailureAt);
+    expect(retried.consecutiveFailures).toBe(2);
+    expect(retried.nextRunAt).toBe(secondFailureAt + 30 * 60_000);
+
+    const disabled = store.saveDreamSchedule(scope, { enabled: false, intervalMinutes: 360 }, secondFailureAt + 2);
+    expect(disabled.enabled).toBe(false);
+    expect(disabled.nextRunAt).toBeNull();
+    expect(store.listDueDreamSchedules(Number.MAX_SAFE_INTEGER)).toHaveLength(0);
+    store.close();
+  });
+
   it("scopes manual pin and archive operations to the selected Workspace", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const note = store.saveNote({
