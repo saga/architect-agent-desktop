@@ -2436,6 +2436,56 @@ function registerIpcHandlers(): void {
     }
   });
 
+  const parseMemoryTaskInput = (input: unknown, withRun = false) => z.object({
+    taskId: z.string().min(1).max(100),
+    ...(withRun ? { runId: z.string().min(1).max(100) } : {}),
+  }).safeParse(input);
+  ipcMain.handle("agent:memory-get-snapshot", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = parseMemoryTaskInput(input);
+    if (!parsed.success) throw new Error("Invalid Memory snapshot request.");
+    const task = taskForId(parsed.data.taskId);
+    return {
+      taskId: task.id,
+      workspacePath: task.workspacePath,
+      ...copilotAgent.getMemorySnapshot(task.workspacePath),
+    };
+  });
+  ipcMain.handle("agent:memory-get-run", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = parseMemoryTaskInput(input, true);
+    if (!parsed.success) throw new Error("Invalid Memory Dreaming request.");
+    const task = taskForId(parsed.data.taskId);
+    return copilotAgent.getMemoryDreamRunDetail(task.workspacePath, parsed.data.runId!);
+  });
+  ipcMain.handle("agent:memory-abandon", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等待当前任务结束后再放弃 Dreaming。");
+    const parsed = z.object({
+      taskId: z.string().min(1).max(100),
+      runId: z.string().min(1).max(100),
+      reason: z.string().min(1).max(1000),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Memory abandon request.");
+    const task = taskForId(parsed.data.taskId);
+    copilotAgent.abandonMemoryDreaming(task.workspacePath, parsed.data.runId, parsed.data.reason);
+    recordTaskTrace(task, "memory.dreaming.abandoned", { runId: parsed.data.runId, reason: parsed.data.reason });
+  });
+  ipcMain.handle("agent:memory-rollback", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等待当前任务结束后再回滚 Memory。");
+    const parsed = z.object({
+      taskId: z.string().min(1).max(100),
+      runId: z.string().min(1).max(100),
+      reason: z.string().min(1).max(500),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Memory rollback request.");
+    const task = taskForId(parsed.data.taskId);
+    const result = copilotAgent.rollbackMemoryDreaming(task.workspacePath, parsed.data.runId, parsed.data.reason);
+    recordTaskTrace(task, "memory.dreaming.rolled_back", { ...result, reason: parsed.data.reason });
+    return result;
+  });
+
   ipcMain.handle("agent:load-session", (event, input?: unknown) => {
     assertTrustedSender(event);
     const taskId = input === undefined ? activeAgentTaskId : z.string().min(1).max(100).parse(input);
