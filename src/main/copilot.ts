@@ -460,7 +460,8 @@ export class CopilotDesktopAgent {
      this.registeredTools = tools.map(({ name, description, schema }) => ({ name, description, schema }));
      const configuredMcpServers=this.configuredMcpServers("copilot",runtimeEnvironment);
      this.registeredMcpServerNames = Object.keys(configuredMcpServers).sort();
-     const availableTools=new ToolSet().addCustom("*");
+     const availableTools=new ToolSet();
+     if(tools.length)availableTools.addCustom("*");
      if(Object.keys(configuredMcpServers).length)availableTools.addMcp("*");
      if(generation!==this.generation)throw new Error("Copilot session startup was cancelled.");
      const session=await client.createSession({
