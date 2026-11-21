@@ -479,7 +479,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     {settings.provider === "codebuddy" && status !== "ready" && items.length === 0 && <Alert type="info" showIcon message="CodeBuddy 使用本机 CLI 登录态" description={<div>在系统终端运行 <code>codebuddy</code>，按 CLI 提示完成登录，并确认账号有可用模型权限。首次请求会实际验证认证和模型可用性。</div>} />}
     <div className="agent-messages">
       <Bubble.List role={bubbleRoles} autoScroll items={renderItems} />
-      <A2UIV1Canvas key={taskId || "default-task"} messages={a2uiV1Messages} onRendererMessage={onA2UIRendererMessage} />
+      <A2UIV1Canvas key={taskId || "default-task"} taskId={taskId || "default-task"} messages={a2uiV1Messages} onRendererMessage={onA2UIRendererMessage} />
     </div>
     <div className="agent-composer">
       <Sender rootClassName="agent-sender" value={input} onChange={setInput} submitType="enter"
