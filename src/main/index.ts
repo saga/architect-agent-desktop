@@ -116,7 +116,7 @@ function currentTraceSessionId(): string {
   const task = agentTasks.find(item => item.id === activeAgentTaskId);
   return task?.sessionId ?? createHash("sha256").update(workspaceProject.path ?? "__default_workspace__").digest("hex").slice(0, 32);
 }
-function recordAgentTrace(type: string, data: unknown, status?: string): void {
+function recordAgentTrace(type: string, data: unknown, status?: string, payloadComplete = true): void {
   const sessionId = currentTraceSessionId();
   try {
     agentTraceStore.record({
@@ -128,6 +128,7 @@ function recordAgentTrace(type: string, data: unknown, status?: string): void {
       type,
       status,
       data,
+      payloadComplete,
     });
   } catch (error) {
     recordOperation("agent-trace", "trace write failed: " + (error instanceof Error ? error.message : String(error)));
