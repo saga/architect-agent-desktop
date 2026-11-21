@@ -273,6 +273,7 @@ export interface BrowserApi {
   agentPickFiles(): Promise<string[]>;
   copilotSend(prompt: string, history?: AgentChatMessage[], taskId?: string, attachments?: string[]): Promise<void>;
   agentA2uiMessage(message: unknown, taskId: string): Promise<void>;
+  agentA2uiRegisterSurfaces(taskId: string, surfaceIds: string[]): Promise<void>;
   agentMemoryGetSnapshot(taskId: string): Promise<AgentMemorySnapshot>;
   agentMemoryGetDreamRun(taskId: string, runId: string): Promise<AgentMemoryDreamRunDetail>;
   agentMemoryAbandonDreaming(taskId: string, runId: string, reason: string): Promise<void>;
