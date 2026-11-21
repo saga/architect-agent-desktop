@@ -4,7 +4,8 @@ import { A2uiSurface } from "@a2ui/react";
 import { MessageProcessor } from "@a2ui/web_core";
 import type { SurfaceModel } from "@a2ui/web_core";
 import type { ReactCatalogComponent } from "@a2ui/react";
-import type { AgentToRendererMessage, RendererToAgentMessage } from "@a2ui/agent";
+import type { AgentToRendererMessage, ActionMessage } from "@a2ui/agent";
+export type RendererToAgentMessage = { version: "1.0"; action: ActionMessage["action"] };
 import { financeRendererCatalog } from "./finance-renderer-catalog";
 
 export interface A2UIV1CanvasProps {
@@ -19,17 +20,15 @@ export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交
   const onRendererMessageRef = useRef(onRendererMessage);
   const processedCount = useRef(0);
   onRendererMessageRef.current = onRendererMessage;
-  const processor = useMemo(() => new MessageProcessor(
+  const processor = useMemo(() => new MessageProcessor<ReactCatalogComponent>(
     [financeRendererCatalog],
-    undefined,
+    (action) => {
+      onRendererMessageRef.current?.({ version: "1.0", action: action as ActionMessage["action"] });
+    },
     {
       version: "1.0",
-      unifiedOutbound: true,
-      outboundListener: (message) => {
-        onRendererMessageRef.current?.(message as RendererToAgentMessage);
-      },
       errorHandler: (error) => {
-        setErrors(current => [...current.slice(-4), error.message]);
+        setErrors(current => [...current.slice(-4), error.error?.message ?? "A2UI 1.0 渲染失败"]);
       },
     },
   ), []);
