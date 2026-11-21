@@ -19,6 +19,7 @@ const api: BrowserApi = {
   deleteAgentExpert: (id: string): Promise<AgentExpert[]> => ipcRenderer.invoke("agent-expert:delete", id),
   saveAgentSchedule: (schedule): Promise<AgentSchedule[]> => ipcRenderer.invoke("agent-schedule:save", schedule),
   deleteAgentSchedule: (id: string): Promise<AgentSchedule[]> => ipcRenderer.invoke("agent-schedule:delete", id),
+  runAgentScheduleNow: (id: string): Promise<void> => ipcRenderer.invoke("agent-schedule:run-now", id),
   saveAgentWorkspacePreferences: (preferences: AgentWorkspacePreferences): Promise<AgentWorkspacePreferences> => ipcRenderer.invoke("agent-workspace:save-preferences", preferences),
   onWorkspaceProjectUpdated: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, workspace: WorkspaceProject) => listener(workspace);
