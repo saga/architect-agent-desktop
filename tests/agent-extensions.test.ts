@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { deflateRawSync } from "node:zlib";
 import os from "node:os";
 import path from "node:path";
 import {
-  importAgentSkill, listAgentSkills, listMcpServers, readEnabledAgentSkillInstructions,
+  importAgentSkill, importAgentSkillArchive, listAgentSkills, listMcpServers, readEnabledAgentSkillInstructions,
   removeAgentSkill, removeMcpServer, resolveMcpServerConfigs, saveMcpServer,
   setAgentSkillEnabled, setMcpServerEnabled,
 } from "../src/main/agent-extensions";
@@ -14,6 +15,64 @@ function temporaryRoot(): string {
   roots.push(root);
   return root;
 }
+function zipCrc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function makeZip(entries: Array<[string, string]>): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let localOffset = 0;
+  for (const [name, content] of entries) {
+    const nameBytes = Buffer.from(name, "utf8");
+    const data = Buffer.from(content, "utf8");
+    const compressed = deflateRawSync(data);
+    const crc = zipCrc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(compressed.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    local.writeUInt16LE(0, 28);
+    localParts.push(local, nameBytes, compressed);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(0x0314, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(compressed.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBytes.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt16LE(0, 34);
+    central.writeUInt32LE((0o100644 * 0x10000) >>> 0, 38);
+    central.writeUInt32LE(localOffset, 42);
+    centralParts.push(central, nameBytes);
+    localOffset += local.length + nameBytes.length + compressed.length;
+  }
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(localOffset, 16);
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}
+
 function makeSkill(root: string, name = "review-code"): string {
   const source = path.join(root, name);
   mkdirSync(source, { recursive: true });
@@ -92,6 +151,45 @@ describe("Agent Skills", () => {
     expect(readEnabledAgentSkillInstructions(installed, registry)).toBe("");
     expect(setAgentSkillEnabled("review-code", true, installed, registry)[0]?.enabled).toBe(true);
     expect(removeAgentSkill("review-code", installed, registry)).toEqual([]);
+  });
+
+  it("imports Claude Desktop-style ZIP files with a named folder and lowercase skill.md", () => {
+    const root = temporaryRoot();
+    const archivePath = path.join(root, "web-research.zip");
+    const installed = path.join(root, "installed");
+    const registry = path.join(root, "skills.json");
+    const markdown = [
+      "---",
+      "name: web-research",
+      "description: Research current web sources and cite material claims.",
+      "---",
+      "",
+      "Use primary sources and cite each important claim.",
+    ].join("\n");
+    writeFileSync(archivePath, makeZip([
+      ["web-research/skill.md", markdown],
+      ["web-research/references/sources.md", "Prefer official documentation."],
+    ]));
+
+    expect(importAgentSkillArchive(archivePath, installed, registry)).toMatchObject({
+      id: "web-research", enabled: true,
+    });
+    expect(readEnabledAgentSkillInstructions(installed, registry)).toContain("Use primary sources");
+    expect(listAgentSkills(installed, registry)).toHaveLength(1);
+  });
+
+  it("rejects ZIP path traversal before extracting any file", () => {
+    const root = temporaryRoot();
+    const archivePath = path.join(root, "unsafe.zip");
+    writeFileSync(archivePath, makeZip([
+      ["web-research/SKILL.md", [
+        "---", "name: web-research",
+        "description: Research current web sources and cite material claims.",
+        "---", "", "Research safely.",
+      ].join("\n")],
+      ["../escaped.txt", "must not be written"],
+    ]));
+    expect(() => importAgentSkillArchive(archivePath, path.join(root, "installed"), path.join(root, "skills.json"))).toThrow(/路径穿越/);
   });
 
   it("rejects Skill folders without standard metadata", () => {
