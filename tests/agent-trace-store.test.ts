@@ -115,6 +115,33 @@ private-material
     store.close();
   });
 
+  it("returns session previews and latest activity metadata for Session Explorer", () => {
+    const store = new AgentTraceStore(temporaryDirectory());
+    store.saveSessionItems("session-preview", "/workspace/project", [
+      { id: "user-1", kind: "user", content: "Review the latest portfolio exposure", createdAt: 100 },
+      { id: "assistant-1", kind: "assistant", content: "The main concentration is in technology.", createdAt: 200 },
+    ]);
+    store.record({
+      sessionId: "session-preview",
+      traceId: "run-preview",
+      workspacePath: "/workspace/project",
+      type: "turn.completed",
+      status: "completed",
+      timestamp: "2026-11-21T09:00:00.000Z",
+      data: { outcome: "completed" },
+    });
+
+    expect(store.listSessions()[0]).toMatchObject({
+      id: "session-preview",
+      messageCount: 2,
+      eventCount: 1,
+      lastMessagePreview: "The main concentration is in technology.",
+      lastMessageKind: "assistant",
+      lastEventType: "turn.completed",
+    });
+    store.close();
+  });
+
   it("switches the active data directory without deleting the previous store", () => {
     const first = temporaryDirectory();
     const second = temporaryDirectory();
