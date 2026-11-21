@@ -557,7 +557,10 @@ export class CopilotDesktopAgent {
    const tool=byName.get(call.name);
    if(!tool){
     const detail="Unknown tool in raw tool call: "+call.name;
-    this.publish({type:"tool",toolId:randomUUID(),toolName:call.name,toolDetail:detail,toolState:"error"});
+    const toolCallId=randomUUID();
+    this.recordTrace("tool.call",{name:call.name,input:call.input,toolCallId,source:"raw-tool-call"},"running");
+    this.recordTrace("tool.failed",{name:call.name,input:call.input,toolCallId,error:detail,source:"raw-tool-call"},"failed");
+    this.publish({type:"tool",toolId:toolCallId,toolName:call.name,toolDetail:detail,toolState:"error"});
     results.push({name:call.name,error:detail});
     continue;
    }
