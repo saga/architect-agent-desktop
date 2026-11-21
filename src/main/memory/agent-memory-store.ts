@@ -162,6 +162,9 @@ function isClaimType(value: unknown): value is MemoryClaimType {
   return value === "user_preference" || value === "user_intent" || value === "decision" ||
     value === "project_fact" || value === "workflow_pattern" || value === "external_fact" || value === "unknown";
 }
+function isPersonalMemoryClaimType(value: unknown): value is "user_preference" | "user_intent" {
+  return value === "user_preference" || value === "user_intent";
+}
 function evidenceClassForKind(kind: string): MemoryEvidenceClass {
   if (kind === "user") return "direct_user";
   if (kind === "tool") return "tool_observation";
@@ -328,6 +331,8 @@ export class AgentMemoryStore {
     const oldVersion = Number(before?.version ?? 0);
     const claimType = isClaimType(input.claimType) ? input.claimType :
       (isClaimType(before?.claim_type) ? before.claim_type as MemoryClaimType : "unknown");
+    if(scopeKey===normalizeScope(null)&&!isPersonalMemoryClaimType(claimType))
+      throw new Error("Personal Memory 只允许跨项目通用的用户偏好与用户意图；项目事实、工作流程、决定和外部事实必须保存在对应 Workspace。");
     const unchanged = Boolean(before && String(before.content) === content && String(before.title) === title &&
       String(before.claim_type ?? "unknown") === claimType);
     const validation: MemoryValidation = unchanged && isValidation(before?.validation) &&
@@ -388,15 +393,17 @@ export class AgentMemoryStore {
 
   getNoteForEmbedding(noteId:string,scope:string|null):{id:string;title:string;content:string;contentHash:string}|null{
     const row=this.database.prepare(
-      "SELECT id,title,content,content_hash FROM memory_notes WHERE id=? AND scope_key=? AND status='active' AND (expires_at IS NULL OR expires_at>?)"
-    ).get({},noteId,normalizeScope(scope),Date.now()) as Record<string,unknown>|undefined;
+      "SELECT id,title,content,content_hash FROM memory_notes WHERE id=? AND scope_key=? AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
+      "AND (scope_key<>? OR claim_type IN ('user_preference','user_intent'))"
+    ).get({},noteId,normalizeScope(scope),Date.now(),normalizeScope(null)) as Record<string,unknown>|undefined;
     return row?{id:String(row.id),title:String(row.title),content:String(row.content),contentHash:String(row.content_hash)}:null;
   }
 
   upsertEmbedding(input:{noteId:string;scope:string|null;provider:string;model:string;contentHash:string;vector:number[]}):boolean{
     const scopeKey=normalizeScope(input.scope);
     const note=this.getNoteRow(input.noteId,scopeKey);
-    if(!note||note.status!=="active"||String(note.content_hash??"")!==input.contentHash)return false;
+    if(!note||note.status!=="active"||String(note.content_hash??"")!==input.contentHash||
+      (scopeKey===normalizeScope(null)&&!isPersonalMemoryClaimType(note.claim_type)))return false;
     if(!input.provider.trim()||!input.model.trim()||input.vector.length<8||input.vector.length>4096||
       !input.vector.every(Number.isFinite))throw new Error("Memory embedding metadata or vector is invalid.");
     const norm=Math.sqrt(input.vector.reduce((sum,value)=>sum+value*value,0));
@@ -415,9 +422,10 @@ export class AgentMemoryStore {
     const rows=this.database.prepare(
       "SELECT n.id,n.scope_key,n.title,n.content,n.content_hash FROM memory_notes n "+
       "LEFT JOIN memory_note_embeddings e ON e.note_id=n.id AND e.scope_key=n.scope_key AND e.provider=? AND e.model=? AND e.content_hash=n.content_hash "+
-      "WHERE n.scope_key IN ("+placeholders+") AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) AND e.note_id IS NULL "+
+      "WHERE n.scope_key IN ("+placeholders+") AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) "+
+      "AND (n.scope_key<>? OR n.claim_type IN ('user_preference','user_intent')) AND e.note_id IS NULL "+
       "ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END,n.pinned DESC,n.importance DESC,n.updated_at DESC LIMIT ?"
-    ).all({},provider,model,...keys,Date.now(),normalizeScope(scope),Math.max(1,Math.min(Math.floor(limit),500))) as Array<Record<string,unknown>>;
+    ).all({},provider,model,...keys,Date.now(),normalizeScope(null),normalizeScope(scope),Math.max(1,Math.min(Math.floor(limit),500))) as Array<Record<string,unknown>>;
     return rows.map(row=>({id:String(row.id),scope:String(row.scope_key)===normalizeScope(null)?null:scope,title:String(row.title),content:String(row.content),contentHash:String(row.content_hash)}));
   }
 
@@ -427,8 +435,9 @@ export class AgentMemoryStore {
     const row=this.database.prepare(
       "SELECT COUNT(*) AS total,SUM(CASE WHEN e.note_id IS NOT NULL THEN 1 ELSE 0 END) AS indexed "+
       "FROM memory_notes n LEFT JOIN memory_note_embeddings e ON e.note_id=n.id AND e.scope_key=n.scope_key AND e.provider=? AND e.model=? AND e.content_hash=n.content_hash "+
-      "WHERE n.scope_key IN ("+placeholders+") AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?)"
-    ).get({},provider,model,...keys,Date.now()) as {total?:number;indexed?:number};
+      "WHERE n.scope_key IN ("+placeholders+") AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) "+
+      "AND (n.scope_key<>? OR n.claim_type IN ('user_preference','user_intent'))"
+    ).get({},provider,model,...keys,Date.now(),normalizeScope(null)) as {total?:number;indexed?:number};
     const total=Number(row.total??0),indexed=Number(row.indexed??0);
     return {total,indexed,missing:Math.max(0,total-indexed)};
   }
@@ -444,8 +453,9 @@ export class AgentMemoryStore {
     if(!term){
       lexicalRows=this.database.prepare(
         "SELECT * FROM memory_notes WHERE scope_key IN ("+placeholders+") AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
+        "AND (scope_key<>? OR claim_type IN ('user_preference','user_intent')) "+
         "ORDER BY CASE WHEN scope_key=? THEN 0 ELSE 1 END,pinned DESC,importance DESC,updated_at DESC LIMIT ?"
-      ).all({},...scopeKeys,now,workspaceKey,candidateLimit) as Record<string,unknown>[];
+      ).all({},...scopeKeys,now,personalKey,workspaceKey,candidateLimit) as Record<string,unknown>[];
     }else{
       const cjkSequences=term.match(/[\u3400-\u9fff]+/g)??[];
       const cjkBigrams=cjkSequences.flatMap(sequence=>{
@@ -463,11 +473,12 @@ export class AgentMemoryStore {
         lexicalRows=this.database.prepare(
           "SELECT n.* FROM memory_notes n JOIN memory_notes_fts f ON f.id=n.id "+
           "WHERE n.scope_key IN ("+placeholders+") AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) AND memory_notes_fts MATCH ? "+
+          "AND (n.scope_key<>? OR n.claim_type IN ('user_preference','user_intent')) "+
           "ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END,"+
           "CASE WHEN lower(n.title)=? THEN 0 WHEN lower(n.title) LIKE ? THEN 1 WHEN lower(n.content) LIKE ? THEN 2 ELSE 3 END,"+
           "n.pinned DESC,n.importance DESC,CASE WHEN n.validation='validated' AND n.validation_evidence_json IS NOT NULL THEN 0 WHEN n.validation='disputed' THEN 2 ELSE 1 END,"+
           "bm25(memory_notes_fts),n.updated_at DESC LIMIT ?"
-        ).all({},...scopeKeys,now,fts,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,candidateLimit) as Record<string,unknown>[];
+        ).all({},...scopeKeys,now,fts,personalKey,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,candidateLimit) as Record<string,unknown>[];
       }catch{lexicalRows=[];}
       if(!lexicalRows.length){
         const fallbackTokens=[term,...lexicalTokens.slice(0,16)];
@@ -478,10 +489,11 @@ export class AgentMemoryStore {
         });
         lexicalRows=this.database.prepare(
           "SELECT * FROM memory_notes WHERE scope_key IN ("+placeholders+") AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
-          "AND ("+predicates+") ORDER BY CASE WHEN scope_key=? THEN 0 ELSE 1 END,"+
+          "AND (scope_key<>? OR claim_type IN ('user_preference','user_intent')) AND ("+predicates+") "+
+          "ORDER BY CASE WHEN scope_key=? THEN 0 ELSE 1 END,"+
           "CASE WHEN lower(title)=? THEN 0 WHEN lower(title) LIKE ? THEN 1 WHEN lower(content) LIKE ? THEN 2 ELSE 3 END,"+
           "pinned DESC,importance DESC,updated_at DESC LIMIT ?"
-        ).all({},...scopeKeys,now,...parameters,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,candidateLimit) as Record<string,unknown>[];
+        ).all({},...scopeKeys,now,personalKey,...parameters,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,candidateLimit) as Record<string,unknown>[];
       }
     }
 
@@ -493,9 +505,10 @@ export class AgentMemoryStore {
       const vectors=this.database.prepare(
         "SELECT n.*,e.vector_json,e.dimensions FROM memory_note_embeddings e JOIN memory_notes n ON n.id=e.note_id AND n.scope_key=e.scope_key "+
         "WHERE e.scope_key IN ("+placeholders+") AND e.provider=? AND e.model=? AND e.content_hash=n.content_hash "+
-        "AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END,"+
+        "AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) "+
+        "AND (n.scope_key<>? OR n.claim_type IN ('user_preference','user_intent')) ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END,"+
         "n.pinned DESC,n.importance DESC LIMIT 1000"
-      ).all({},...scopeKeys,semantic.provider,semantic.model,now,workspaceKey) as Array<Record<string,unknown>>;
+      ).all({},...scopeKeys,semantic.provider,semantic.model,now,personalKey,workspaceKey) as Array<Record<string,unknown>>;
       for(const row of vectors){
         let vector:number[]=[];
         try{vector=JSON.parse(String(row.vector_json)) as number[];}catch{continue;}
@@ -531,8 +544,9 @@ export class AgentMemoryStore {
   list(scope: string | null, limit = 30): AgentMemoryNote[] {
     const rows=this.database.prepare(
       "SELECT * FROM memory_notes WHERE scope_key=? AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
-      "ORDER BY pinned DESC,importance DESC,CASE validation WHEN 'validated' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END,updated_at DESC LIMIT ?"
-    ).all({}, normalizeScope(scope),Date.now(),Math.max(1,Math.min(Math.floor(limit),100))) as Record<string,unknown>[];
+      "AND (scope_key<>? OR claim_type IN ('user_preference','user_intent')) "+
+      "ORDER BY pinned DESC,importance DESC,CASE WHEN validation='validated' AND validation_evidence_json IS NOT NULL THEN 0 WHEN validation='disputed' THEN 2 ELSE 1 END,updated_at DESC LIMIT ?"
+    ).all({}, normalizeScope(scope),Date.now(),normalizeScope(null),Math.max(1,Math.min(Math.floor(limit),100))) as Record<string,unknown>[];
     return rows.map(row=>this.toNote(row));
   }
 
@@ -592,6 +606,8 @@ export class AgentMemoryStore {
   }
 
   private requireValidationEvidence(scope: string | null, claimType: MemoryClaimType, sourceRefs: string[]): MemoryValidationEvidence {
+    if(scope===null&&!isPersonalMemoryClaimType(claimType))
+      throw new Error("Personal Memory 只允许验证跨项目通用的用户偏好与用户意图。");
     const profile = this.buildValidationEvidence(scope, claimType, sourceRefs);
     if (!profile.eligible) {
       throw new Error("不能将该 Memory Note 标记为 validated：" + profile.reason);
@@ -753,6 +769,7 @@ export class AgentMemoryStore {
 
   publishRepresentation(input:{scope?:string|null;slug:string;title:string;content:string;sourceNoteIds?:string[]}):AgentMemoryRepresentation{
     const scopeKey=normalizeScope(input.scope);
+    if(scopeKey===normalizeScope(null))throw new Error("Personal Memory 不发布项目知识页；知识页必须保存在对应 Workspace。");
     const slug=input.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,80);
     const title=redactSecrets(input.title.trim(),160),content=redactSecrets(input.content.trim(),24000),ids=safeIds(input.sourceNoteIds,100);
     if(!slug||!title||!content||!ids.length)throw new Error("Knowledge page 必须包含 slug、标题、正文和来源 Note。");
@@ -899,9 +916,9 @@ export class AgentMemoryStore {
       "SELECT * FROM memory_notes WHERE scope_key=? AND status='active' "+
       "AND (expires_at IS NULL OR expires_at>?) "+
       "AND MAX(created_at,updated_at,COALESCE(last_quality_reviewed_at,0))<=? "+
-      "AND source_refs_json<>'[]' "+
+      "AND source_refs_json<>'[]' AND (?=0 OR claim_type IN ('user_preference','user_intent')) "+
       "ORDER BY pinned DESC,importance DESC,MAX(created_at,updated_at,COALESCE(last_quality_reviewed_at,0)) ASC LIMIT ?"
-    ).all({},normalizeScope(scope),now,cutoff,Math.max(1,Math.min(Math.floor(limit),80))) as Record<string,unknown>[];
+    ).all({},normalizeScope(scope),now,cutoff,scope===null?1:0,Math.max(1,Math.min(Math.floor(limit),80))) as Record<string,unknown>[];
     return candidates.map(row=>this.toNote(row));
   }
 
@@ -1049,6 +1066,8 @@ export class AgentMemoryStore {
     if(before&&op.baseVersion!==Number(before.version))throw new Error("Memory Note 版本已变化，请重新检索后再整理："+id);
     if(!before&&op.baseVersion!==undefined)throw new Error("新建 Memory Note 不应提供 baseVersion。");
     const claimType=isClaimType(op.claimType)?op.claimType:(isClaimType(before?.claim_type)?before.claim_type as MemoryClaimType:"unknown");
+    if(scopeKey===normalizeScope(null)&&!isPersonalMemoryClaimType(claimType))
+      throw new Error("Personal Dreaming 只允许沉淀跨项目通用的用户偏好与用户意图；项目事实和知识必须保留在 Workspace Memory。");
     const now=Date.now(),oldVersion=Number(before?.version??0),same=Boolean(before&&before.title===title&&before.content===content&&before.claim_type===claimType);
     const firstSource=this.getSourceById(refs[0]!);
     const snapshot={
@@ -1081,6 +1100,8 @@ export class AgentMemoryStore {
     const now=Date.now();
     const sourceRefs=[...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100);
     const claimType=isClaimType(before.claim_type)?before.claim_type as MemoryClaimType:"unknown";
+    if(scopeKey===normalizeScope(null)&&op.validation==="validated"&&!isPersonalMemoryClaimType(claimType))
+      throw new Error("Personal Memory 中的项目事实不能标记为 validated；请迁移到对应 Workspace。");
     const validationEvidence=op.validation==="validated"?this.requireValidationEvidence(scope,claimType,sourceRefs):null;
     const after={
       ...before,validation:op.validation,confidence:clamp(op.confidence,0,1),
@@ -1121,6 +1142,7 @@ export class AgentMemoryStore {
   }
 
   private dreamPublishKnowledge(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"publish_knowledge"}>,refs:string[],reason:string):string{
+    if(scopeKey===normalizeScope(null))throw new Error("Personal Memory 不发布项目知识页；知识页必须保存在对应 Workspace。");
     const ids=safeIds(op.sourceNoteIds,100);
     if(!ids.length)throw new Error("知识页必须引用至少一条来源 Note。");
     const noteRows=this.database.prepare("SELECT * FROM memory_notes WHERE scope_key=? AND status='active' AND id IN ("+ids.map(()=>"?").join(",")+")").all({}, scopeKey,...ids) as Array<Record<string,unknown>>;
@@ -1348,7 +1370,8 @@ export class AgentMemoryStore {
     if(workspaceScope===null)return null;
     const personalKey=normalizeScope(null);
     const rows=this.database.prepare(
-      "SELECT source_refs_json FROM memory_notes WHERE scope_key=? AND status='active' AND (expires_at IS NULL OR expires_at>?)"
+      "SELECT source_refs_json FROM memory_notes WHERE scope_key=? AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
+      "AND claim_type IN ('user_preference','user_intent')"
     ).all({},personalKey,Date.now()) as Array<{source_refs_json?:unknown}>;
     const referenced=rows.some(row=>parseJson<string[]>(row.source_refs_json,[]).includes(sourceId));
     return referenced?this.getSourceById(sourceId,null):null;
@@ -1433,7 +1456,8 @@ export class AgentMemoryStore {
     const budget=Math.max(1000,Math.min(Math.floor(maxChars),MAX_INJECTED_CONTEXT));
     const personalNotes=this.list(null,scope===null?100:40);
     const workspaceNotes=scope===null?[]:this.list(scope,100);
-    const personalRepresentations=this.getRepresentations(null,12);
+    // Personal Memory is a user-profile layer, not a second project knowledge base.
+    const personalRepresentations:AgentMemoryRepresentation[]=[];
     const workspaceRepresentations=scope===null?[]:this.getRepresentations(scope,20);
     if(!personalNotes.length&&!workspaceNotes.length&&!personalRepresentations.length&&!workspaceRepresentations.length)return "";
     const lines=[
