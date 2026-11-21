@@ -254,6 +254,7 @@ export interface BrowserApi {
   redockAgentPanel(position?: "left" | "right" | "top" | "bottom"): Promise<void>;
   toggleSnapshot(): Promise<boolean>;
   openExternal(url: string): Promise<void>;
+  openInChrome(url: string): Promise<"chrome" | "default">;
   onSnapshotState(listener: (active: boolean) => void): () => void;
   onWorkspaceLayoutUpdated(listener: (layout: WorkspaceLayoutState) => void): () => void;
   getState(): Promise<BrowserState>;
