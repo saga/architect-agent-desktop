@@ -110,13 +110,17 @@ A plugin directory contains `manifest.json` plus the resource files referenced b
 
 Imported plugins are stored locally under the application's user-data directory. Enable/disable state is local to this installation. Export writes a copy of the plugin directory to a folder you choose.
 
-## 本地数据分析与文件理解
+## 本地数据分析、可视化与长期记忆
 
-Agent 可以通过系统文件选择器分析 PDF、Word（DOC/DOCX）、Excel（XLS/XLSX/XLSM）、CSV、TSV、JSON 和文本文件。Excel/CSV 等结构化数据会导入当前 Workspace 对应的本地 DuckDB；Agent 可使用受限只读 SQL 进行分析，并通过 ECharts 和 Ant Design X Card（A2UI v0.9）展示金融指标、图表和交互卡片。
+Agent 可以通过系统文件选择器分析 PDF、Word（DOC/DOCX）、Excel（XLS/XLSX/XLSM）、CSV、TSV、JSON 和文本文件。Excel/CSV 等结构化数据会导入当前 Workspace 对应的本地 DuckDB，Agent 使用受限只读 SQL 做分析。
 
-长期记忆采用 Transcript、Memory Notes、主题知识页和有限上下文注入分层。历史会话可全文检索；Agent 可以显式保存、复核和整理跨会话经验。详细设计和当前限制见 [Agent 数据分析、文件理解、A2UI 与长期记忆设计](docs/architecture/AGENT-ANALYTICS-DOCUMENTS-A2UI-MEMORY.md)。
+**可视化以 A2UI 1.0 为新会话主协议。** 应用使用 A2UI Agent/Core/React SDK 和本地 Finance Catalog：Ant Design Charts 负责统计与金融图表，AntV G6 负责实体关系和知识图谱，AntV X6 负责可编辑流程图、审批流和数据血缘。旧的 A2UI v0.9 卡片继续用于历史会话恢复，不再作为新任务的默认输出方式。
 
-当前扫描版 PDF 不执行 OCR；PDF 表格结构重建、自动后台 Dreaming、向量记忆和跨 Workspace 全局记忆尚未实现。数据分析及记忆工具遵循 Agent 的权限模式和 Expert 工具白名单。
+长期记忆按 Transcript、Memory Notes、Memory Representations 和 Injected Context 分层。Memory/Dreaming 页面可以查看 Workspace 的 Note、知识页、关系、证据和 Dreaming Runs；Agent 也提供完整的 prepare、commit、audit、abandon 和 rollback 工具。Dreaming 使用来源 ID、版本前置条件、SQLite 原子事务和变更前后快照；只有成功提交才推进 Transcript 游标。可从 Settings → Memory & Dreaming 手动整理，也可通过 Agent 在重要任务结束时调用 Dreaming 工具。
+
+当前扫描版 PDF 不执行 OCR；PDF 表格结构重建、后台定时 Dreaming、向量记忆和跨 Workspace 全局记忆尚未实现。数据分析、记忆和可视化操作遵循 Agent 权限模式与 Expert 工具白名单。
+
+详细设计见 [Agent 数据分析、文件理解、A2UI 与长期记忆设计](docs/architecture/AGENT-ANALYTICS-DOCUMENTS-A2UI-MEMORY.md)。
 
 ## Keyboard shortcuts
 
