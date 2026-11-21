@@ -99,20 +99,27 @@ export class DuckDbAnalyticsService {
     });
     const types = normalizedColumns.map((_, index) => sqlType(rows.slice(0, 500).map(row => row[index])));
     const definition = normalizedColumns.map((column, index) => quoteIdentifier(column) + " " + types[index]).join(", ");
-    await handle.connection.run("CREATE OR REPLACE TABLE " + quoteIdentifier(table) + " (" + definition + ")");
-    const batchSize = Math.max(1, Math.min(100, Math.floor(4_000 / columns.length)));
-    for (let offset = 0; offset < rows.length; offset += batchSize) {
-      const batch = rows.slice(offset, offset + batchSize);
-      const params: Record<string, unknown> = {};
-      const values = batch.map((row, rowIndex) => "(" + normalizedColumns.map((_, columnIndex) => {
-        const key = "p_" + rowIndex + "_" + columnIndex;
-        params[key] = sqlValue(row[columnIndex]);
-        return "$" + key;
-      }).join(", ") + ")").join(", ");
-      await handle.connection.run(
-        "INSERT INTO " + quoteIdentifier(table) + " VALUES " + values,
-        params,
-      );
+    await handle.connection.run("BEGIN TRANSACTION");
+    try {
+      await handle.connection.run("CREATE OR REPLACE TABLE " + quoteIdentifier(table) + " (" + definition + ")");
+      const batchSize = Math.max(1, Math.min(100, Math.floor(4_000 / columns.length)));
+      for (let offset = 0; offset < rows.length; offset += batchSize) {
+        const batch = rows.slice(offset, offset + batchSize);
+        const params: Record<string, unknown> = {};
+        const values = batch.map((row, rowIndex) => "(" + normalizedColumns.map((_, columnIndex) => {
+          const key = "p_" + rowIndex + "_" + columnIndex;
+          params[key] = sqlValue(row[columnIndex]);
+          return "$" + key;
+        }).join(", ") + ")").join(", ");
+        await handle.connection.run(
+          "INSERT INTO " + quoteIdentifier(table) + " VALUES " + values,
+          params,
+        );
+      }
+      await handle.connection.run("COMMIT");
+    } catch (error) {
+      try { await handle.connection.run("ROLLBACK"); } catch { /* preserve the import error */ }
+      throw error;
     }
     return { table, rowCount: rows.length, truncated: false };
   }
