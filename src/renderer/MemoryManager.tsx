@@ -337,12 +337,53 @@ export default function MemoryManager() {
         type="info"
         showIcon
         message={snapshot.workspacePath ? "当前记忆范围：" + snapshot.workspacePath : "当前为个人记忆空间"}
-        description={"Transcript 游标：" + dateOf(snapshot.cursor.createdAt) + (snapshot.cursor.sessionId ? " · Session " + snapshot.cursor.sessionId : "") + (snapshot.cursor.messageId ? " · Message " + snapshot.cursor.messageId : "") + "。只有 Dreaming 成功提交后才会推进游标。"}
+        description={"Transcript 游标：" + dateOf(snapshot.cursor.createdAt) + (snapshot.cursor.sessionId ? " · Session " + snapshot.cursor.sessionId : "") + (snapshot.cursor.messageId ? " · Message " + snapshot.cursor.messageId : "") + " · Revision " + snapshot.cursor.transcriptRevision + "。历史消息内容修订也会产生新的 revision 证据；质量复查不会推进 Transcript 游标。"}
       />
+      <Card size="small" style={{ marginTop: 10, marginBottom: 10 }}>
+        <Space wrap align="center">
+          <Text strong>自动 Memory Dreaming</Text>
+          <Switch
+            checked={snapshot.dreamSchedule.enabled}
+            onChange={enabled => void updateDreamSchedule(enabled, snapshot.dreamSchedule.intervalMinutes)}
+            disabled={running}
+          />
+          <Text type="secondary">执行周期</Text>
+          <Select
+            size="small"
+            style={{ width: 130 }}
+            value={snapshot.dreamSchedule.intervalMinutes}
+            onChange={interval => void updateDreamSchedule(snapshot.dreamSchedule.enabled, interval)}
+            options={[
+              { label: "每 6 小时", value: 360 },
+              { label: "每 12 小时", value: 720 },
+              { label: "每天", value: 1440 },
+              { label: "每 3 天", value: 4320 },
+              { label: "每 7 天", value: 10080 },
+            ]}
+            disabled={running}
+          />
+          <Tag color={snapshot.dreamSchedule.enabled ? "success" : "default"}>
+            {snapshot.dreamSchedule.enabled ? "已启用" : "已暂停"}
+          </Tag>
+          <Text type="secondary">
+            {snapshot.dreamSchedule.lastRunAt
+              ? "上次：" + dateOf(snapshot.dreamSchedule.lastRunAt) + " · " + (snapshot.dreamSchedule.lastRunStatus ?? "unknown")
+              : "尚未自动执行"}
+          </Text>
+          {snapshot.dreamSchedule.enabled && snapshot.dreamSchedule.nextRunAt !== null &&
+            <Text type="secondary">下次检查：{dateOf(snapshot.dreamSchedule.nextRunAt)}</Text>}
+        </Space>
+        {snapshot.dreamSchedule.lastError &&
+          <Alert type="warning" showIcon style={{ marginTop: 8 }} message="最近一次自动 Dreaming 未完成" description={snapshot.dreamSchedule.lastError} />}
+        <Paragraph type="secondary" style={{ margin: "8px 0 0" }}>
+          仅在桌面应用运行时执行。需要全局工具权限和该 Workspace Expert 至少开放 assisted 级别及完整长期记忆工具；调度器不会自动扩大权限。Transcript 增量整理和到期质量复查在同一维护任务中串行完成。
+        </Paragraph>
+      </Card>
       <div className="memory-manager-stats">
         <Card><Statistic title="活动 Notes" value={activeNotes.length} /></Card>
         <Card><Statistic title="已验证" value={validated} /></Card>
         <Card><Statistic title="存在争议" value={disputed} /></Card>
+        <Card><Statistic title="待质量复查" value={qualityDue} /></Card>
         <Card><Statistic title="待处理 Runs" value={preparedRuns.length} /></Card>
         <Card><Statistic title="Dreaming 历史" value={snapshot.dreamRuns.length} /></Card>
       </div>
