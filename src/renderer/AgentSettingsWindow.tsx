@@ -7,7 +7,7 @@ import type { AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission,
 
 const DEFAULT_SETTINGS: AgentSettings = {
   provider: "copilot", copilotModel: "", codebuddyModel: "",
-  thinkingLevel: "medium", toolPermission: "none", systemPrompt: "",
+  thinkingLevel: "medium", toolPermission: "none", memoryEmbeddingProvider: "disabled", memoryEmbeddingBaseUrl: "http://127.0.0.1:11434", memoryEmbeddingModel: "nomic-embed-text", systemPrompt: "",
 };
 
 export default function AgentSettingsWindow() {
