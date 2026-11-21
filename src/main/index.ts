@@ -2175,14 +2175,14 @@ function registerIpcHandlers(): void {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: "选择 Agent 附件",
       properties: ["openFile", "multiSelections"],
-      filters: [{ name: "可分析文件", extensions: ["pdf", "doc", "docx", "xlsx", "xlsm", "csv", "tsv", "json", "txt", "md", "log"] }],
+      filters: [{ name: "可分析文件", extensions: ["pdf", "doc", "docx", "xls", "xlsx", "xlsm", "csv", "tsv", "json", "txt", "md", "log"] }],
     });
     if (canceled) return [];
     const taskId = activeAgentTaskId;
     if (!taskId) throw new Error("当前没有活动 Task。");
-    const selected = filePaths.slice(0, 20).map(file => realpathSync(file)).slice(0, 20);
-    const approved = approvedAgentFiles.get(taskId) ?? new Set<string>();
-    for (const file of selected) approved.add(file);
+    const selected = [...new Set(filePaths.slice(0, 20).map(file => realpathSync(file)))].slice(0, 20);
+    const prior = [...(approvedAgentFiles.get(taskId) ?? new Set<string>())].filter(file => !selected.includes(file));
+    const approved = new Set([...prior, ...selected].slice(-20));
     approvedAgentFiles.set(taskId, approved);
     copilotAgent.setApprovedFiles([...approved]);
     return selected.map(file => file.slice(0, 1000));
