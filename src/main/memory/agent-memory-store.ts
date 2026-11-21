@@ -456,8 +456,7 @@ export class AgentMemoryStore {
     const version=Number(existing.version)+1,now=Date.now();
     const refs=[...new Set([...parseJson<string[]>(existing.source_refs_json,[]),...sourceRefs])].slice(-100);
     const claimType=isClaimType(existing.claim_type)?existing.claim_type as MemoryClaimType:"unknown";
-    const evidenceProfile=validation==="validated"?this.requireValidationEvidence(scope,claimType,refs):
-      parseJson<MemoryValidationEvidence|null>(existing.validation_evidence_json,null);
+    const evidenceProfile=validation==="validated"?this.requireValidationEvidence(scope,claimType,refs):null;
     this.database.prepare("UPDATE memory_notes SET validation=?,confidence=?,last_verified_at=?,source_refs_json=?,updated_at=?,version=?,validation_evidence_json=? WHERE id=? AND scope_key=?")
       .run({},validation,clamp(confidence??0.5,0,1),validation==="validated"?now:(typeof existing.last_verified_at==="number"?existing.last_verified_at:null),JSON.stringify(refs),now,version,evidenceProfile?JSON.stringify(evidenceProfile):null,id,scopeKey);
     const row=this.getNoteRow(id,scopeKey) as Record<string,unknown>;
@@ -806,8 +805,7 @@ export class AgentMemoryStore {
     const now=Date.now();
     const sourceRefs=[...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100);
     const claimType=isClaimType(before.claim_type)?before.claim_type as MemoryClaimType:"unknown";
-    const validationEvidence=op.validation==="validated"?this.requireValidationEvidence(scope,claimType,sourceRefs):
-      parseJson<MemoryValidationEvidence|null>(before.validation_evidence_json,null);
+    const validationEvidence=op.validation==="validated"?this.requireValidationEvidence(scope,claimType,sourceRefs):null;
     const after={
       ...before,validation:op.validation,confidence:clamp(op.confidence,0,1),
       validation_evidence_json:validationEvidence?JSON.stringify(validationEvidence):null,
