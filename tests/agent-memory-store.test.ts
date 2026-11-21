@@ -363,6 +363,11 @@ describe("AgentMemoryStore", () => {
       sources: [{ sourceRef: toolSource.sourceId, url: "https://127.0.0.1/notice", publisher: "Regulator" }],
       note: "",
     })).toThrow(/public HTTPS/);
+    expect(() => store.recordExternalSources("/workspace/external-source-guard", {
+      noteId: note.id, baseVersion: note.version,
+      sources: [{ sourceRef: toolSource.sourceId, url: "https://regulator.example.gov/notice?access_token=secret-value", publisher: "Regulator" }],
+      note: "",
+    })).toThrow(/access token|signed URL|访问令牌/);
     store.abandonDreaming("/workspace/external-source-guard", run!.id, "test complete");
     store.close();
   });
