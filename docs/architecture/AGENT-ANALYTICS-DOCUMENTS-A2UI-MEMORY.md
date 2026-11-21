@@ -174,7 +174,7 @@ completed / list / rollback
 
 **证据准备**
 
-`memory_dreaming_prepare` 从当前 Workspace 已保存的 Session Transcript 读取 cursor 之后的消息。每次最多处理 160 条、证据包不超过 1 MB；消息最多 8,000 字符，先做常见密钥/Token 模式脱敏，再保存 source hash、session/message ID、消息类型和时间。证据 ID 按 Run 生成，重试不会与已放弃 Run 的主键冲突。
+`memory_dreaming_prepare` 从当前 Workspace 已保存的 Session Transcript 读取 cursor 之后的消息。每次最多处理 160 条（默认 80 条）、证据包不超过 320 KB；单条消息最多 4,000 字符，先做常见密钥/Token 模式脱敏，再保存 source hash、session/message ID、消息类型和时间。证据 ID 按 Run 生成，重试不会与已放弃 Run 的主键冲突。
 
 游标由 `createdAt + sessionId + messageId` 组成。相同毫秒时间戳的消息仍有稳定顺序，分批整理时不会仅按时间戳而漏掉同一批尾部消息。游标只在事务成功提交时前移。
 
@@ -193,7 +193,7 @@ completed / list / rollback
 
 **事务和审计**
 
-SQLite 使用 `BEGIN IMMEDIATE`，一次性提交实体、版本快照、Dreaming 操作前后快照和 cursor。单次提交失败时，所有变更回滚，Run 保持 prepared，cursor 不前移。旧版本保留在 `memory_versions`，操作记录保存在 `memory_dream_operations`。
+SQLite 使用 `BEGIN IMMEDIATE`，一次性提交实体、版本快照、Dreaming 操作前后快照和 cursor。单次提交失败时，所有变更回滚，Run 保持 prepared，cursor 不前移。若证据已评估但没有任何长期知识需要变更，允许 `operations=[]` 提交 no-op Run：记录完成状态并推进游标，但不虚增实体变更数量。旧版本保留在 `memory_versions`，操作记录保存在 `memory_dream_operations`。
 
 Run 状态：
 
@@ -213,7 +213,7 @@ Run 状态：
 
 对重要任务，系统提示要求 Agent 主动执行 prepare → evidence review → commit。整理目标不局限于失败记录，还包括成功流程、稳定的用户偏好、项目约定、业务定义、数据口径、重复出现的错误和已解决问题。模型必须区分事实、推测、冲突和时效性信息；证据不足时保持 unverified，矛盾并存时记录 contradicts 或 disputed，不为了减少 Note 数量而删除唯一知识。
 
-当前是 Agent 驱动的任务后整理，Settings → Memory & Dreaming 提供查看 Notes、知识页、关系和 Run 审计的管理界面，并允许手动启动整理、放弃 prepared Run 或回滚最近一次提交。也可以让 Agent 在重要任务结束时执行同样的完整工具链。当前不自动启动后台定时模型调用，避免未经用户配置就产生额外成本或静默修改。
+当前是 Agent 驱动的任务后整理，Settings → Memory & Dreaming 提供查看 Notes、知识页、关系和 Run 审计的管理界面，并允许手动启动整理、置顶/取消置顶 Note、归档 Note、放弃 prepared Run 或回滚最近一次提交。手动整理需要当前 Expert 开放长期记忆工具，且 Agent 工具权限至少为 assisted。也可以让 Agent 在重要任务结束时执行同样的完整工具链。当前不自动启动后台定时模型调用，避免未经用户配置就产生额外成本或静默修改。
 
 ### Memory 生命周期
 
