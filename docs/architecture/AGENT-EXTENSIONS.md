@@ -43,3 +43,20 @@ Skill 包中的脚本或命令不会由导入器执行。Skill 内容属于用�
 MCP 和 Skill 状态通过主进程 IPC 管理；每个 handler 都校验可信 renderer frame。修改操作要求 Agent、Schedule 和 Task 切换均处于空闲状态。MCP 服务仅在有效工具权限为 `allow-all` 时注册；有效权限仍受 Expert 权限上限约束。
 
 配置变化不需要重启整个 Electron 应用。Copilot Session 会在下一次请求前重建；CodeBuddy 从更新后的配置创建下一次 query。
+
+
+## 示例和 Claude Desktop 兼容
+
+仓库内提供以下示例：
+
+- examples/mcp/firecrawl-stdio.json：官方 npm 包 firecrawl-mcp 的本地 STDIO 连接配置。
+- examples/mcp/firecrawl-http.json：Firecrawl 托管 Streamable HTTP 端点。
+- examples/skills/web-research/SKILL.md：可直接导入的 Web Research 示例 Skill。
+
+设置页的“添加示例 MCP”会添加 Firecrawl 本地或托管配置。默认不写 API Key，Firecrawl keyless 模式可限速使用基础 search / scrape / parse 工具。为使用完整工具集，在 MCP 环境变量或 HTTP Authorization Header 中配置 FIRECRAWL_API_KEY。不要将密钥提交到示例文件。
+
+Agent Skills 支持选择目录，以及上传 Claude Desktop 风格的 ZIP。ZIP 必须包含一个顶层 Skill 目录，目录名与 frontmatter 的 name 相同。兼容标准 SKILL.md 和 Claude 文档示例中的 skill.md。解压器限制压缩包/展开大小、文件数量、压缩算法和路径；拒绝加密 ZIP、ZIP64、符号链接、特殊文件和路径穿越。
+
+Claude Desktop 当前使用 Customize > Skills 上传 Skill ZIP；MCP 本地服务可通过 Desktop Extensions（.mcpb）目录安装，也可通过 claude_desktop_config.json 的 mcpServers 配置。当前应用的 Skill ZIP 入口对齐 Claude 的 ZIP 上传形态；MCP 采用相同的 STDIO / HTTP server 字段模型，并提供 Firecrawl 示例，但不会修改 Claude Desktop 配置文件，也不会安装 Claude 的 .mcpb 包。需要在 Claude Desktop 中安装时，按照其 Settings > Desktop app > Manage > Browse extensions 或 Advanced settings > Extension Developer > Install Extension… 流程操作。
+
+详细示例和外部参考见 examples/mcp/README.md。
