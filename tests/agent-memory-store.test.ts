@@ -257,4 +257,36 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("redacts common credentials from direct Memory and Knowledge writes", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const apiKey = "ghp_abcdefghijklmnopqrstuvwxyz1234567890";
+    const note = store.saveNote({
+      scope: "/workspace/redaction",
+      title: "Credential " + apiKey,
+      content: "Do not retain this token: " + apiKey,
+    });
+    expect(note.title).not.toContain(apiKey);
+    expect(note.content).not.toContain(apiKey);
+    expect(note.content).toContain("[REDACTED_SECRET]");
+
+    const run = store.prepareDreaming("/workspace/redaction", [{
+      sessionId: "session-redaction",
+      messageId: "source-redaction",
+      kind: "user",
+      content: "Please review an ordinary workflow, with no secrets.",
+      createdAt: Date.now(),
+    }]);
+    const page = store.publishRepresentation({
+      scope: "/workspace/redaction",
+      slug: "safe-knowledge",
+      title: "Safe knowledge " + apiKey,
+      content: "This page must not retain " + apiKey,
+      sourceNoteIds: [note.id],
+    });
+    expect(page.title).not.toContain(apiKey);
+    expect(page.content).not.toContain(apiKey);
+    store.abandonDreaming("/workspace/redaction", run!.id, "test complete");
+    store.close();
+  });
+
 });
