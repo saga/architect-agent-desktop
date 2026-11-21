@@ -247,6 +247,9 @@ A2UI Catalog 和 Finance Chart options 都有组件、数据量和配置约束�
 5. 新会话使用 A2UI 1.0 的 Agent/Core/React SDK 和本地 Finance Catalog；旧会话保留 x-card v0.9。新组件必须同步扩展 Agent API schema 与 Renderer 实现。
 6. Dreaming 已有 evidence manifest、复合游标、版本冲突检查、原子事务、实体/关系版本快照和最新 Run 回滚；Settings 提供 Memory/Dreaming 管理界面。整理由 Agent 在重要任务中执行或由用户手动触发，不是默认开启的后台定时模型服务。
 7. 尚未实现 PDF OCR、PDF 表格重建、Embedding/向量记忆、跨 Workspace 全局记忆，以及独立的后台定时 Dreaming 服务。
+8. Transcript 增量游标仍基于消息创建时间。若旧消息在 Dreaming 游标前移后被回写修改，当前批次不会自动重新读取该消息；旧记忆纠错需要 Agent 主动读取历史 sourceRef 或搜索 Transcript。后续应改为 revision-aware 的 Transcript cursor。
+9. `validated` 和 confidence 仍由模型根据来源证据作判断，不是独立事实校验器；当前没有强制的来源等级、交叉来源门槛或定期质量评估。
+10. 目前没有独立的 Memory Goal / Policy 配置；可以通过 Expert Prompt 提供领域目标，但还不能为不同 Workspace 设置结构化的记忆采集、保留和验证规则。知识页也没有完整的页面间链接、反向链接和孤儿页面自动检查。
 
 ## 主要实现文件
 
