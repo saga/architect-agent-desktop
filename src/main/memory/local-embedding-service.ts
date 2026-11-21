@@ -51,9 +51,20 @@ export class LocalEmbeddingService {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model: config.model, input: normalizedInputs }),
       signal: AbortSignal.timeout(30_000),
+      redirect: "error",
     });
     if (!response.ok) throw new Error("Ollama Embedding 请求失败：" + response.status + " " + response.statusText);
-    const payload = await response.json() as { model?: unknown; embeddings?: unknown };
+    const declaredLength = Number(response.headers.get("content-length") ?? 0);
+    if (Number.isFinite(declaredLength) && declaredLength > 2_000_000) {
+      throw new Error("Ollama Embedding 响应超过 2 MB 限制。");
+    }
+    const responseText = await response.text();
+    if (new TextEncoder().encode(responseText).byteLength > 2_000_000) {
+      throw new Error("Ollama Embedding 响应超过 2 MB 限制。");
+    }
+    let payload: { model?: unknown; embeddings?: unknown };
+    try { payload = JSON.parse(responseText) as { model?: unknown; embeddings?: unknown }; }
+    catch { throw new Error("Ollama Embedding 返回了无效 JSON。"); }
     const embeddings = payload.embeddings;
     if (!Array.isArray(embeddings) || embeddings.length !== normalizedInputs.length) {
       throw new Error("Ollama Embedding 响应数量与输入数量不一致。");
