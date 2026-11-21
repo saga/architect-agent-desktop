@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspacePreferences, AgentWorkspaceSnapshot, BrowserApi, BrowserDownloadEvent, PluginSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
+import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspacePreferences, AgentWorkspaceSnapshot, BrowserApi, BrowserDownloadEvent, PluginSummary, McpServerConfig, AgentSkillSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
 
 const api: BrowserApi = {
   getWorkspaceProject: () => ipcRenderer.invoke("workspace:get-project"),
@@ -70,6 +70,14 @@ const api: BrowserApi = {
   pluginSetEnabled: (id: string, enabled: boolean): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:set-enabled", { id, enabled }),
   pluginRemove: (id: string): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:remove", id),
   pluginExport: (id: string): Promise<string | null> => ipcRenderer.invoke("plugin:export", id),
+  agentMcpList: (): Promise<McpServerConfig[]> => ipcRenderer.invoke("agent-mcp:list"),
+  agentMcpSave: (server: McpServerConfig): Promise<McpServerConfig[]> => ipcRenderer.invoke("agent-mcp:save", server),
+  agentMcpSetEnabled: (id: string, enabled: boolean): Promise<McpServerConfig[]> => ipcRenderer.invoke("agent-mcp:set-enabled", { id, enabled }),
+  agentMcpRemove: (id: string): Promise<McpServerConfig[]> => ipcRenderer.invoke("agent-mcp:remove", id),
+  agentSkillList: (): Promise<AgentSkillSummary[]> => ipcRenderer.invoke("agent-skill:list"),
+  agentSkillImport: (): Promise<AgentSkillSummary | null> => ipcRenderer.invoke("agent-skill:import"),
+  agentSkillSetEnabled: (id: string, enabled: boolean): Promise<AgentSkillSummary[]> => ipcRenderer.invoke("agent-skill:set-enabled", { id, enabled }),
+  agentSkillRemove: (id: string): Promise<AgentSkillSummary[]> => ipcRenderer.invoke("agent-skill:remove", id),
   agentGetSettings: () => ipcRenderer.invoke("agent:get-settings"),
   agentInspectModels: (provider: AgentProvider): Promise<AgentModelInfo[]> => ipcRenderer.invoke("agent:inspect-models", provider),
   onAgentSettingsUpdated: (listener) => {
