@@ -15,13 +15,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function containsUnsafeValue(value: unknown, depth = 0): boolean {
+  if (depth > 10) return true;
+  if (typeof value === "string") return /javascript:|data:text\/html|<script\b|<foreignObject\b/i.test(value);
+  if (Array.isArray(value)) return value.length > 500 || value.some(item => containsUnsafeValue(item, depth + 1));
+  if (!isRecord(value)) return false;
+  return Object.entries(value).some(([key, item]) =>
+    /^(on[a-z]+|html|foreignObject|href|xlink:href)$/i.test(key) || containsUnsafeValue(item, depth + 1)
+  );
+}
+
 function validateGraphJson(input: unknown): Record<string, unknown> | null {
   if (!isRecord(input)) return null;
+  let encoded = "";
+  try { encoded = JSON.stringify(input); } catch { return null; }
+  if (encoded.length > 1_000_000 || containsUnsafeValue(input)) return null;
   const cells = Array.isArray(input.cells) ? input.cells : null;
   if (!cells || cells.length > 2_000) return null;
-  const allowedCells = cells.every(cell => isRecord(cell) &&
-    (cell.shape === "edge" || cell.shape === "rect" || cell.shape === "circle" || cell.shape === "ellipse" || cell.shape === "polygon" || cell.shape === "image" || typeof cell.shape === "string"));
-  return allowedCells ? input : null;
+  const allowedShapes = new Set(["edge", "rect", "circle", "ellipse", "polygon"]);
+  const ids = new Set<string>();
+  for (const cell of cells) {
+    if (!isRecord(cell) || typeof cell.id !== "string" || cell.id.length < 1 || cell.id.length > 120 ||
+        typeof cell.shape !== "string" || !allowedShapes.has(cell.shape) || ids.has(cell.id)) return null;
+    ids.add(cell.id);
+  }
+  for (const cell of cells) {
+    if (!isRecord(cell) || cell.shape !== "edge") continue;
+    const source = isRecord(cell.source) ? cell.source.cell : undefined;
+    const target = isRecord(cell.target) ? cell.target.cell : undefined;
+    if (typeof source === "string" && !ids.has(source)) return null;
+    if (typeof target === "string" && !ids.has(target)) return null;
+  }
+  return input;
 }
 
 export default function WorkflowDiagram({ graphData, title, height = 440, editable = false, onChange, onSave }: WorkflowDiagramProps) {
