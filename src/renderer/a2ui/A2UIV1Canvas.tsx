@@ -4,8 +4,9 @@ import { A2uiSurface } from "@a2ui/react";
 import { MessageProcessor } from "@a2ui/web_core";
 import type { SurfaceModel } from "@a2ui/web_core";
 import type { ReactCatalogComponent } from "@a2ui/react";
-import type { AgentToRendererMessage, ActionMessage } from "@a2ui/agent";
-export type RendererToAgentMessage = { version: "1.0"; action: ActionMessage["action"] };
+import type { AgentToRendererMessage } from "@a2ui/agent";
+type RendererAction = { name: string; surfaceId: string; sourceComponentId?: string; timestamp?: string; context?: Record<string, unknown> };
+export type RendererToAgentMessage = { version: "1.0"; action: RendererAction };
 import { financeRendererCatalog } from "./finance-renderer-catalog";
 
 export interface A2UIV1CanvasProps {
@@ -23,7 +24,7 @@ export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交
   const processor = useMemo(() => new MessageProcessor<ReactCatalogComponent>(
     [financeRendererCatalog],
     (action) => {
-      onRendererMessageRef.current?.({ version: "1.0", action: action as ActionMessage["action"] });
+      onRendererMessageRef.current?.({ version: "1.0", action: action as unknown as RendererAction });
     },
     {
       version: "1.0",
