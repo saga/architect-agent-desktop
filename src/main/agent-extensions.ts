@@ -126,7 +126,7 @@ function parseSkillMarkdown(markdown: string): { id: string; name: string; descr
   return { id: name, name, description };
 }
 
-function readSkill(root: string): AgentSkillSummary {
+function readSkill(root: string): Omit<AgentSkillSummary, "enabled"> {
   assertSafeSkillTree(root);
   const skillFile = path.join(root, "SKILL.md");
   const stat = lstatSync(skillFile);
