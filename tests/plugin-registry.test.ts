@@ -55,4 +55,41 @@ describe("declarative plugin packages", () => {
     expect(readEnabledPluginInstructions(pluginRoot, registry)).toBe("");
     expect(removePlugin("team.research", pluginRoot, registry)).toHaveLength(0);
   });
+
+  it("imports the Claude Code Plugin directory format and loads Markdown components only", () => {
+    const root = makeDirectory();
+    const source = path.join(root, "claude-research");
+    mkdirSync(path.join(source, ".claude-plugin"), { recursive: true });
+    mkdirSync(path.join(source, "skills", "research"), { recursive: true });
+    mkdirSync(path.join(source, "commands"), { recursive: true });
+    mkdirSync(path.join(source, "agents"), { recursive: true });
+    mkdirSync(path.join(source, "hooks"), { recursive: true });
+    writeFileSync(path.join(source, ".claude-plugin", "plugin.json"), JSON.stringify({
+      name: "research-toolkit",
+      displayName: "Research Toolkit",
+      version: "1.2.0",
+      description: "Research workflows for Claude Code",
+    }));
+    writeFileSync(path.join(source, "skills", "research", "SKILL.md"), "---\nname: research\ndescription: Research carefully\n---\nUse primary sources.");
+    writeFileSync(path.join(source, "commands", "summarize.md"), "---\ndescription: Summarize findings\n---\nWrite a concise evidence-based summary.");
+    writeFileSync(path.join(source, "agents", "reviewer.md"), "---\ndescription: Review research\n---\nCheck citations and unsupported claims.");
+    writeFileSync(path.join(source, "hooks", "hooks.json"), JSON.stringify({ hooks: {} }));
+    writeFileSync(path.join(source, ".mcp.json"), JSON.stringify({ mcpServers: {} }));
+
+    const pluginRoot = path.join(root, "installed");
+    const registry = path.join(root, "plugins.json");
+    const imported = importPlugin(source, pluginRoot, registry);
+    expect(imported.sourceFormat).toBe("claude-code");
+    expect(imported.id).toBe("research-toolkit");
+    expect(imported.skills).toContain("skills/research/SKILL.md");
+    expect(imported.commands).toContain("commands/summarize.md");
+    expect(imported.agents).toContain("agents/reviewer.md");
+
+    const instructions = readEnabledPluginInstructions(pluginRoot, registry);
+    expect(instructions).toContain("Use primary sources.");
+    expect(instructions).toContain("Write a concise evidence-based summary.");
+    expect(instructions).toContain("Check citations and unsupported claims.");
+    expect(listPlugins(pluginRoot, registry)[0].sourceFormat).toBe("claude-code");
+  });
+
 });
