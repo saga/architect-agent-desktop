@@ -16,11 +16,13 @@ import {
   type WebContents,
 } from "electron";
 import { createHash, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { z } from "zod";
 import { AGENT_TOOL_IDS, CopilotDesktopAgent } from "./copilot";
 import { AgentTraceStore } from "./agent-trace-store";
 import { normalizeLocalEmbeddingConfig } from "./memory/local-embedding-service.js";
 import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
+import { findChromeExecutable } from "./chrome-browser";
 import path from "node:path";
 import { isTrustedAppUrl } from "./app-url-policy";
 import { readFileSync, realpathSync, rmSync, statSync } from "node:fs";
@@ -748,6 +750,43 @@ function openExternalIfSupported(value: string): void {
   if (/^(mailto|tel):/i.test(value)) {
     void shell.openExternal(value);
   }
+}
+
+async function openUrlInChrome(value: string): Promise<"chrome" | "default"> {
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Google Chrome 只能打开 HTTP(S) 网页。");
+  const target = findChromeExecutable();
+  if (target) {
+    const launched = await new Promise<boolean>((resolve) => {
+      let settled = false;
+      try {
+        const child = spawn(target.command, [...target.argsPrefix, url.toString()], {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        child.once("error", () => {
+          if (settled) return;
+          settled = true;
+          resolve(false);
+        });
+        child.once("spawn", () => {
+          if (settled) return;
+          settled = true;
+          child.unref();
+          resolve(true);
+        });
+      } catch {
+        if (!settled) {
+          settled = true;
+          resolve(false);
+        }
+      }
+    });
+    if (launched) return "chrome";
+  }
+  await shell.openExternal(url.toString());
+  return "default";
 }
 
 function attachTabEvents(tab: BrowserTab): void {
@@ -2383,6 +2422,12 @@ function registerIpcHandlers(): void {
     const protocol = new URL(parsed.data).protocol;
     if (!["http:", "https:", "mailto:"].includes(protocol)) throw new Error("Unsupported URL scheme.");
     await shell.openExternal(parsed.data);
+  });
+  ipcMain.handle("app:open-in-chrome", async (event, input: unknown): Promise<"chrome" | "default"> => {
+    assertTrustedSender(event);
+    const parsed = z.string().url().max(2048).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid URL.");
+    return openUrlInChrome(parsed.data);
   });
   ipcMain.handle("browser:get-state", (event) => {
     assertTrustedSender(event);
