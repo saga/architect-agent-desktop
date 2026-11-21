@@ -110,6 +110,14 @@ A plugin directory contains `manifest.json` plus the resource files referenced b
 
 Imported plugins are stored locally under the application's user-data directory. Enable/disable state is local to this installation. Export writes a copy of the plugin directory to a folder you choose.
 
+## 本地数据分析与文件理解
+
+Agent 可以通过系统文件选择器分析 PDF、Word（DOC/DOCX）、Excel（XLS/XLSX/XLSM）、CSV、TSV、JSON 和文本文件。Excel/CSV 等结构化数据会导入当前 Workspace 对应的本地 DuckDB；Agent 可使用受限只读 SQL 进行分析，并通过 ECharts 和 Ant Design X Card（A2UI v0.9）展示金融指标、图表和交互卡片。
+
+长期记忆采用 Transcript、Memory Notes、主题知识页和有限上下文注入分层。历史会话可全文检索；Agent 可以显式保存、复核和整理跨会话经验。详细设计和当前限制见 [Agent 数据分析、文件理解、A2UI 与长期记忆设计](docs/architecture/AGENT-ANALYTICS-DOCUMENTS-A2UI-MEMORY.md)。
+
+当前扫描版 PDF 不执行 OCR；PDF 表格结构重建、自动后台 Dreaming、向量记忆和跨 Workspace 全局记忆尚未实现。数据分析及记忆工具遵循 Agent 的权限模式和 Expert 工具白名单。
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
