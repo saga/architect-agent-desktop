@@ -1914,6 +1914,11 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     assertAgentExtensionsIdle();
     await copilotAgent.resetConversation();
+    const existing = listAgentSkills(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH).find(item => item.id === "web-research");
+    if (existing) {
+      const skills = setAgentSkillEnabled(existing.id, true, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+      return skills.find(item => item.id === existing.id) ?? existing;
+    }
     const samplePath = path.join(app.getAppPath(), "examples", "skills", "web-research");
     const skill = importAgentSkill(samplePath, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
     recordOperation("agent-skill", "install sample " + skill.id);
