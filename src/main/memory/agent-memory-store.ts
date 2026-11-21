@@ -84,7 +84,9 @@ function redactSecrets(value: string, maxChars: number): string {
   return result;
 }
 function scrubEvidence(value: string): string {
-  return redactSecrets(value, MAX_SOURCE_CHARS);
+  const marker="\\n[TRUNCATED: this evidence is only a preview. Search the original Transcript before treating it as complete.]";
+  if(value.length<=MAX_SOURCE_CHARS)return redactSecrets(value,MAX_SOURCE_CHARS);
+  return redactSecrets(value,MAX_SOURCE_CHARS-marker.length)+marker;
 }
 function parseJson<T>(value: unknown, fallback: T): T {
   try { return JSON.parse(String(value ?? "")) as T; } catch { return fallback; }
