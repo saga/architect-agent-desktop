@@ -14,7 +14,7 @@ export function parseAgentSessionItems(value: unknown): AgentSessionItem[] {
   for (const raw of value.slice(-MAX_AGENT_SESSION_ITEMS)) {
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Partial<AgentSessionItem>;
-    if (!["user", "assistant", "thinking", "tool", "error", "a2ui", "a2ui-v1"].includes(item.kind ?? "")) continue;
+    if (!["user", "assistant", "thinking", "tool", "error", "a2ui", "a2ui-v1", "interaction"].includes(item.kind ?? "")) continue;
     if (typeof item.content !== "string") continue;
     items.push({
       id: typeof item.id === "string" && item.id ? item.id.slice(0, 100) : randomUUID(),
