@@ -222,7 +222,7 @@ export class AgentMemoryStore {
     ).run({}, 
       id,scopeKey,title,content,JSON.stringify(tags),validation,unchanged?Number(before?.confidence??0.5):0.5,
       input.pinned===undefined?Number(before?.pinned??0):input.pinned?1:0,
-      input.sourceSessionId??source?.sessionId??before?.source_session_id??null,input.sourceTraceId??before?.source_trace_id??null,
+      input.sourceSessionId??source?.sessionId??(typeof before?.source_session_id==="string"?before.source_session_id:null),input.sourceTraceId??(typeof before?.source_trace_id==="string"?before.source_trace_id:null),
       Number(before?.created_at??now),now,Number(before?.last_accessed_at??0),Number(before?.access_count??0),Math.max(1,oldVersion+1),
       clamp(input.importance??Number(before?.importance??0.5),0,1),
       input.expiresAt===undefined?before?.expires_at??null:input.expiresAt,
@@ -293,7 +293,7 @@ export class AgentMemoryStore {
     const version=Number(existing.version)+1,now=Date.now();
     const refs=[...new Set([...parseJson<string[]>(existing.source_refs_json,[]),...sourceRefs])].slice(-100);
     this.database.prepare("UPDATE memory_notes SET validation=?,confidence=?,last_verified_at=?,source_refs_json=?,updated_at=?,version=? WHERE id=?")
-      .run({}, validation,clamp(confidence??0.5,0,1),validation==="validated"?now:existing.last_verified_at??null,JSON.stringify(refs),now,version,id);
+      .run({}, validation,clamp(confidence??0.5,0,1),validation==="validated"?now:(typeof existing.last_verified_at==="number"?existing.last_verified_at:null),JSON.stringify(refs),now,version,id);
     const row=this.database.prepare("SELECT * FROM memory_notes WHERE id=?").get({}, id) as Record<string,unknown>;
     this.saveVersion(String(row.scope_key),"note",id,version,row,null);
     return this.toNote(row);
@@ -439,7 +439,7 @@ export class AgentMemoryStore {
     runId:string;status:"completed";sourceCount:number;operationCount:number;createdNoteIds:string[];
     updatedNoteIds:string[];publishedKnowledgeIds:string[];maxSourceCreatedAt:number;
   }{
-    const scopeKey=normalizeScope(input.scope),run=this.getDreamRun(input.runId,input.scope);
+    const scopeKey=normalizeScope(input.scope),run=this.getDreamRun(input.runId,input.scope??null);
     if(!run||run.status!=="prepared")throw new Error("Dreaming Run 不存在或不处于 prepared 状态。");
     if(input.operations.length>MAX_DREAM_OPERATIONS)throw new Error("单次 Dreaming 最多提交 80 项变更。");
     const allowedSources=new Set(run.evidence.map(source=>source.sourceId)),summary=input.summary.trim().slice(0,4000);
