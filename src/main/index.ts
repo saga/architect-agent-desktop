@@ -23,7 +23,7 @@ import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
 import { isTrustedAppUrl } from "./app-url-policy";
 import { readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentScheduleRun, AgentWorkspaceSnapshot, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentScheduleRun, AgentWorkspaceSnapshot, AgentToolPermission, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
 import { writeJsonAtomic } from "./json-store";
