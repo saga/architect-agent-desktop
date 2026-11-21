@@ -241,7 +241,10 @@ export class AgentTraceStore {
     return this.database.prepare(`
       SELECT s.id, s.workspace_path AS workspacePath, s.created_at AS createdAt, s.updated_at AS updatedAt,
         (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.id) AS messageCount,
-        (SELECT COUNT(*) FROM agent_events e WHERE e.session_id = s.id) AS eventCount
+        (SELECT COUNT(*) FROM agent_events e WHERE e.session_id = s.id) AS eventCount,
+        (SELECT m.content FROM session_messages m WHERE m.session_id = s.id ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1) AS lastMessagePreview,
+        (SELECT m.kind FROM session_messages m WHERE m.session_id = s.id ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1) AS lastMessageKind,
+        (SELECT e.type FROM agent_events e WHERE e.session_id = s.id ORDER BY e.timestamp DESC, e.sequence DESC LIMIT 1) AS lastEventType
       FROM sessions s ORDER BY s.updated_at DESC LIMIT ?
     `).all(safeLimit) as Array<Record<string, unknown>>;
   }
