@@ -135,6 +135,28 @@ export default function MemoryManager() {
     }
   };
 
+  const togglePinned = async (note: AgentMemoryNoteView) => {
+    if (!taskId) return;
+    try {
+      await window.browser.agentMemorySetPinned(taskId, note.id, !note.pinned);
+      message.success(note.pinned ? "已取消置顶。" : "已置顶。");
+      await refresh(taskId);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const archiveNote = async (note: AgentMemoryNoteView) => {
+    if (!taskId) return;
+    try {
+      await window.browser.agentMemoryArchiveNote(taskId, note.id);
+      message.success("Memory Note 已归档，版本与来源记录仍会保留。");
+      await refresh(taskId);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const rollbackRun = async (runId: string) => {
     if (!taskId) return;
     try {
@@ -190,6 +212,20 @@ export default function MemoryManager() {
     { title: "版本", key: "version", width: 70, render: (_: unknown, note: AgentMemoryNoteView) => "v" + note.version },
     { title: "来源", key: "sources", width: 80, render: (_: unknown, note: AgentMemoryNoteView) => note.sourceRefs.length },
     { title: "更新", key: "updated", width: 180, render: (_: unknown, note: AgentMemoryNoteView) => dateOf(note.updatedAt) },
+    {
+      title: "操作", key: "actions", width: 150,
+      render: (_: unknown, note: AgentMemoryNoteView) => note.status === "active" ? <Space size={4}>
+        <Button type="link" size="small" onClick={() => void togglePinned(note)}>{note.pinned ? "取消置顶" : "置顶"}</Button>
+        <Popconfirm
+          title="归档这条 Memory Note？"
+          description={note.pinned ? "请先取消置顶。归档不会物理删除历史版本。" : "归档后不会再注入上下文，但可在 Notes 列表中查看。"}
+          disabled={note.pinned}
+          onConfirm={() => void archiveNote(note)}
+        >
+          <Button type="link" size="small" danger disabled={note.pinned}>归档</Button>
+        </Popconfirm>
+      </Space> : <Text type="secondary">—</Text>,
+    },
   ];
 
   return <section className="memory-manager">
