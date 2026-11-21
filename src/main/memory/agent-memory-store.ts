@@ -170,6 +170,34 @@ function evidenceClassForKind(kind: string): MemoryEvidenceClass {
   return "assistant_generated";
 }
 
+const MULTI_LABEL_PUBLIC_SUFFIXES = new Set([
+  "co.uk", "org.uk", "gov.uk", "ac.uk", "sch.uk",
+  "com.au", "net.au", "org.au", "edu.au", "gov.au",
+  "co.jp", "ne.jp", "or.jp", "go.jp", "ac.jp",
+  "com.sg", "com.hk", "co.nz", "com.br", "com.cn", "com.tw",
+  "co.kr", "com.mx", "com.tr", "co.in", "firm.in", "net.in", "org.in",
+  "github.io", "blogspot.com", "appspot.com", "pages.dev", "vercel.app",
+  "netlify.app", "azurewebsites.net", "cloudfront.net", "herokuapp.com",
+  "firebaseapp.com", "web.app",
+]);
+
+function normalizeSourceHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
+}
+
+// Count registrable domains, not arbitrary subdomains, as independent publishers.
+// The explicit suffix list covers common multi-label and hosted-domain suffixes.
+function sourceRegistrableDomain(hostname: string): string {
+  const normalized = normalizeSourceHostname(hostname);
+  const labels = normalized.split(".").filter(Boolean);
+  if (labels.length <= 2) return normalized;
+  const suffix = [...MULTI_LABEL_PUBLIC_SUFFIXES]
+    .sort((a, b) => b.length - a.length)
+    .find(candidate => normalized === candidate || normalized.endsWith("." + candidate));
+  const suffixLabels = suffix ? suffix.split(".").length : 1;
+  return labels.slice(-(suffixLabels + 1)).join(".");
+}
+
 export class AgentMemoryStore {
   private readonly database: DatabaseSync;
 
@@ -474,7 +502,9 @@ export class AgentMemoryStore {
         if(vector.length!==semantic.vector.length||Number(row.dimensions)!==semantic.vector.length||
           !vector.every(Number.isFinite))continue;
         const score=vector.reduce((sum,value,index)=>sum+value*semantic.vector[index]!,0);
-        if(!Number.isFinite(score))continue;
+        // Avoid injecting semantic-only candidates with negligible similarity.
+        // Lexical candidates remain available even when their vector score is low.
+        if(!Number.isFinite(score) || score < 0.2)continue;
         const id=String(row.id);
         semanticScores.set(id,Math.max(-1,Math.min(1,score)));
         if(!rowsById.has(id))rowsById.set(id,row);
@@ -612,7 +642,7 @@ export class AgentMemoryStore {
         throw new Error("外部事实来源必须引用当前 Workspace 已保存的 tool 证据："+sourceRef);
       let parsed:URL;
       try{parsed=new URL(item.url);}catch{throw new Error("外部事实来源 URL 无效。");}
-      const hostname=parsed.hostname.toLowerCase().replace(/^www\./,"");
+      const hostname=normalizeSourceHostname(parsed.hostname);
       const isIp=/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)||hostname.includes(":");
       const sensitiveQueryKey=[...parsed.searchParams.keys()].some(key=>
         /(^|[-_])(token|access[_-]?token|api[_-]?key|key|credential|secret|signature|sig|auth|authorization|session|password|code|jwt|rlkey)([-_]|$)/i.test(key)
@@ -621,7 +651,7 @@ export class AgentMemoryStore {
         hostname==="localhost"||hostname.endsWith(".local")||hostname.endsWith(".internal")||hostname.endsWith(".intranet")||hostname.endsWith(".test")||hostname.endsWith(".example")||!hostname.includes("."))
         throw new Error("外部事实来源必须是公开 HTTPS 域名，不能使用本机地址、内网主机或带访问令牌的签名 URL。");
       const sourceContent=source.content.toLowerCase();
-      if(!sourceContent.includes(parsed.hostname.toLowerCase())&&!sourceContent.includes(parsed.toString().toLowerCase()))
+      if(!sourceContent.includes(hostname)&&!sourceContent.includes(parsed.toString().toLowerCase()))
         throw new Error("来源 URL 的域名没有出现在对应的工具证据中，不能仅凭模型提供的链接登记来源。");
       const publisher=redactSecrets(item.publisher.trim(),160);
       if(!publisher)throw new Error("来源发布机构或网站名称不能为空。");
@@ -633,7 +663,7 @@ export class AgentMemoryStore {
       seenRefs.add(sourceRef);seenUrls.add(parsed.toString().toLowerCase());
     }
     if(sources.length>20)throw new Error("单条 Note 最多保存 20 个外部来源。");
-    const domains=new Set(sources.map(source=>source.domain));
+    const domains=new Set(sources.map(source=>sourceRegistrableDomain(source.domain)));
     const verification:AgentMemoryExternalVerification={
       status:domains.size>=2?"multi_domain_sources_recorded":"single_domain_sources_recorded",
       sources,recordedAt:Date.now(),note:redactSecrets(input.note.trim(),500),
@@ -668,14 +698,14 @@ export class AgentMemoryStore {
     if(Number(before.version)!==baseVersion)
       throw new Error("Memory Note 版本已变化，请刷新后重新核验来源。");
     const external=parseJson<AgentMemoryExternalVerification|null>(before.external_verification_json,null);
-    const domains=new Set((external?.sources??[]).map(source=>source.domain));
+    const domains=new Set((external?.sources??[]).map(source=>sourceRegistrableDomain(source.domain)));
     if(!external||external.status!=="multi_domain_sources_recorded"||domains.size<2)
       throw new Error("至少记录两个不同 HTTPS 域名的工具来源后，才可以确认人工核验。");
     for(const source of external.sources){
       const stored=this.getSourceById(source.sourceRef,scope);
       if(!stored||stored.kind!=="tool")
         throw new Error("来源工具证据已不可用，不能确认外部事实。");
-      const host=new URL(source.url).hostname.toLowerCase();
+      const host=normalizeSourceHostname(new URL(source.url).hostname);
       if(!stored.content.toLowerCase().includes(host))
         throw new Error("来源 URL 与原始工具证据不一致，不能确认外部事实。");
     }
