@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Typography } from "antd";
 import { Graph, NodeEvent } from "@antv/g6";
+import { normalizeKnowledgeGraphData } from "../graph-validation";
 
 export interface KnowledgeGraphProps {
   nodes: unknown;
@@ -14,46 +15,6 @@ export interface KnowledgeGraphProps {
   onNodeSelect?: () => void;
 }
 
-interface GraphData {
-  nodes: Array<{ id: string; [key: string]: unknown }>;
-  edges: Array<{ id: string; source: string; target: string; [key: string]: unknown }>;
-}
-
-function normaliseGraphData(nodes: unknown, edges: unknown): GraphData | null {
-  const nodeList = Array.isArray(nodes) ? nodes : isRecord(nodes) && Array.isArray(nodes.nodes) ? nodes.nodes : null;
-  const edgeList = Array.isArray(edges) ? edges : isRecord(nodes) && Array.isArray(nodes.edges) ? nodes.edges : [];
-  if (!nodeList || nodeList.length > 5_000 || edgeList.length > 15_000) return null;
-  let serialized = "";
-  try { serialized = JSON.stringify({ nodeList, edgeList }); } catch { return null; }
-  if (serialized.length > 1_000_000) return null;
-
-  const normalizedNodes: GraphData["nodes"] = nodeList.filter(isRecord).map((node, index) => {
-    const data = isRecord(node.data) ? node.data : {};
-    const rawLabel = typeof node.label === "string" ? node.label : data.label;
-    const label = typeof rawLabel === "string" ? rawLabel.slice(0, 160) : String(node.id ?? "Node " + (index + 1)).slice(0, 160);
-    return {
-      id: String(node.id ?? "node-" + index).slice(0, 120),
-      label,
-      data: { label },
-    };
-  });
-
-  const nodeIds = new Set(normalizedNodes.map(node => node.id));
-  if (nodeIds.size !== normalizedNodes.length) return null;
-
-  const normalizedEdges: GraphData["edges"] = edgeList.filter(isRecord).map((edge, index) => ({
-    id: String(edge.id ?? "edge-" + index).slice(0, 120),
-    source: String(edge.source ?? "").slice(0, 120),
-    target: String(edge.target ?? "").slice(0, 120),
-    ...(typeof edge.label === "string" ? { label: edge.label.slice(0, 120) } : {}),
-  })).filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
-
-  return { nodes: normalizedNodes, edges: normalizedEdges };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 export default function KnowledgeGraph({
   nodes, edges, layout = "force", title, height = 420, interactive = true,
@@ -65,7 +26,7 @@ export default function KnowledgeGraph({
   const [renderError, setRenderError] = useState<string | null>(null);
   const callbacks = useRef({ setSelectedNodeId, onNodeSelect });
   callbacks.current = { setSelectedNodeId, onNodeSelect };
-  const data = useMemo(() => normaliseGraphData(nodes, edges), [nodes, edges]);
+  const data = useMemo(() => normalizeKnowledgeGraphData(nodes, edges), [nodes, edges]);
 
   useEffect(() => {
     const container = host.current;
