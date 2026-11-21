@@ -368,7 +368,7 @@ export class AgentMemoryStore {
           "WHERE n.scope_key IN ("+placeholders+") AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) AND memory_notes_fts MATCH ? "+
           "ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END,"+
           "CASE WHEN lower(n.title)=? THEN 0 WHEN lower(n.title) LIKE ? THEN 1 WHEN lower(n.content) LIKE ? THEN 2 ELSE 3 END,"+
-          "n.pinned DESC,n.importance DESC,CASE n.validation WHEN 'validated' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END,"+
+          "n.pinned DESC,n.importance DESC,CASE WHEN n.validation='validated' AND n.validation_evidence_json IS NOT NULL THEN 0 WHEN n.validation='disputed' THEN 2 ELSE 1 END,"+
           "bm25(memory_notes_fts),n.updated_at DESC LIMIT ?"
         ).all({},...scopeKeys,now,fts,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,safeLimit) as Record<string,unknown>[];
       }catch{rows=[];}
