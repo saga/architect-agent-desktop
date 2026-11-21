@@ -1109,18 +1109,20 @@ function installPermissionHandlers(): void {
 }
 
 function installApplicationMenu(): void {
+  const isMac = process.platform === "darwin";
   const template: MenuItemConstructorOptions[] = [
+    ...(isMac ? [{ role: "appMenu" as const }] : []),
     {
-      label: "File",
+      label: "文件",
       submenu: [
-        { label: "New Tab", accelerator: "CmdOrCtrl+T", click: () => { void createTab(); } },
-        { label: "Close Tab", accelerator: "CmdOrCtrl+W", click: () => { if (activeTabId) closeTab(activeTabId); } },
+        { label: "新建标签页", accelerator: "CmdOrCtrl+T", click: () => { void createTab(); } },
+        { label: "关闭标签页", accelerator: "CmdOrCtrl+W", click: () => { if (activeTabId) closeTab(activeTabId); } },
         { type: "separator" },
         { role: "quit" },
       ],
     },
     {
-      label: "Edit",
+      label: "编辑",
       submenu: [
         { role: "undo" },
         { role: "redo" },
@@ -1132,30 +1134,55 @@ function installApplicationMenu(): void {
       ],
     },
     {
-      label: "View",
+      label: "浏览",
       submenu: [
-        { label: "Reload", accelerator: "CmdOrCtrl+R", click: () => {
+        { label: "后退", accelerator: "Alt+Left", enabled: false, click: () => {
+          const tab = activeTabId ? tabs.get(activeTabId) : undefined;
+          if (tab?.view.webContents.canGoBack()) tab.view.webContents.goBack();
+        } },
+        { label: "前进", accelerator: "Alt+Right", enabled: false, click: () => {
+          const tab = activeTabId ? tabs.get(activeTabId) : undefined;
+          if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward();
+        } },
+        { label: "重新加载", accelerator: "CmdOrCtrl+R", click: () => {
           const tab = activeTabId ? tabs.get(activeTabId) : undefined;
           tab?.view.webContents.reload();
         } },
-        { label: "Find in Page", accelerator: "CmdOrCtrl+F", click: () => mainWindow?.webContents.send("browser:find-requested") },
         { type: "separator" },
-        { label: "Toggle Agent Panel", accelerator: "CmdOrCtrl+Shift+A", click: () => mainWindow?.webContents.send("agent:toggle-panel") },
+        { label: "在页面中查找", accelerator: "CmdOrCtrl+F", click: () => mainWindow?.webContents.send("browser:find-requested") },
+      ],
+    },
+    {
+      label: "视图",
+      submenu: [
+        { label: "显示 / 隐藏 Agent 面板", accelerator: "CmdOrCtrl+Shift+A", click: () => mainWindow?.webContents.send("agent:toggle-panel") },
         { type: "separator" },
         { role: "togglefullscreen" },
       ],
     },
+    {
+      label: "Agent",
+      submenu: [
+        { label: "打开 Session Explorer", accelerator: "CmdOrCtrl+Shift+E", click: () => openSessionExplorerWindow() },
+        { label: "Agent 配置…", accelerator: "CmdOrCtrl+Shift+,", click: () => openAgentSettingsWindow() },
+        { type: "separator" },
+        { label: "显示 / 隐藏 Agent 面板", accelerator: "CmdOrCtrl+Shift+A", click: () => mainWindow?.webContents.send("agent:toggle-panel") },
+      ],
+    },
     { role: "windowMenu" },
     {
-      label: "Help",
+      role: "help",
       submenu: [
-        { label: "About Architect Agent Desktop", click: () => {
+        { label: "Architect Agent Desktop 使用说明", click: () => {
+          void shell.openExternal("https://github.com/saga/architect-agent-desktop");
+        } },
+        { label: "关于 Architect Agent Desktop", click: () => {
           if (mainWindow && !mainWindow.isDestroyed()) {
             void dialog.showMessageBox(mainWindow, {
-              title: "About Architect Agent Desktop",
+              title: "关于 Architect Agent Desktop",
               message: "Architect Agent Desktop",
-              detail: "A cross-platform desktop workspace with a built-in browser.",
-              buttons: ["OK"],
+              detail: "本地运行的 Agent 工作台与内置浏览器。",
+              buttons: ["确定"],
             });
           }
         } },
