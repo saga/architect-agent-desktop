@@ -114,8 +114,12 @@ export default function MemoryManager() {
         after.cursor.createdAt !== before.cursor.createdAt ||
         after.cursor.sessionId !== before.cursor.sessionId ||
         after.cursor.messageId !== before.cursor.messageId;
-      if (cursorMoved || runChanged?.status === "completed") {
-        message.success("Memory Dreaming 已提交，并推进了 Transcript 游标。");
+      if (cursorMoved) {
+        message.success("Transcript Dreaming 已提交，并推进了修订游标。");
+      } else if (runChanged?.status === "completed" && valueOf(runChanged, "purpose") === "quality_review") {
+        message.success("Transcript 无新增内容；长期记忆质量复查已提交。");
+      } else if (runChanged?.status === "completed") {
+        message.success("Memory Dreaming 已完成并提交。");
       } else if (runChanged?.status === "prepared") {
         message.warning("Dreaming 已准备证据，但尚未提交；可在 Runs 中查看并继续处理。");
       } else {
