@@ -111,10 +111,14 @@ function parseJson<T>(value: unknown, fallback: T): T {
 }
 function rollbackComparable(entityType: string, value: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
   if (!value) return null;
-  if (entityType !== "note") return value;
   const snapshot = { ...value };
-  delete snapshot.last_accessed_at;
-  delete snapshot.access_count;
+  if (entityType === "note") {
+    delete snapshot.last_accessed_at;
+    delete snapshot.access_count;
+  }
+  if (entityType === "cursor" && Number(snapshot.transcript_revision ?? 0) === 0) {
+    delete snapshot.transcript_revision;
+  }
   return snapshot;
 }
 function canonicalJson(value: unknown): string {
@@ -588,6 +592,8 @@ export class AgentMemoryStore {
     const scopeKey=normalizeScope(input.scope),run=this.getDreamRun(input.runId,input.scope??null);
     if(!run||run.status!=="prepared")throw new Error("Dreaming Run 不存在或不处于 prepared 状态。");
     if(input.operations.length>MAX_DREAM_OPERATIONS)throw new Error("单次 Dreaming 最多提交 80 项变更。");
+    if(run.purpose==="quality_review"&&input.operations.length===0)
+      throw new Error("质量复查 Run 至少需要复核一条候选 Note；没有可复核候选时请 abandon。");
     const allowedSources=new Set(run.evidence.map(source=>source.sourceId)),summary=redactSecrets(input.summary.trim(),4000);
     if(!summary)throw new Error("Dreaming 必须提供整理摘要。");
     const createdNoteIds:string[]=[],updatedNoteIds:string[]=[],publishedKnowledgeIds:string[]=[];
@@ -607,8 +613,8 @@ export class AgentMemoryStore {
         for(const ref of refs)if(!allowedSources.has(ref))throw new Error("变更引用了当前 Dreaming Run 以外的证据："+ref);
         const reason=redactSecrets(operation.reason.trim(),500);
         if(!reason)throw new Error("每项 Dreaming 变更必须记录整理理由。");
-        if(run.purpose==="quality_review"&&operation.op==="review_note"&&operation.qualityScore===undefined)
-          throw new Error("Quality review must provide a qualityScore from 0 to 1.");
+        if(run.purpose==="quality_review"&&(operation.op!=="review_note"||operation.qualityScore===undefined))
+          throw new Error("Quality review Run only accepts review_note operations with a qualityScore from 0 to 1.");
         if(operation.op==="upsert_note"){
           const result=this.dreamUpsertNote(scopeKey,input.runId,sequence,operation,refs,reason);
           (result.created?createdNoteIds:updatedNoteIds).push(result.id);
@@ -680,7 +686,7 @@ export class AgentMemoryStore {
     const now=Date.now(),after={
       ...before,validation:op.validation,confidence:clamp(op.confidence,0,1),
       quality_score:op.qualityScore===undefined?(before.quality_score??null):clamp(op.qualityScore,0,1),
-      last_quality_reviewed_at:now,
+      last_quality_reviewed_at:op.qualityScore===undefined?(before.last_quality_reviewed_at??null):now,
       source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100)),
       last_verified_at:op.validation==="validated"?now:before.last_verified_at??null,last_dreamed_at:now,updated_at:now,version:Number(before.version)+1,
     };
