@@ -341,6 +341,25 @@ export class CopilotDesktopAgent {
   const index=this.memory.getEmbeddingIndexStatus(scope,"ollama",config.model);
   return {enabled:config.provider==="ollama",provider:config.provider,baseUrl:config.baseUrl,model:config.model,...index};
  }
+ private async indexMemoryNoteEmbedding(noteId:string,scope:string|null) {
+  const config=this.memoryEmbeddingConfig();
+  if(config.provider==="disabled")return {enabled:false,indexed:0,remaining:0,message:"本地语义检索未启用。"};
+  const note=this.memory.getNoteForEmbedding(noteId,scope);
+  if(!note)return {enabled:true,indexed:0,remaining:this.memory.getEmbeddingIndexStatus(scope,"ollama",config.model).missing,warning:"该 Note 已不存在、归档或过期。"};
+  try{
+   const result=await this.localEmbedding.embed(config,"Title: "+note.title+"\n\n"+note.content);
+   const saved=this.memory.upsertEmbedding({
+    noteId:note.id,scope,provider:"ollama",model:config.model,
+    contentHash:note.contentHash,vector:result.vector,
+   });
+   const status=this.memory.getEmbeddingIndexStatus(scope,"ollama",config.model);
+   return {enabled:true,indexed:saved?1:0,remaining:status.missing,total:status.total,model:config.model};
+  }catch(error){
+   return {enabled:true,indexed:0,remaining:this.memory.getEmbeddingIndexStatus(scope,"ollama",config.model).missing,
+    warning:error instanceof Error?error.message:String(error)};
+  }
+ }
+
  async reindexMemoryEmbeddings(scope:string|null,limit=200) {
   const config=this.memoryEmbeddingConfig();
   if(config.provider==="disabled")return {enabled:false,indexed:0,remaining:0,message:"本地语义检索未启用。"};
@@ -556,7 +575,7 @@ export class CopilotDesktopAgent {
     {name:"memory_record_external_sources",description:"为 external_fact Note 记录来源 URL。每个 sourceRef 必须引用本 Workspace 已保存的 tool 证据，且 URL 域名必须出现在该证据内容中；只记录来源，不会自动验证事实或改变 validation 状态。随后要求用户逐一打开并核对来源，再由 Memory Manager 手动确认。",schema:z.object({noteId:z.string().min(1).max(100),baseVersion:z.number().int().min(1),sources:z.array(z.object({sourceRef:z.string().min(1).max(120),url:z.string().url().max(2048),publisher:z.string().min(1).max(160),publishedAt:z.string().max(40).nullable().optional()})).min(1).max(4),note:z.string().max(500)}),handler:({noteId,baseVersion,sources,note}:{noteId:string;baseVersion:number;sources:Array<{sourceRef:string;url:string;publisher:string;publishedAt?:string|null}>;note:string})=>report("Record external fact sources",async()=>JSON.stringify(this.recordExternalMemorySources(this.memoryScope(),{noteId,baseVersion,sources,note})))},
     {name:"memory_embedding_reindex",description:"为当前 Memory scope 中尚无当前版本向量的活动 Note 建立本地 Ollama Embedding 索引。仅访问 localhost Ollama，不上传到远程服务；每次最多处理 500 条。",schema:z.object({limit:z.number().int().min(1).max(500).optional().default(200)}),handler:({limit}:{limit?:number})=>report("Index local memory embeddings",async()=>JSON.stringify(await this.reindexMemoryEmbeddings(this.memoryScope(),limit??200)))},
     {name:"memory_search_history",description:"按关键字检索当前 Workspace 的旧会话 Transcript。",schema:z.object({query:z.string().min(1).max(200),limit:z.number().int().min(1).max(50).optional().default(20)}),handler:({query,limit}:{query:string;limit?:number})=>report("Search Agent history",async()=>JSON.stringify(this.searchTranscriptMessages(this.workspacePath,query,limit??20)))},
-    {name:"memory_save",description:"保存长期有效的工作记忆。scope=workspace 保存当前项目事实/流程；scope=personal 仅保存用户明确要求跨项目记住的通用偏好、工作方式或用户意图，Personal Memory 会注入其他 Workspace。默认 unverified；禁止把项目专有信息、凭据、敏感个人数据或一次性状态写入 Personal Memory。标为 validated 需通过来源证据策略。",schema:z.object({title:z.string().min(1).max(160),content:z.string().min(1).max(12000),scope:z.enum(["workspace","personal"]).optional().default("workspace"),claimType:z.enum(["user_preference","user_intent","decision","project_fact","workflow_pattern","external_fact","unknown"]).optional().default("unknown"),tags:z.array(z.string().max(40)).max(16).optional(),importance:z.number().min(0).max(1).optional().default(0.6),pinned:z.boolean().optional().default(false),expiresAt:z.number().int().positive().nullable().optional()}),handler:({title,content,scope,claimType,tags,importance,pinned,expiresAt}:{title:string;content:string;scope?:"workspace"|"personal";claimType?:MemoryClaimType;tags?:string[];importance?:number;pinned?:boolean;expiresAt?:number|null})=>report("Save memory",async()=>{if(scope==="personal"&&this.workspacePath!==null)throw new Error("为防止项目数据跨 Workspace 泄漏，请切换到 Personal Task 后再保存 Personal Memory。");const memoryScope=scope==="personal"?null:this.memoryScope();const note=this.memory.saveNote({scope:memoryScope,title,content,claimType,tags,importance,pinned,expiresAt,sourceSessionId:this.memorySessionId,sourceTraceId:this.memoryTraceId});const embedding=await this.reindexMemoryEmbeddings(memoryScope,1);return JSON.stringify({note,embedding});})},
+    {name:"memory_save",description:"保存长期有效的工作记忆。scope=workspace 保存当前项目事实/流程；scope=personal 仅保存用户明确要求跨项目记住的通用偏好、工作方式或用户意图，Personal Memory 会注入其他 Workspace。默认 unverified；禁止把项目专有信息、凭据、敏感个人数据或一次性状态写入 Personal Memory。标为 validated 需通过来源证据策略。",schema:z.object({title:z.string().min(1).max(160),content:z.string().min(1).max(12000),scope:z.enum(["workspace","personal"]).optional().default("workspace"),claimType:z.enum(["user_preference","user_intent","decision","project_fact","workflow_pattern","external_fact","unknown"]).optional().default("unknown"),tags:z.array(z.string().max(40)).max(16).optional(),importance:z.number().min(0).max(1).optional().default(0.6),pinned:z.boolean().optional().default(false),expiresAt:z.number().int().positive().nullable().optional()}),handler:({title,content,scope,claimType,tags,importance,pinned,expiresAt}:{title:string;content:string;scope?:"workspace"|"personal";claimType?:MemoryClaimType;tags?:string[];importance?:number;pinned?:boolean;expiresAt?:number|null})=>report("Save memory",async()=>{if(scope==="personal"&&this.workspacePath!==null)throw new Error("为防止项目数据跨 Workspace 泄漏，请切换到 Personal Task 后再保存 Personal Memory。");const memoryScope=scope==="personal"?null:this.memoryScope();const note=this.memory.saveNote({scope:memoryScope,title,content,claimType,tags,importance,pinned,expiresAt,sourceSessionId:this.memorySessionId,sourceTraceId:this.memoryTraceId});const embedding=await this.indexMemoryNoteEmbedding(note.id,memoryScope);return JSON.stringify({note,embedding});})},
     {name:"memory_dreaming_prepare",description:"启动一次可审计的 Memory Dreaming。它会从当前 Workspace 已保存的 Transcript cursor 之后提取新会话证据，去重、脱敏并创建 prepared Run。先读取全部 evidence，再规划 commit；不要跳过准备阶段。",schema:z.object({maxSources:z.number().int().min(1).max(160).optional().default(80)}),handler:({maxSources}:{maxSources?:number})=>report("Prepare Memory Dreaming",async()=>{
       const cursor=this.memory.getDreamCursor(this.memoryScope());
       const sources=this.loadMemorySources(this.workspacePath,cursor,maxSources??100);
