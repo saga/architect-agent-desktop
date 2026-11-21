@@ -2400,6 +2400,42 @@ function registerIpcHandlers(): void {
     recordAgentTrace("turn.cancel.requested", { workspacePath: workspaceProject.path }, "requested");
     return copilotAgent.cancel();
   });
+  ipcMain.handle("agent:a2ui-message", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后提交新的 Agent 请求。");
+    const parsed = z.object({
+      taskId: z.string().min(1).max(100),
+      message: z.unknown(),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid A2UI renderer message.");
+    if (Buffer.byteLength(JSON.stringify(parsed.data.message), "utf8") > 32 * 1024) {
+      throw new Error("A2UI renderer message exceeds the 32 KiB limit.");
+    }
+    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+      throw new Error("Agent 正在处理其他请求或切换 Task，请稍后重试。");
+    }
+    agentRequestPending = true;
+    try {
+      const task = taskForId(parsed.data.taskId);
+      if (activeAgentTaskId !== task.id) await activateAgentTask(task.id);
+      const history = loadAgentSession(task.id)
+        .filter(item => (item.kind === "user" || item.kind === "assistant") && item.content.trim())
+        .slice(-20)
+        .map(item => ({ role: item.kind as "user" | "assistant", content: item.content.slice(0, 12_000) }));
+      const traceId = randomUUID();
+      activeAgentTraceId = traceId;
+      copilotAgent.setMemoryContext(task.sessionId, traceId);
+      recordTaskTrace(task, "a2ui.renderer.action", { message: parsed.data.message }, "received");
+      await copilotAgent.handleA2UIRendererMessage(parsed.data.message, history);
+      task.updatedAt = Date.now();
+      persistAgentTasks();
+      publishAgentWorkspaceSnapshot();
+    } finally {
+      activeAgentTraceId = null;
+      agentRequestPending = false;
+    }
+  });
+
   ipcMain.handle("agent:load-session", (event, input?: unknown) => {
     assertTrustedSender(event);
     const taskId = input === undefined ? activeAgentTaskId : z.string().min(1).max(100).parse(input);
