@@ -65,6 +65,22 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("reads historical source evidence only within its Workspace", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const run = store.prepareDreaming("/workspace/source-read", [{
+      sessionId: "session-source",
+      messageId: "message-source",
+      kind: "user",
+      content: "The source transcript confirms the project naming convention.",
+      createdAt: Date.now(),
+    }]);
+    const source = run!.evidence[0]!;
+    expect(store.getSourceById(source.sourceId, "/workspace/source-read")).toEqual(source);
+    expect(store.getSourceById(source.sourceId, "/workspace/other")).toBeNull();
+    store.abandonDreaming("/workspace/source-read", run!.id, "test complete");
+    store.close();
+  });
+
   it("supports Chinese fallback search and preserves disputed notes as disputed", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const note = store.saveNote({
