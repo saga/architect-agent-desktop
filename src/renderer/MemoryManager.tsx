@@ -286,8 +286,9 @@ export default function MemoryManager() {
 
   const noteColumns = [
     { title: "Note", key: "note", render: (_: unknown, note: AgentMemoryNoteView) => <div>
-      <Space wrap><Text strong>{note.title}</Text><Tag color={statusColor(note.validation)}>{note.validation}</Tag>{note.pinned && <Tag color="gold">Pinned</Tag>}{note.status !== "active" && <Tag>{note.status}</Tag>}</Space>
+      <Space wrap><Text strong>{note.title}</Text><Tag color={statusColor(note.validation)}>{note.validation}</Tag><Tag>{({ user_preference: "用户偏好", user_intent: "用户意图", decision: "决策", project_fact: "项目事实", workflow_pattern: "工作模式", external_fact: "外部事实", unknown: "未分类" } as Record<string, string>)[note.claimType] ?? "未分类"}</Tag>{note.pinned && <Tag color="gold">Pinned</Tag>}{note.status !== "active" && <Tag>{note.status}</Tag>}</Space>
       <Paragraph ellipsis={{ rows: 2, expandable: true, symbol: "展开" }} style={{ margin: "4px 0 0" }}>{note.content}</Paragraph>
+      {note.validationEvidence && <Text type="secondary" style={{ fontSize: 11 }}>验证依据：{note.validationEvidence.independentSessions} 个独立会话 · {note.validationEvidence.directUserSources} 条用户陈述 · {note.validationEvidence.toolObservations} 条工具观察；{note.validationEvidence.reason}</Text>}
       <Space wrap size={4}>{note.tags.map(tag => <Tag key={tag}>{tag}</Tag>)}</Space>
     </div> },
     { title: "重要度", key: "importance", width: 92, render: (_: unknown, note: AgentMemoryNoteView) => Math.round(note.importance * 100) + "%" },
