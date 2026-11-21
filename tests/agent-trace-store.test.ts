@@ -173,4 +173,37 @@ private-material
     expect(previous.query({ traceId: "trace-c" })).toHaveLength(1);
     previous.close();
   });
+  it("returns ordered, non-empty interaction transcript evidence in stable batches", () => {
+    const store = new AgentTraceStore(temporaryDirectory());
+    store.saveSessionItems("session-evidence", "/workspace/evidence", [
+      { id: "message-a", kind: "user", content: "请查看图表中的高集中度发行人。", createdAt: 1000 },
+      { id: "interaction-b", kind: "interaction", content: "{\"action\":\"select\",\"issuer\":\"ACME\"}", createdAt: 1000 },
+      { id: "message-c", kind: "assistant", content: "该发行人权重为 18%。", createdAt: 1000 },
+      { id: "empty-d", kind: "assistant", content: "   ", createdAt: 1001 },
+      { id: "surface-e", kind: "a2ui-v1", content: "[{\"version\":\"1.0\"}]", createdAt: 1002 },
+    ]);
+
+    const cursor = { createdAt: 0, sessionId: "", messageId: "" };
+    const first = store.listMemorySources("/workspace/evidence", cursor, 1);
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ messageId: "message-a", kind: "user" });
+
+    const second = store.listMemorySources("/workspace/evidence", {
+      createdAt: first[0]!.createdAt,
+      sessionId: first[0]!.sessionId,
+      messageId: first[0]!.messageId,
+    }, 1);
+    expect(second).toHaveLength(1);
+    expect(second[0]).toMatchObject({ messageId: "interaction-b", kind: "interaction" });
+
+    const remaining = store.listMemorySources("/workspace/evidence", {
+      createdAt: second[0]!.createdAt,
+      sessionId: second[0]!.sessionId,
+      messageId: second[0]!.messageId,
+    }, 10);
+    expect(remaining.map(item => item.messageId)).toEqual(["message-c"]);
+    expect(remaining.some(item => item.messageId === "empty-d" || item.messageId === "surface-e")).toBe(false);
+    store.close();
+  });
+
 });
