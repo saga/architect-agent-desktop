@@ -98,7 +98,9 @@ describe("AgentMemoryStore", () => {
     });
 
     expect(store.search("/workspace/portfolio-a", "architecture review preference").map(note => note.id)).toContain(personalNote.id);
-    expect(store.search("/workspace/portfolio-b", "architecture review preference").map(note => note.id)).toContain(personalNote.id);
+    const personalSearchResult=store.search("/workspace/portfolio-b", "architecture review preference").find(note => note.id===personalNote.id);
+    expect(personalSearchResult).toBeDefined();
+    expect(personalSearchResult?.sourceRefs).toHaveLength(0);
     expect(store.search("/workspace/portfolio-b", "confidential internal valuation convention")).toHaveLength(0);
     const contextA = store.getInjectedContext("/workspace/portfolio-a");
     const contextB = store.getInjectedContext("/workspace/portfolio-b");
@@ -106,6 +108,7 @@ describe("AgentMemoryStore", () => {
     expect(contextA).toContain("Portfolio A private convention");
     expect(contextB).toContain("Architecture review preference");
     expect(contextB).not.toContain("Portfolio A private convention");
+    expect(contextB).not.toContain(personalSource.sourceId);
     expect(store.getSourceById(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
     expect(store.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
     expect(store.getAgentAccessibleSource(personalSource.sourceId, null)).toEqual(personalSource);
