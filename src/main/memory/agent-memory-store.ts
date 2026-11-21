@@ -803,7 +803,7 @@ export class AgentMemoryStore {
       b.lastAccessedAt-a.lastAccessedAt||b.updatedAt-a.updatedAt);
     for(const note of selected){
       const marker=note.validation==="validated"?"validated":note.validation==="disputed"?"disputed":"unverified";
-      const excerpt=note.content.replace(/\\s+/g," ").slice(0,note.pinned?260:180);
+      const excerpt=note.content.replace(/\s+/g," ").slice(0,note.pinned?260:180);
       const line="- ["+marker+(note.pinned?", pinned":"")+", v"+note.version+", importance "+note.importance.toFixed(2)+"] "+
         note.title+" (id: "+note.id+"): "+excerpt+(note.sourceRefs.length?" {sources: "+note.sourceRefs.slice(-3).join(", ")+"}":"");
       if(noteLength+line.length+1>noteBudget){omittedNotes++;continue;}
@@ -816,13 +816,13 @@ export class AgentMemoryStore {
       const heading="## Knowledge Page Index";
       if(used+heading.length+1<=budget){lines.push(heading);used+=heading.length+1;}
       for(const item of representations){
-        const line="- "+item.title+" ["+item.slug+", v"+item.version+"]: "+item.content.replace(/\\s+/g," ").slice(0,120)+
+        const line="- "+item.title+" ["+item.slug+", v"+item.version+"]: "+item.content.replace(/\s+/g," ").slice(0,120)+
           " {source Notes: "+item.sourceNoteIds.slice(0,8).join(", ")+"}";
         if(used+line.length+1>budget-60)break;
         lines.push(line);used+=line.length+1;
       }
     }
-    return lines.join("\\n");
+    return lines.join("\n");
   }
 
   close():void{this.database.close();}
