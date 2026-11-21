@@ -469,6 +469,55 @@ describe("AgentMemoryStore", () => {
     store.abandonDreaming("/workspace/tie", second!.id, "验证同时间戳游标");
     store.close();
   });
+  it("reprocesses an old message when a higher Transcript revision arrives", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const createdAt = Date.now() - 90_000;
+    const first = store.prepareDreaming("/workspace/revision-aware", [{
+      sessionId: "session-revision",
+      messageId: "old-message",
+      kind: "user",
+      content: "The earlier assumption was that the portfolio base currency is USD.",
+      createdAt,
+      revision: 10,
+      changeType: "created",
+    }]);
+    store.commitDreaming({
+      scope: "/workspace/revision-aware",
+      runId: first!.id,
+      summary: "Capture the initial transcript revision.",
+      operations: [],
+    });
+    expect(store.getDreamCursor("/workspace/revision-aware").transcriptRevision).toBe(10);
+
+    const revised = store.prepareDreaming("/workspace/revision-aware", [{
+      sessionId: "session-revision",
+      messageId: "old-message",
+      kind: "user",
+      content: "Correction: the approved portfolio base currency is EUR, not USD.",
+      createdAt,
+      revision: 11,
+      changeType: "updated",
+    }]);
+    expect(revised?.evidence).toHaveLength(1);
+    expect(revised?.evidence[0]?.createdAt).toBe(createdAt);
+    expect(revised?.evidence[0]?.content).toContain("EUR, not USD");
+    store.commitDreaming({
+      scope: "/workspace/revision-aware",
+      runId: revised!.id,
+      summary: "Re-evaluate a historical message that changed after the earlier Dreaming run.",
+      operations: [{
+        op: "upsert_note",
+        title: "Portfolio base currency",
+        content: "The approved portfolio base currency is EUR.",
+        sourceRefs: [revised!.evidence[0]!.sourceId],
+        reason: "A later revision explicitly corrected the old assumption.",
+      }],
+    });
+    expect(store.getDreamCursor("/workspace/revision-aware").transcriptRevision).toBe(11);
+    expect(store.search("/workspace/revision-aware", "approved portfolio base currency")[0]?.content).toContain("EUR");
+    store.close();
+  });
+
   it("advances the cursor for a reviewed batch with no durable memory changes", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const createdAt = Date.now();
