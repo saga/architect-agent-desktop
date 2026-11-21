@@ -399,17 +399,17 @@ describe("AgentMemoryStore", () => {
       noteId: note.id, baseVersion: note.version,
       sources: [{ sourceRef: userSource.sourceId, url: "https://regulator.example.gov/notice", publisher: "Regulator" }],
       note: "",
-    })).toThrow(/tool evidence/);
+    })).toThrow(/tool 证据/);
     expect(() => store.recordExternalSources("/workspace/external-source-guard", {
       noteId: note.id, baseVersion: note.version,
       sources: [{ sourceRef: toolSource.sourceId, url: "http://regulator.example.gov/notice", publisher: "Regulator" }],
       note: "",
-    })).toThrow(/public HTTPS/);
+    })).toThrow(/公开 HTTPS/);
     expect(() => store.recordExternalSources("/workspace/external-source-guard", {
       noteId: note.id, baseVersion: note.version,
       sources: [{ sourceRef: toolSource.sourceId, url: "https://127.0.0.1/notice", publisher: "Regulator" }],
       note: "",
-    })).toThrow(/public HTTPS/);
+    })).toThrow(/公开 HTTPS/);
     expect(() => store.recordExternalSources("/workspace/external-source-guard", {
       noteId: note.id, baseVersion: note.version,
       sources: [{ sourceRef: toolSource.sourceId, url: "https://regulator.example.gov/notice?access_token=secret-value", publisher: "Regulator" }],
