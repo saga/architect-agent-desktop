@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, App as AntApp, Button, Dropdown, Popconfirm, Tag, message, Tooltip } from "antd";
 import { FolderOpenOutlined, HistoryOutlined, LinkOutlined, MoreOutlined, PaperClipOutlined, SettingOutlined } from "@ant-design/icons";
 
@@ -8,7 +8,7 @@ import XMarkdown from "@ant-design/x-markdown";
 import { markdownComponents } from "./MarkdownLink";
 import AgentA2UICard from "./components/AgentA2UICard";
 import A2UIV1Canvas from "./a2ui/A2UIV1Canvas";
-import type { RendererToAgentMessage } from "@a2ui/agent";
+import type { RendererToAgentMessage } from "./a2ui/A2UIV1Canvas";
 import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } from "../shared/types";
 
 type ChatItem = AgentSessionItem & { streaming?: boolean };
