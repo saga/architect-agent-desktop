@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Card, Collapse, Empty, Progress, Space, Tag, Typography } from "antd";
-import type { AgentTraceEventLike } from "./context-explorer/model";
+import type { AgentTraceEventLike } from "./context-explorer/agent-trace-adapter";
 import { projectAgentTrajectory, type TrajectoryRow, type TrajectoryRowKind, type TrajectoryTurn } from "./trajectory-projector";
 
 const { Text, Paragraph } = Typography;
