@@ -161,7 +161,7 @@ export default function MemoryManager() {
     setRunning(true);
     try {
       await window.browser.copilotSend(
-        "请只执行当前 Workspace 的长期记忆质量复查，不要读取或推进 Transcript 游标。调用 memory_quality_review_prepare；若 up_to_date 则报告没有到期候选。若创建 prepared Run，调用 memory_quality_review_list，检查每条 Note 的 sourceRefs，并通过 memory_read_source 读取原始证据；必要时用 memory_search_history 查找完整 Transcript。对每条 Note 按来源可靠性、直接性、内容清晰度、当前有效性和交叉印证给出 0–1 的 qualityScore。用 review_note 提交当前 baseVersion、当前 Run 的 sourceRefs、confidence 和 qualityScore；证据不足保持 unverified，存在冲突标 disputed，不能仅凭旧 validation 状态自我验证。提交 memory_dreaming_commit 后读取 Run 审计。质量复查不能推进 Transcript cursor。",
+        "请只执行当前 Workspace 的长期记忆质量复查，不要读取或推进 Transcript 游标。调用 memory_quality_review_prepare；若 up_to_date 则报告没有到期候选。若创建 prepared Run，调用 memory_quality_review_list({runId})，只处理返回的候选 Note；通过 memory_read_source 读取其历史来源，必要时用 memory_search_history 查找完整 Transcript。对每条 Note 按来源可靠性、直接性、内容清晰度、当前有效性和交叉印证给出 0–1 的 qualityScore。用 review_note 提交当前 baseVersion、该候选的 qualityReviewSourceRefs、confidence 和 qualityScore；证据不足保持 unverified，存在冲突标 disputed，不能仅凭旧 validation 状态自我验证。提交 memory_dreaming_commit 后读取 Run 审计。质量复查不能推进 Transcript cursor。",
         [],
         taskId,
       );
