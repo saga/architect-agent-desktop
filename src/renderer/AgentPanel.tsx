@@ -207,6 +207,17 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
           }
           return next;
         });
+        if (event.type === "interaction" && event.text) {
+          setItems((current) => {
+            if (event.interactionId && current.some(item => item.id === event.interactionId)) return current;
+            return [...current, {
+              id: event.interactionId ?? crypto.randomUUID(),
+              kind: "interaction",
+              content: event.text ?? "",
+              createdAt: event.timestamp ?? Date.now(),
+            }];
+          });
+        }
         if (event.type === "a2ui" && event.text) {
           setItems((current) => [...current, { id: crypto.randomUUID(), kind: "a2ui", content: event.text ?? "", createdAt: Date.now() }]);
         }
@@ -408,7 +419,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       chain = [];
     };
     for (const item of items) {
-      if (item.kind === "a2ui-v1") continue;
+      if (item.kind === "a2ui-v1" || item.kind === "interaction") continue;
       if (item.kind === "tool") { chain.push(item); continue; }
       flushChain();
       result.push({
