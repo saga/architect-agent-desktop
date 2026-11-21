@@ -398,6 +398,36 @@ export class AgentMemoryStore {
     };
   }
 
+  listNotes(scope:string|null,includeArchived=false,limit=100):AgentMemoryNote[]{
+    const rows=this.database.prepare(
+      "SELECT * FROM memory_notes WHERE scope_key=? AND (?=1 OR status='active') "+
+      "ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'superseded' THEN 1 ELSE 2 END,pinned DESC,importance DESC,updated_at DESC LIMIT ?"
+    ).all({},normalizeScope(scope),includeArchived?1:0,Math.max(1,Math.min(Math.floor(limit),200))) as Record<string,unknown>[];
+    return rows.map(row=>this.toNote(row));
+  }
+
+  listRelationships(scope:string|null,noteIds:string[]=[],limit=100):Array<Record<string,unknown>>{
+    const key=normalizeScope(scope),ids=safeIds(noteIds,100);
+    if(!ids.length){
+      return this.database.prepare(
+        "SELECT * FROM memory_relationships WHERE scope_key=? ORDER BY created_at DESC LIMIT ?"
+      ).all({},key,Math.max(1,Math.min(Math.floor(limit),200))) as Array<Record<string,unknown>>;
+    }
+    const placeholders=ids.map(()=>"?").join(",");
+    return this.database.prepare(
+      "SELECT * FROM memory_relationships WHERE scope_key=? AND (source_note_id IN ("+placeholders+") OR target_note_id IN ("+placeholders+")) ORDER BY created_at DESC LIMIT ?"
+    ).all({},key,...ids,...ids,Math.max(1,Math.min(Math.floor(limit),200))) as Array<Record<string,unknown>>;
+  }
+
+  getDreamOperations(runId:string,scope:string|null):Array<Record<string,unknown>>{
+    const run=this.database.prepare("SELECT id FROM memory_dream_runs WHERE id=? AND scope_key=?").get({},runId,normalizeScope(scope));
+    if(!run)throw new Error("当前 Workspace 中不存在该 Dreaming Run。");
+    return this.database.prepare(
+      "SELECT sequence,entity_type AS entityType,entity_id AS entityId,operation,before_json AS before,after_json AS after,reason,created_at AS createdAt "+
+      "FROM memory_dream_operations WHERE run_id=? ORDER BY sequence"
+    ).all({},runId) as Array<Record<string,unknown>>;
+  }
+
   listDreamRuns(scope:string|null,limit=10):Array<Record<string,unknown>>{
     return this.database.prepare(
       "SELECT id,status,summary,source_count,max_source_created_at,created_at,started_at,completed_at,operation_count,rollback_reason "+
@@ -515,7 +545,7 @@ export class AgentMemoryStore {
       source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100))};
     this.replaceNoteSnapshot(op.id,after);
     this.recordEntityChange(runId,sequence,"note",op.id,before,this.getNoteRow(op.id,scopeKey),"supersede_note",reason);
-    this.insertRelationship(runId,sequence,scopeKey,op.id,op.replacementId,"supersedes",reason,refs);
+    this.insertRelationship(runId,sequence+1000,scopeKey,op.id,op.replacementId,"supersedes",reason,refs);
   }
 
   private dreamLinkNotes(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"link_notes"}>,refs:string[],reason:string):void{
