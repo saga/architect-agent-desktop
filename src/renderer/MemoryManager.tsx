@@ -327,7 +327,7 @@ export default function MemoryManager() {
       {note.externalVerification && <div style={{ marginTop: 6 }}>
         <Space wrap size={4}>
           <Tag color={note.validation === "validated" ? "success" : note.externalVerification.status === "multi_domain_sources_recorded" ? "processing" : "warning"}>
-            {note.validation === "validated" ? "人工确认已核对来源" : note.externalVerification.status === "multi_domain_sources_recorded" ? "已记录多个来源域名 · 待人工核对" : "仅记录单一来源域名"}
+            {note.validation === "validated" ? "人工确认已核对来源" : note.validation === "disputed" ? "存在争议 · 不可直接确认" : note.externalVerification.status === "multi_domain_sources_recorded" ? "已记录多个来源域名 · 待人工核对" : "仅记录单一来源域名"}
           </Tag>
           {note.externalVerification.sources.map(source => <Tag key={source.sourceRef}>
             <Button type="link" size="small" style={{ padding: 0, height: "auto" }}
@@ -352,7 +352,7 @@ export default function MemoryManager() {
       title: "操作", key: "actions", width: 230,
       render: (_: unknown, note: AgentMemoryNoteView) => note.status === "active" ? <Space size={4} wrap>
         <Button type="link" size="small" onClick={() => void togglePinned(note)}>{note.pinned ? "取消置顶" : "置顶"}</Button>
-        {note.claimType === "external_fact" && note.validation !== "validated" &&
+        {note.claimType === "external_fact" && note.validation === "unverified" &&
           note.externalVerification?.status === "multi_domain_sources_recorded" &&
           <Popconfirm
             title="确认已逐一打开并核对全部来源？"
