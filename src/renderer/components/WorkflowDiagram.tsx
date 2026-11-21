@@ -101,7 +101,12 @@ export default function WorkflowDiagram({ graphData, title, height = 440, editab
   return <section className="agent-workflow-diagram" style={{ width: "100%", minWidth: 0 }}>
     <Space style={{ width: "100%", justifyContent: "space-between", marginBottom: 8 }}>
       {title ? <Typography.Title level={5} style={{ margin: 0 }}>{title}</Typography.Title> : <span />}
-      {editable && <Button size="small" onClick={() => onSave?.(graph.current?.toJSON() as unknown as Record<string, unknown>)}>保存图</Button>}
+      {editable && <Button size="small" onClick={() => {
+        const current = graph.current?.toJSON() as unknown;
+        const safe = validateGraphJson(current);
+        if (safe) onSave?.(safe);
+        else setRenderError("编辑后的图数据未通过安全校验，未提交给 Agent。");
+      }}>保存图</Button>}
     </Space>
     <div ref={host} role="img" aria-label={title || "流程图"} style={{ height: safeHeight, width: "100%", minWidth: 0, border: "1px solid var(--ant-color-border-secondary)", borderRadius: 8, overflow: "hidden" }} />
   </section>;
