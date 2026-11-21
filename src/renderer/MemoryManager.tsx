@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert, Button, Card, Collapse, Descriptions, Empty, List, Modal, Popconfirm,
+  Alert, Button, Card, Collapse, Descriptions, Divider, Empty, List, Modal, Popconfirm,
   Select, Space, Spin, Statistic, Table, Tabs, Tag, Typography, message,
 } from "antd";
 import {
   AgentMemoryDreamRunDetail, AgentMemoryNoteView, AgentMemorySnapshot,
-  AgentTask, AgentWorkspaceSnapshot,
+  AgentTask,
 } from "../shared/types";
 
 const { Text, Paragraph } = Typography;
