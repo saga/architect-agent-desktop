@@ -46,7 +46,7 @@ export class AgentMemoryStore {
     mkdirSync(path.dirname(databasePath), { recursive: true });
     this.database = new DatabaseSync(databasePath);
     this.database.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
-    this.database.exec(\`
+    this.database.exec(`
       CREATE TABLE IF NOT EXISTS memory_notes (
         id TEXT PRIMARY KEY,
         scope_key TEXT NOT NULL,
@@ -83,14 +83,14 @@ export class AgentMemoryStore {
         source_count INTEGER NOT NULL,
         created_at INTEGER NOT NULL
       );
-    \`);
+    `);
     try {
-      this.database.exec(\`
+      this.database.exec(`
         CREATE VIRTUAL TABLE IF NOT EXISTS memory_notes_fts USING fts5(
           id UNINDEXED, scope_key UNINDEXED, title, content, tags
         );
-      \`);
-      this.database.exec(\`
+      `);
+      this.database.exec(`
         CREATE TRIGGER IF NOT EXISTS memory_notes_ai AFTER INSERT ON memory_notes BEGIN
           INSERT INTO memory_notes_fts(id, scope_key, title, content, tags)
           VALUES (new.id, new.scope_key, new.title, new.content, new.tags_json);
@@ -103,7 +103,7 @@ export class AgentMemoryStore {
         CREATE TRIGGER IF NOT EXISTS memory_notes_ad AFTER DELETE ON memory_notes BEGIN
           DELETE FROM memory_notes_fts WHERE id = old.id;
         END;
-      \`);
+      `);
     } catch {
       // LIKE search remains available on SQLite builds without FTS5.
     }
@@ -129,7 +129,7 @@ export class AgentMemoryStore {
     const tags = safeTags(input.tags);
     const validation: MemoryValidation = input.validation === "validated" || input.validation === "disputed" ? input.validation : "unverified";
     const confidence = Math.max(0, Math.min(1, Number.isFinite(input.confidence) ? Number(input.confidence) : 0.5));
-    this.database.prepare(\`
+    this.database.prepare(`
       INSERT INTO memory_notes (
         id, scope_key, title, content, tags_json, validation, confidence, pinned, status,
         source_session_id, source_trace_id, created_at, updated_at
@@ -139,7 +139,7 @@ export class AgentMemoryStore {
         tags_json=excluded.tags_json, validation=excluded.validation, confidence=excluded.confidence,
         pinned=excluded.pinned, status='active', source_session_id=excluded.source_session_id,
         source_trace_id=excluded.source_trace_id, updated_at=excluded.updated_at
-    \`).run(
+    `).run(
       id, normalizeScope(input.scope), title, content, JSON.stringify(tags), validation,
       confidence, input.pinned ? 1 : 0, input.sourceSessionId ?? null,
       input.sourceTraceId ?? null, now, now,
@@ -161,20 +161,20 @@ export class AgentMemoryStore {
     let rows: Record<string, unknown>[] = [];
     try {
       const fts = term.split(/\s+/).filter(Boolean).map(token => '"' + token.replace(/"/g, '""') + '"').join(" AND ");
-      rows = this.database.prepare(\`
+      rows = this.database.prepare(`
         SELECT n.* FROM memory_notes n
-        JOIN memory_notes_fts f ON f.id = n.id
+        JOIN memory_notes_fts ON memory_notes_fts.id = n.id
         WHERE n.scope_key = ? AND n.status = 'active' AND memory_notes_fts MATCH ?
         ORDER BY n.pinned DESC, bm25(memory_notes_fts), n.updated_at DESC
         LIMIT ?
-      \`).all(key, fts, Math.max(1, Math.min(limit, 30))) as Record<string, unknown>[];
+      `).all(key, fts, Math.max(1, Math.min(limit, 30))) as Record<string, unknown>[];
     } catch {
       const like = "%" + term.replace(/[%_]/g, "") + "%";
-      rows = this.database.prepare(\`
+      rows = this.database.prepare(`
         SELECT * FROM memory_notes
         WHERE scope_key = ? AND status = 'active' AND (title LIKE ? OR content LIKE ? OR tags_json LIKE ?)
         ORDER BY pinned DESC, updated_at DESC LIMIT ?
-      \`).all(key, like, like, like, Math.max(1, Math.min(limit, 30))) as Record<string, unknown>[];
+      `).all(key, like, like, like, Math.max(1, Math.min(limit, 30))) as Record<string, unknown>[];
     }
     const now = Date.now();
     const touch = this.database.prepare("UPDATE memory_notes SET last_accessed_at=?, access_count=access_count+1 WHERE id=?");
@@ -183,11 +183,11 @@ export class AgentMemoryStore {
   }
 
   list(scope: string | null, limit = 30): AgentMemoryNote[] {
-    const rows = this.database.prepare(\`
+    const rows = this.database.prepare(`
       SELECT * FROM memory_notes
       WHERE scope_key = ? AND status = 'active'
       ORDER BY pinned DESC, updated_at DESC LIMIT ?
-    \`).all(normalizeScope(scope), Math.max(1, Math.min(limit, 50))) as Record<string, unknown>[];
+    `).all(normalizeScope(scope), Math.max(1, Math.min(limit, 50))) as Record<string, unknown>[];
     return rows.map(row => this.toNote(row));
   }
 
@@ -227,13 +227,13 @@ export class AgentMemoryStore {
     const now = Date.now();
     const scopeKey = normalizeScope(input.scope);
     const id = createHash("sha256").update(scopeKey + ":" + slug).digest("hex").slice(0, 32);
-    this.database.prepare(\`
+    this.database.prepare(`
       INSERT INTO memory_representations(id, scope_key, slug, title, content, source_note_ids_json, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(scope_key, slug) DO UPDATE SET
         title=excluded.title, content=excluded.content,
         source_note_ids_json=excluded.source_note_ids_json, updated_at=excluded.updated_at
-    \`).run(id, scopeKey, slug, title, content, JSON.stringify(ids), now);
+    `).run(id, scopeKey, slug, title, content, JSON.stringify(ids), now);
     return { id, slug, title, content, sourceNoteIds: ids, updatedAt: now };
   }
 
