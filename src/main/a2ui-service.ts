@@ -42,6 +42,15 @@ export class AgentA2UIService {
   private readonly generator = new A2uiGenerator([new CatalogConfig(this.catalog)]);
   private readonly states = new Map<string, RendererState>();
 
+  promptSnippet(sessionId: string): string {
+    const processor = this.generator.createProcessor(
+      { "1.0": { supportedCatalogIds: [FINANCE_A2UI_CATALOG_ID] } },
+      undefined,
+      { state: this.stateFor(sessionId) },
+    );
+    return processor.promptSnippet;
+  }
+
   createTurn(sessionId: string): A2UITurn {
     const state = this.stateFor(sessionId);
     const processor = this.generator.createProcessor(
