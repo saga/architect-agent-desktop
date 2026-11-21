@@ -4,7 +4,9 @@ export interface KnowledgeGraphData {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function graphId(value: unknown, fallback: string): string | null {
@@ -53,7 +55,8 @@ export function normalizeKnowledgeGraphData(nodes: unknown, edges?: unknown): Kn
 }
 
 function containsUnsafeWorkflowValue(value: unknown, depth = 0): boolean {
-  if (depth > 10) return true;
+  if (depth > 10 || typeof value === "function" || typeof value === "symbol" ||
+      typeof value === "bigint" || value === undefined) return true;
   if (typeof value === "string") {
     return /javascript:|data:text\/html|url\s*\(|<script\b|<foreignObject\b/i.test(value);
   }
