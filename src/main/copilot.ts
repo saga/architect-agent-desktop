@@ -16,7 +16,6 @@ import { listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, writeWorks
 import { parseDocumentFile } from "./documents/document-service.js";
 import { DuckDbAnalyticsService } from "./analytics/duckdb-service.js";
 import { AgentMemoryStore, type MemoryDreamOperation, type MemorySourceEvidence, type MemoryDreamCursor } from "./memory/agent-memory-store.js";
-import { validateAgentA2UICommands } from "../shared/a2ui.js";
 
 export * from "./agent-runtime.js";
 
@@ -274,6 +273,7 @@ interface A2UITurn {
   parse(content: string): A2UIPart[];
 }
 interface A2UIServiceContract {
+  reset(sessionId: string): void;
   promptSnippet(sessionId: string): string;
   createTurn(sessionId: string): A2UITurn;
   validateRendererMessage(message: unknown, sessionId: string): Promise<{ handled: boolean; replies: unknown[] }>;
