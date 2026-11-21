@@ -39,7 +39,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-export default function KnowledgeGraph({ nodes, edges, layout = "force", title, height = 420 }: KnowledgeGraphProps) {
+export default function KnowledgeGraph({ nodes, edges, layout = "force", title, height = 420, interactive = true }: KnowledgeGraphProps) {
   const host = useRef<HTMLDivElement>(null);
   const graph = useRef<Graph | null>(null);
   const data = normaliseGraphData(nodes, edges);
@@ -52,7 +52,7 @@ export default function KnowledgeGraph({ nodes, edges, layout = "force", title, 
       width: container.clientWidth || 640,
       height: Math.max(220, Math.min(760, Number(height) || 420)),
       autoFit: "view",
-      data,
+      data: data as never,
       layout: {
         type: layout === "dagre" ? "dagre" : layout === "radial" ? "radial" : layout === "circular" ? "circular" : layout === "concentric" ? "concentric" : "force",
       },
@@ -70,7 +70,7 @@ export default function KnowledgeGraph({ nodes, edges, layout = "force", title, 
           labelText: (datum: Record<string, unknown>) => typeof datum.label === "string" ? datum.label : "",
         },
       },
-      behaviors: ["drag-canvas", "zoom-canvas", "drag-element", "click-select"],
+      behaviors: interactive ? ["drag-canvas", "zoom-canvas", "drag-element", "click-select"] : [],
     });
     graph.current = instance;
     void instance.render();
