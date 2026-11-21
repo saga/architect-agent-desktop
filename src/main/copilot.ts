@@ -228,7 +228,7 @@ export class CopilotDesktopAgent {
   if(JSON.stringify(next)===JSON.stringify(this.taskContext))return;
   await this.stop();this.taskContext=next;
  }
- private configuredMcpServers(provider:"copilot"|"codebuddy",environment:Record<string,string|undefined>):Record<string,Record<string,unknown>>{
+ private configuredMcpServers(provider:"copilot"|"codebuddy",environment:Record<string,string|undefined>){
   if(this.effectivePermission()!=="allow-all" || (this.taskContext?.tools.length??0)>0)return{};
   return resolveMcpServerConfigs(this.getMcpServers(),provider,environment);
  }
