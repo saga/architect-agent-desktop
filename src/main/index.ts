@@ -2452,6 +2452,9 @@ function registerIpcHandlers(): void {
       thinkingLevel: z.enum(["low", "medium", "high", "xhigh"]),
       toolPermission: z.enum(["none", "browser-only", "assisted", "allow-all"]),
       contextWindow: z.number().int().positive().optional(),
+      memoryEmbeddingProvider: z.enum(["disabled","ollama"]).optional().default("disabled"),
+      memoryEmbeddingBaseUrl: z.string().max(300).optional().default("http://127.0.0.1:11434"),
+      memoryEmbeddingModel: z.string().max(120).optional().default("nomic-embed-text"),
       systemPrompt: z.string().max(12000),
     }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Agent settings.");
