@@ -314,6 +314,18 @@ export class CopilotDesktopAgent {
  publishInteraction(interactionId:string,text:string,timestamp:number):void { this.publish({type:"interaction",interactionId,text,timestamp}); }
  resetA2UIForTask(sessionId:string):void { this.a2ui?.reset(sessionId); }
  async registerA2UISurfaces(sessionId:string,surfaceIds:string[]):Promise<void> { const a2ui=await this.ensureA2UI(); a2ui.registerSurfaces(sessionId,surfaceIds); }
+ getMemoryMaintenanceStatus(scope:string|null) {
+  const cursor=this.memory.getDreamCursor(scope);
+  const newTranscript=this.loadMemorySources(this.workspacePath,cursor,1).length>0;
+  const qualityReview=this.memory.listQualityReviewCandidates(scope,1).length>0;
+  const expiredNotes=this.memory.hasExpiredNotes(scope);
+  const preparedRun=this.memory.listDreamRuns(scope,30).some(run=>String(run.status)==="prepared");
+  return {
+   hasWork:newTranscript||qualityReview||expiredNotes||preparedRun,
+   newTranscript,qualityReview,expiredNotes,preparedRun,
+   cursor,
+  };
+ }
  getMemorySnapshot(scope: string | null) {
   return {
    cursor: this.memory.getDreamCursor(scope),
