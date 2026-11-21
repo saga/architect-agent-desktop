@@ -619,7 +619,7 @@ export class AgentMemoryStore {
           const result=this.dreamUpsertNote(scopeKey,input.runId,sequence,operation,refs,reason);
           (result.created?createdNoteIds:updatedNoteIds).push(result.id);
         }else if(operation.op==="review_note"){
-          this.dreamReviewNote(scopeKey,input.runId,sequence,operation,refs,reason);updatedNoteIds.push(operation.id);
+          this.dreamReviewNote(scopeKey,input.runId,sequence,operation,refs,reason,run.purpose==="quality_review");updatedNoteIds.push(operation.id);
         }else if(operation.op==="archive_note"){
           this.dreamArchiveNote(scopeKey,input.runId,sequence,operation,refs,reason);updatedNoteIds.push(operation.id);
         }else if(operation.op==="supersede_note"){
@@ -678,15 +678,15 @@ export class AgentMemoryStore {
     return {id,created:!before};
   }
 
-  private dreamReviewNote(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"review_note"}>,refs:string[],reason:string):void{
+  private dreamReviewNote(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"review_note"}>,refs:string[],reason:string,isQualityReview:boolean):void{
     const before=this.getNoteRow(op.id,scopeKey);
     if(!before||before.status!=="active")throw new Error("只能复核当前 Workspace 的活动 Note："+op.id);
     if(Number(before.version)!==op.baseVersion)throw new Error("Memory Note 版本已变化，请重新检索后再复核："+op.id);
     if(!isValidation(op.validation))throw new Error("Invalid validation state.");
     const now=Date.now(),after={
       ...before,validation:op.validation,confidence:clamp(op.confidence,0,1),
-      quality_score:op.qualityScore===undefined?(before.quality_score??null):clamp(op.qualityScore,0,1),
-      last_quality_reviewed_at:op.qualityScore===undefined?(before.last_quality_reviewed_at??null):now,
+      quality_score:isQualityReview&&op.qualityScore!==undefined?clamp(op.qualityScore,0,1):(before.quality_score??null),
+      last_quality_reviewed_at:isQualityReview?now:(before.last_quality_reviewed_at??null),
       source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100)),
       last_verified_at:op.validation==="validated"?now:before.last_verified_at??null,last_dreamed_at:now,updated_at:now,version:Number(before.version)+1,
     };
