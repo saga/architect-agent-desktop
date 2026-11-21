@@ -1066,6 +1066,18 @@ export class AgentMemoryStore {
     return row?this.toSource(row):null;
   }
 
+  getAgentAccessibleSource(sourceId:string,workspaceScope:string|null):StoredMemorySource|null{
+    const local=this.getSourceById(sourceId,workspaceScope);
+    if(local)return local;
+    if(workspaceScope===null)return null;
+    const personalKey=normalizeScope(null);
+    const rows=this.database.prepare(
+      "SELECT source_refs_json FROM memory_notes WHERE scope_key=? AND status='active'"
+    ).all({},personalKey) as Array<{source_refs_json?:unknown}>;
+    const referenced=rows.some(row=>parseJson<string[]>(row.source_refs_json,[]).includes(sourceId));
+    return referenced?this.getSourceById(sourceId,null):null;
+  }
+
   private getNoteRow(id:string,scopeKey:string):Record<string,unknown>|null{
     return (this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND scope_key=?").get({}, id,scopeKey) as Record<string,unknown>|undefined)??null;
   }
@@ -1137,10 +1149,10 @@ export class AgentMemoryStore {
 
   getInjectedContext(scope:string|null,maxChars=MAX_INJECTED_CONTEXT):string{
     const budget=Math.max(1000,Math.min(Math.floor(maxChars),MAX_INJECTED_CONTEXT));
-    const personalNotes=scope===null?[]:this.list(null,40);
-    const workspaceNotes=this.list(scope,100);
-    const personalRepresentations=scope===null?[]:this.getRepresentations(null,12);
-    const workspaceRepresentations=this.getRepresentations(scope,20);
+    const personalNotes=this.list(null,scope===null?100:40);
+    const workspaceNotes=scope===null?[]:this.list(scope,100);
+    const personalRepresentations=this.getRepresentations(null,12);
+    const workspaceRepresentations=scope===null?[]:this.getRepresentations(scope,20);
     if(!personalNotes.length&&!workspaceNotes.length&&!personalRepresentations.length&&!workspaceRepresentations.length)return "";
     const lines=[
       "## Persistent Agent Memory",
@@ -1192,7 +1204,7 @@ export class AgentMemoryStore {
         lines.push(line);used+=line.length+1;
       }
     };
-    if(scope!==null)appendRepresentations("Personal Knowledge Index",personalRepresentations);
+    appendRepresentations("Personal Knowledge Index",personalRepresentations);
     appendRepresentations("Workspace Knowledge Index",workspaceRepresentations);
     return lines.join("\n").slice(0,budget);
   }
