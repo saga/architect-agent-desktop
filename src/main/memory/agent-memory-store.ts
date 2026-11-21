@@ -246,13 +246,13 @@ export class AgentMemoryStore {
     const source = sourceRefs.length ? this.getSourceById(sourceRefs[0]!, input.scope) : null;
     this.database.prepare(
       "INSERT INTO memory_notes(id,scope_key,title,content,tags_json,validation,confidence,pinned,status,source_session_id,source_trace_id," +
-      "created_at,updated_at,last_accessed_at,access_count,version,importance,expires_at,source_refs_json,last_verified_at,superseded_by_id,content_hash,last_dreamed_at) " +
-      "VALUES(?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
+      "created_at,updated_at,last_accessed_at,access_count,version,importance,expires_at,source_refs_json,last_verified_at,superseded_by_id,content_hash,last_dreamed_at,quality_score,last_quality_reviewed_at) " +
+      "VALUES(?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
       "ON CONFLICT(id) DO UPDATE SET title=excluded.title,content=excluded.content,tags_json=excluded.tags_json,validation=excluded.validation," +
       "confidence=excluded.confidence,pinned=excluded.pinned,status='active',source_session_id=excluded.source_session_id," +
       "source_trace_id=excluded.source_trace_id,updated_at=excluded.updated_at,version=excluded.version,importance=excluded.importance," +
       "expires_at=excluded.expires_at,source_refs_json=excluded.source_refs_json,last_verified_at=excluded.last_verified_at," +
-      "superseded_by_id=NULL,content_hash=excluded.content_hash"
+      "superseded_by_id=NULL,content_hash=excluded.content_hash,quality_score=excluded.quality_score,last_quality_reviewed_at=excluded.last_quality_reviewed_at"
     ).run({}, 
       id,scopeKey,title,content,JSON.stringify(tags),validation,unchanged?Number(before?.confidence??0.5):0.5,
       input.pinned===undefined?Number(before?.pinned??0):input.pinned?1:0,
@@ -261,7 +261,9 @@ export class AgentMemoryStore {
       clamp(input.importance??Number(before?.importance??0.5),0,1),
       input.expiresAt===undefined?(typeof before?.expires_at==="number"?before.expires_at:null):input.expiresAt,
       JSON.stringify(sourceRefs),unchanged&&typeof before?.last_verified_at==="number"?before.last_verified_at:null,null,
-      createHash("sha256").update(content).digest("hex"),typeof before?.last_dreamed_at==="number"?before.last_dreamed_at:null
+      createHash("sha256").update(content).digest("hex"),typeof before?.last_dreamed_at==="number"?before.last_dreamed_at:null,
+      unchanged&&before?.quality_score!=null?Number(before.quality_score):null,
+      unchanged&&typeof before?.last_quality_reviewed_at==="number"?before.last_quality_reviewed_at:null
     );
     const after=this.getNoteRow(id,scopeKey);
     this.saveVersion(scopeKey,"note",id,Math.max(1,oldVersion+1),after,null);
@@ -759,11 +761,11 @@ export class AgentMemoryStore {
     this.database.prepare("DELETE FROM memory_notes WHERE id=?").run({}, id);
     if(!row)return;
     this.database.prepare("INSERT INTO memory_notes(id,scope_key,title,content,tags_json,validation,confidence,pinned,status,source_session_id,source_trace_id,"+
-      "created_at,updated_at,last_accessed_at,access_count,version,importance,expires_at,source_refs_json,last_verified_at,superseded_by_id,content_hash,last_dreamed_at) "+
-      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run({}, ...([
+      "created_at,updated_at,last_accessed_at,access_count,version,importance,expires_at,source_refs_json,last_verified_at,superseded_by_id,content_hash,last_dreamed_at,quality_score,last_quality_reviewed_at) "+
+      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run({}, ...([
       row.id,row.scope_key,row.title,row.content,row.tags_json,row.validation,row.confidence,row.pinned,row.status,row.source_session_id,row.source_trace_id,
       row.created_at,row.updated_at,row.last_accessed_at,row.access_count,row.version,row.importance,row.expires_at,row.source_refs_json,row.last_verified_at,
-      row.superseded_by_id,row.content_hash,row.last_dreamed_at
+      row.superseded_by_id,row.content_hash,row.last_dreamed_at,row.quality_score??null,row.last_quality_reviewed_at??null
       ] as never[]));
   }
   private replaceRepresentationSnapshot(id:string,row:Record<string,unknown>|null):void{
@@ -791,7 +793,8 @@ export class AgentMemoryStore {
   }
   private toSource(row:Record<string,unknown>):StoredMemorySource{
     return {sourceId:String(row.source_id),sessionId:String(row.session_id),messageId:String(row.message_id),kind:String(row.kind),
-      content:String(row.content),contentHash:String(row.content_hash),createdAt:Number(row.created_at)};
+      content:String(row.content),contentHash:String(row.content_hash),createdAt:Number(row.created_at),
+      ...(row.source_revision==null?{}:{revision:Number(row.source_revision)})};
   }
   private toNote(row:Record<string,unknown>):AgentMemoryNote{
     return {
@@ -804,6 +807,8 @@ export class AgentMemoryStore {
       version:Number(row.version??1),expiresAt:row.expires_at==null?null:Number(row.expires_at),
       lastVerifiedAt:row.last_verified_at==null?null:Number(row.last_verified_at),
       supersededById:typeof row.superseded_by_id==="string"?row.superseded_by_id:null,
+      qualityScore:row.quality_score==null?null:Number(row.quality_score),
+      lastQualityReviewedAt:row.last_quality_reviewed_at==null?null:Number(row.last_quality_reviewed_at),
     };
   }
   private toRepresentation(row:Record<string,unknown>):AgentMemoryRepresentation{
