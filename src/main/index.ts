@@ -2223,7 +2223,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("plugin:import", async (event) => {
     assertTrustedSender(event);
     const { canceled, filePaths } = await dialog.showOpenDialog({
-      title: "导入插件目录",
+      title: "导入 Claude Plugin 目录",
       properties: ["openDirectory"],
     });
     if (canceled || !filePaths[0]) return null;
