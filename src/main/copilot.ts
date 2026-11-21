@@ -674,22 +674,29 @@ export class CopilotDesktopAgent {
   const runtimeEnv=await resolvedAgentProcessEnvironment();
   const configuredMcpServers=this.configuredMcpServers("codebuddy",runtimeEnv);
   const systemPrompt=[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n");
-  const queryOptions={
-    ...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:{type:"adaptive" as const},includePartialMessages:true,
-    systemPrompt:{append:[systemPrompt]},
-    cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})},settingSources,persistSession:false,maxTurns:12,
-    mcpServers:{browser:server,...configuredMcpServers},
-    ...(permission==="allow-all" && allowedBuiltinTools === null ? {} : {allowedTools:permission==="none" ? [] : allowed}),
-    ...(permission==="none"
-      ? {permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}
-      : permission==="browser-only"
-        ? {permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}
-        : permission==="assisted"
-          ? {permissionMode:"default" as const,tools:allowedBuiltinTools??READ_ONLY_BUILTINS,disallowedTools:disallowedBuiltinTools,allowedTools:[...allowed,...(allowedBuiltinTools??READ_ONLY_BUILTINS)]}
-          : allowedBuiltinTools !== null
-            ? {permissionMode:"bypassPermissions" as const,tools:allowedBuiltinTools,disallowedTools:disallowedBuiltinTools,allowedTools:[...allowed,...allowedBuiltinTools]}
-            : {permissionMode:"bypassPermissions" as const}),
-  };
+  const unrestrictedAllowAll = permission === "allow-all" && allowedBuiltinTools === null;
+  const queryOptions: NonNullable<Parameters<typeof sdk.query>[0]["options"]> = {
+    ...(selectedModel ? { model: selectedModel } : {}),
+    ...(effort ? { effort } : {}),
+    thinking: { type: "adaptive" as const },
+    includePartialMessages: true,
+    systemPrompt: { append: [systemPrompt] },
+    cwd,
+    ...(detached ? { extraArgs: detached.extraArgs } : {}),
+    env: { ...runtimeEnv, ...(detached?.env ?? {}), ...(runtimeConfigDir ? { CODEBUDDY_CONFIG_DIR: runtimeConfigDir } : {}) },
+    settingSources,
+    persistSession: false,
+    maxTurns: 12,
+    mcpServers: { browser: server, ...configuredMcpServers },
+    ...(unrestrictedAllowAll ? {} : { allowedTools: permission === "none" ? [] : allowed }),
+    ...(unrestrictedAllowAll ? {} : {
+      permissionMode: permission === "allow-all" ? "bypassPermissions" as const : "default" as const,
+      tools: permission === "none" || permission === "browser-only"
+        ? []
+        : allowedBuiltinTools ?? READ_ONLY_BUILTINS,
+      disallowedTools: disallowedBuiltinTools,
+    }),
+  };;
   const abortController=new AbortController();
   this.codeBuddyAbortController=abortController;
   let currentPrompt=historyPrompt(history,prompt);
