@@ -296,7 +296,7 @@ describe("AgentMemoryStore", () => {
     expect(first.externalVerification?.status).toBe("single_domain_sources_recorded");
     expect(first.validation).toBe("unverified");
     expect(() => store.confirmExternalVerification("/workspace/external-facts", note.id, first.version))
-      .toThrow(/two different HTTPS domain/);
+      .toThrow(/两个不同 HTTPS 域名/);
 
     const recorded = store.recordExternalSources("/workspace/external-facts", {
       noteId: note.id,
