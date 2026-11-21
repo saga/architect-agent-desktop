@@ -102,8 +102,12 @@ export default function KnowledgeGraph({
     if (previousSelectedNode.current && previousSelectedNode.current !== selectedNodeId) {
       instance.setElementState(previousSelectedNode.current, []);
     }
-    if (selectedNodeId) instance.setElementState(selectedNodeId, "selected");
-    previousSelectedNode.current = selectedNodeId ?? null;
+    if (selectedNodeId && validNodeIds.has(selectedNodeId)) {
+      instance.setElementState(selectedNodeId, "selected");
+      previousSelectedNode.current = selectedNodeId;
+    } else {
+      previousSelectedNode.current = null;
+    }
   }, [selectedNodeId, data]);
 
   if (!data) return <Alert type="warning" showIcon message="关系图数据格式无效，或节点/边数量超过限制。" />;
