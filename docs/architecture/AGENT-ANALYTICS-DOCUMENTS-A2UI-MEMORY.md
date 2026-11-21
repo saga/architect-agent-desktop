@@ -146,7 +146,7 @@ Anthropic《The components of agent memory》（2026-11-06）提出的核心层�
 
 Memory Note 保留 Workspace Scope、标题、正文、标签、创建/更新时间、来源 Session/Trace、访问次数、置顶标记、验证状态和置信度。默认状态为 `unverified`。只有基于原始会话、文件或可靠来源复核后才可标记 `validated`；相互冲突或已过时的内容标记为 `disputed`。
 
-检索默认使用 SQLite FTS5/BM25 与 LIKE 子串回退。启用 Settings → Agent → Memory 语义检索后，额外使用本机 Ollama `/api/embed` 建立向量索引，与词法召回做混合排序；Ollama 请求只允许 `localhost`、`127.0.0.1` 或 `::1`，禁止远程主机。索引保存在同一个本地 SQLite 数据库，向量记录绑定 Note 的 content hash；Note 内容变化、归档或过期后旧向量不会被召回。更换模型需要重新建立索引。Ollama 不可用时自动回退 FTS5/中文短语检索，不会阻断 Memory Search。Embedding 默认关闭，应用不负责下载模型，也不会把 Personal Memory 或项目内容发送到第三方 Embedding 服务。
+检索默认使用 SQLite FTS5/BM25 与 LIKE 子串回退。启用 Settings → Agent → Memory 语义检索后，额外使用本机 Ollama `/api/embed` 建立向量索引，与词法召回做混合排序；Ollama 请求只允许 `localhost`、`127.0.0.1` 或 `::1`，禁止远程主机。设置页提供本机连接与模型测试，会验证服务可达和返回向量维度。若 Ollama 响应声明的模型与请求模型不一致，系统拒绝写入，避免将不同向量空间混合。索引保存在同一个本地 SQLite 数据库，向量记录绑定 Note 的 content hash；Note 内容变化、归档或过期后旧向量不会被召回。Dreaming 批量提交后会自动补齐当前模型的缺失索引，手动重建仍可用于全量修复。更换模型需要重新建立索引。混合召回过滤低相似度的纯语义候选，词法命中仍保留。Ollama 不可用时自动回退 FTS5/中文短语检索，不会阻断 Memory Search。Embedding 默认关闭，应用不负责下载模型，也不会把 Personal Memory 或项目内容发送到第三方 Embedding 服务。
 
 ### Personal Memory 与 Workspace Memory 的隔离边界
 
@@ -160,7 +160,7 @@ Memory 分为 Personal 和 Workspace 两层。Personal Memory 只保存用户明
 
 - 用户偏好、用户意图和决定：至少有一条 user Transcript 原话。助手总结、工具输出、UI 交互或错误消息不能替代用户表达。
 - 项目事实和工作模式：至少两个独立 Session，并同时包含 direct_user 与 tool_observation 来源。重复引用同一 Session 的多条消息不构成独立交叉验证。
-- 外部事实：Agent 不能通过 Dreaming 或普通 Note 操作将其标记为 validated。必须先用 `memory_record_external_sources` 登记至少两个不同 HTTPS 域名、且域名确实出现在当前 Workspace 已保存 tool evidence 中的来源；随后用户需要在 Memory Manager 中逐一打开并核对链接，再显式确认“我已核对来源”。确认记录会保存 sourceRef、URL、域名、发布机构、日期、Note 版本和人工确认策略。该状态表示用户声明已核对来源，不是系统自动证明网页内容真实。
+- 外部事实：Agent 不能通过 Dreaming 或普通 Note 操作将其标记为 validated。必须先用 `memory_record_external_sources` 登记至少两个不同注册域名的 HTTPS 来源，且域名确实出现在当前 Workspace 已保存 tool evidence 中；同一注册域名下的不同子域名不算独立来源。随后用户需要在 Memory Manager 中逐一打开并核对链接，再显式确认“我已核对来源”。确认记录会保存 sourceRef、URL、域名、发布机构、日期、Note 版本和人工确认策略。该状态表示用户声明已核对来源，不是系统自动证明网页内容真实。
 - assistant_generated、error_report 和 user_interaction 不会单独使事实满足验证策略。
 
 一般 Note 的验证门槛核验来源类型和会话独立性，不是对工具来源或内容真实性的自动认证。external_fact 另走人工来源核验流程，且人工确认本身仍是一项用户声明；投资、合规等重要决策仍须回到监管机构、发行人或其他原始来源核对。qualityScore 是记忆质量评估，不能代替事实验证。旧版本中没有验证证据档案的 validated 标记会在新版本读取时按 unverified 展示，直到重新完成证据复核。
@@ -278,7 +278,7 @@ A2UI Catalog 和 Finance Chart options 都有组件、数据量和配置约束�
 7. Memory Notes 有独立的质量复查 Run、来源映射、质量分数与最近复查时间；质量复查不推进 Transcript cursor，并支持审计和回滚。质量分数仍由模型根据来源证据判断，并非独立事实校验器。
 8. Personal 与 Workspace 自动 Dreaming 已接入现有主进程 Schedule 循环，默认关闭、按 Memory scope 分别保存周期、仅在桌面应用运行时执行，并受全局与 Expert 工具权限约束；失败会退避重试，残留 prepared Run 不会被报告为成功。
 9. 尚未实现 PDF OCR 与跨页 PDF 表格重建。Transcript revision 按每条消息保留最近 12 个快照；长期大量新增消息仍会自然增加本地 SQLite 文件体积，尚未实现跨 Workspace 的历史归档工具。
-10. Ollama Embedding 需要用户自行安装、运行和下载模型；当前没有内置模型安装器、模型健康监控或索引空间压缩。语义向量检索默认关闭，无法连接本机服务时自动退回词法召回。
+10. Ollama Embedding 需要用户自行安装、运行和下载模型；当前没有内置模型安装器或索引空间压缩。设置页提供手动连接/模型检查，但不持续后台监控服务健康。语义向量检索默认关闭，无法连接本机服务时自动退回词法召回。
 11. `validated`、confidence 和 qualityScore 仍不等同于独立真值证明。普通 Note 通过来源类型与 Session 数验证；external_fact 需要用户人工确认多个来源，但应用无法保证用户确实完整阅读或理解了来源。
 12. 目前没有独立的 Memory Goal / Policy 配置；可以通过 Expert Prompt 提供领域目标，但还不能为不同 Workspace 设置结构化的记忆采集、保留和验证规则。知识页也没有完整的页面间链接、反向链接和孤儿页面自动检查。
 
