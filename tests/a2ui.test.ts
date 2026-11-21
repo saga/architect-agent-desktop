@@ -27,13 +27,15 @@ describe("Agent A2UI catalog validation", () => {
 
   it("rejects an unknown component instead of rendering arbitrary UI", () => {
     const commands = structuredClone(validCommands);
-    (commands[1]!.updateComponents.components[1] as Record<string, unknown>).component = "RawHTML";
+    const components = (commands[1] as { updateComponents: { components: Array<Record<string, unknown>> } }).updateComponents.components;
+    components[1]!.component = "RawHTML";
     expect(() => validateAgentA2UICommands(commands)).toThrow(/白名单 Catalog/);
   });
 
   it("rejects buttons without a named action", () => {
     const commands = structuredClone(validCommands);
-    (commands[1]!.updateComponents.components[3] as Record<string, unknown>).action = {};
+    const components = (commands[1] as { updateComponents: { components: Array<Record<string, unknown>> } }).updateComponents.components;
+    components[3]!.action = {};
     expect(() => validateAgentA2UICommands(commands)).toThrow(/action.event.name/);
   });
 
