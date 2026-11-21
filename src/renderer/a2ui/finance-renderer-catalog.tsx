@@ -28,10 +28,10 @@ const WorkflowDiagramImplementation = createComponentImplementation(
   WorkflowDiagramApi,
   ({ props }) => <WorkflowDiagram
     {...(props as unknown as WorkflowDiagramProps)}
-    onChange={(json) => {
+    onSave={(json) => {
       props.setGraphData?.(json);
+      props.onSave?.();
     }}
-    onSave={() => props.onSave?.()}
   />,
 );
 
