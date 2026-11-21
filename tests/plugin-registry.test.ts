@@ -46,6 +46,13 @@ describe("Claude Code Plugin packages", () => {
     }));
     expect(() => validatePluginDirectory(source)).toThrow();
 
+    const unprefixed = makeClaudePlugin(makeDirectory());
+    writeFileSync(path.join(unprefixed, ".claude-plugin", "plugin.json"), JSON.stringify({
+      name: "research-toolkit",
+      skills: ["skills"],
+    }));
+    expect(() => validatePluginDirectory(unprefixed)).toThrow("必须以 ./ 开头");
+
     const unsupported = path.join(makeDirectory(), "unsupported-plugin");
     mkdirSync(path.join(unsupported, ".claude-plugin"), { recursive: true });
     writeFileSync(path.join(unsupported, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "unsupported-plugin" }));
@@ -143,6 +150,18 @@ describe("Claude Code Plugin packages", () => {
     const instructions = readEnabledPluginInstructions(pluginRoot, registry);
     expect(instructions).toContain("Write a dated research note.");
     expect(instructions).toContain("Use portfolio-specific review steps.");
+  });
+
+  it("loads a manifest-less single-skill plugin with SKILL.md at the plugin root", () => {
+    const root = makeDirectory();
+    const source = path.join(root, "root-skill-plugin");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(path.join(source, "SKILL.md"), "Use the root-level skill instructions.");
+
+    const pluginRoot = path.join(root, "installed");
+    const registry = path.join(root, "plugins.json");
+    importPlugin(source, pluginRoot, registry);
+    expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("Use the root-level skill instructions.");
   });
 
   it("accepts a standard Claude Code plugin without the optional plugin.json manifest", () => {
