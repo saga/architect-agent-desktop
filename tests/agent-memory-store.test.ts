@@ -125,6 +125,7 @@ describe("AgentMemoryStore", () => {
     expect(note?.sourceRefs).toContain(sourceId);
     expect(store.listDreamRuns("/workspace/dream")[0]?.status).toBe("completed");
 
+    expect(store.search("/workspace/dream", "组合收益比较")).toHaveLength(1);
     const rolledBack = store.rollbackDreaming("/workspace/dream", run!.id, "验证回滚功能");
     expect(rolledBack.rolledBackOperations).toBeGreaterThan(0);
     expect(store.getNote(committed.createdNoteIds[0]!, "/workspace/dream")).toBeNull();
