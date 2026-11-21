@@ -220,7 +220,7 @@ Run 状态：
 
 对重要任务，系统提示要求 Agent 主动执行 prepare → evidence review → commit。整理目标不局限于失败记录，还包括成功流程、稳定的用户偏好、项目约定、业务定义、数据口径、重复出现的错误和已解决问题。模型必须区分事实、推测、冲突和时效性信息；证据不足时保持 unverified，矛盾并存时记录 contradicts 或 disputed，不为了减少 Note 数量而删除唯一知识。对重要、高风险或可能变化的旧 Note，Agent 应通过 `memory_read_source` 按 `sourceId` 读取历史证据快照，并结合 `memory_search_history` 搜索更早 Transcript；不能只凭 Note 自身内容完成自我验证。
 
-Settings → Memory & Dreaming 提供 Notes、知识页、关系、Run 审计和质量分数管理，并允许手动启动整理、单独复查质量、继续处理已有 prepared Run、置顶/取消置顶 Note、归档 Note、放弃 prepared Run 或回滚最近一次提交。也可以为每个 Workspace 单独启用自动 Dreaming，设置 6 小时至 7 天的周期。调度复用主进程现有的 15 秒 Schedule 检查循环，按 Workspace 串行执行 Transcript 整理、到期质量复查和过期 Note 清理；失败采用退避重试，运行结束检查是否残留 prepared Run，并写入 Trace。
+Settings → Memory & Dreaming 提供 Notes、知识页、关系、Run 审计和质量分数管理，并允许手动启动整理、单独复查质量、继续处理已有 prepared Run、置顶/取消置顶 Note、归档 Note、放弃 prepared Run 或回滚最近一次提交。也可以为每个 Workspace 单独启用自动 Dreaming，设置 6 小时至 7 天的周期。调度复用主进程现有的 15 秒 Schedule 检查循环，按 Workspace 串行执行 Transcript 整理、到期质量复查和过期 Note 清理。每次调度先通过本地 SQLite/Transcript 查询预检；没有新 revision、到期质量复查、过期 Note 或待恢复 Run 时直接跳过，不启动模型调用。实际运行失败采用退避重试，运行结束检查是否残留 prepared Run，并写入 Trace。
 
 自动调度默认关闭，只在桌面应用运行时工作。它不会扩大现有工具权限：全局工具权限和所选 Expert 必须至少允许 assisted，且 Expert 必须开放完整长期记忆工具组。Workspace 路径失效或不存在时跳过执行，避免把项目记忆误写到 Personal Memory。
 
