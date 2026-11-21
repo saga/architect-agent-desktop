@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { AgentA2UIService } from "../src/main/a2ui-service";
+import { FINANCE_A2UI_COMPONENT_APIS, FinanceChartApi, KnowledgeGraphApi, WorkflowDiagramApi } from "../src/shared/a2ui-finance-catalog.mjs";
+
+describe("A2UI 1.0 Finance Catalog contracts", () => {
+  it("registers the three documented finance visualization components", () => {
+    expect(FINANCE_A2UI_COMPONENT_APIS.map(component => component.name)).toEqual([
+      "FinanceChart",
+      "KnowledgeGraph",
+      "WorkflowDiagram",
+    ]);
+  });
+
+  it("requires component data and rejects unknown renderer properties", () => {
+    expect(FinanceChartApi.schema.safeParse({ chartType: "line" }).success).toBe(false);
+    expect(KnowledgeGraphApi.schema.safeParse({}).success).toBe(false);
+    expect(WorkflowDiagramApi.schema.safeParse({}).success).toBe(false);
+
+    expect(FinanceChartApi.schema.safeParse({ chartType: "line", data: [], unexpectedHtml: "<img>" }).success).toBe(false);
+    expect(KnowledgeGraphApi.schema.safeParse({ nodes: [], unexpectedHtml: "<img>" }).success).toBe(false);
+    expect(WorkflowDiagramApi.schema.safeParse({ graphData: { cells: [] }, unexpectedHtml: "<img>" }).success).toBe(false);
+  });
+});
 
 describe("A2UI 1.0 Agent message handling", () => {
   it("accepts a schema-valid user action only from a registered Task Surface", async () => {
