@@ -2,9 +2,11 @@ import {
   A2uiGenerator,
   CatalogConfig,
   RendererState,
-  RendererToAgentMessageProcessor,
 } from "@a2ui/agent";
-import type { AgentToRendererMessage } from "@a2ui/agent";
+import {
+  RendererToAgentMessageSchema,
+  type AgentToRendererMessage,
+} from "@a2ui/web_core/v1_0";
 import { createAgentFinanceCatalog, FINANCE_A2UI_CATALOG_ID } from "../shared/a2ui-finance-catalog.mjs";
 
 export type A2UIPart =
@@ -72,24 +74,51 @@ export class AgentA2UIService {
     message: unknown,
     sessionId: string,
   ): Promise<{ handled: boolean; replies: AgentToRendererMessage[] }> {
-    const sessionKey = sessionId.trim() || "__default_agent_session__";
-    const processor = new RendererToAgentMessageProcessor({
-      catalogs: [this.catalog],
-      onAction: (action) => {
-        const surfaceId = String((action as { surfaceId?: unknown }).surfaceId ?? "");
-        if (!this.surfacesBySession.get(sessionKey)?.has(surfaceId)) {
-          throw new Error("A2UI ActionMessage references a Surface that was not created in this Agent Task.");
-        }
-        if (Buffer.byteLength(JSON.stringify(action), "utf8") > 32 * 1024) {
-          throw new Error("A2UI ActionMessage exceeds the 32 KiB limit.");
-        }
-        // Return false so a conversational action is passed to the current Agent turn.
-        return false;
-      },
-      onError: () => true,
-      onRendererFunctionResponse: () => true,
-    });
-    return processor.processMessage(message);
+    const parsed = RendererToAgentMessageSchema.safeParse(message);
+    if (!parsed.success) {
+      throw new Error("Invalid A2UI 1.0 Renderer-to-Agent message: " + parsed.error.message.slice(0, 2000));
+    }
+
+    const data = parsed.data;
+    if ("action" in data) {
+      const sessionKey = sessionId.trim() || "__default_agent_session__";
+      const surfaceId = data.action.surfaceId;
+      if (!this.surfacesBySession.get(sessionKey)?.has(surfaceId)) {
+        throw new Error("A2UI ActionMessage references a Surface that was not created in this Agent Task.");
+      }
+      if (Buffer.byteLength(JSON.stringify(data), "utf8") > 32 * 1024) {
+        throw new Error("A2UI ActionMessage exceeds the 32 KiB limit.");
+      }
+      // A conversational action remains unhandled so the caller can pass it to the model.
+      return { handled: false, replies: [] };
+    }
+
+    if ("callAgentFunction" in data) {
+      const call = data.callAgentFunction;
+      const surfaceId = call.surfaceId;
+      const sessionKey = sessionId.trim() || "__default_agent_session__";
+      if (!this.surfacesBySession.get(sessionKey)?.has(surfaceId)) {
+        throw new Error("A2UI CallAgentFunction references a Surface that was not created in this Agent Task.");
+      }
+      return {
+        handled: true,
+        replies: [{
+          version: "1.0",
+          agentFunctionResponse: {
+            functionCallId: call.functionCallId,
+            error: {
+              code: "UNKNOWN_FUNCTION",
+              message: "The Finance Catalog does not register Agent Functions.",
+            },
+          },
+        }],
+      };
+    }
+
+    // Renderer errors and renderer-function responses are fully schema-validated.
+    // This desktop does not issue renderer-function calls, so there is no pending
+    // call to resolve. Treat both messages as consumed.
+    return { handled: true, replies: [] };
   }
 
   registerSurfaces(sessionId: string, surfaceIds: string[]): void {
