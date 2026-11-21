@@ -100,7 +100,7 @@ Agent 通过两个工具访问数据：
 - `@a2ui/react`：把已校验的 Surface 渲染为 React 组件。
 - Finance Catalog：注册本地的金融图表、知识关系图和可编辑流程图组件。
 
-A2UI 1.0 RendererState 按 Agent Task Session 隔离；新消息增量进入 MessageProcessor，Surface 生命周期独立管理。ActionMessage 经主进程 IPC 重新校验后交给当前 Task 的 Agent 解释，Renderer 不直接执行 Agent 工具。
+A2UI 1.0 RendererState 按 Agent Task Session 隔离；新消息增量进入官方 React Renderer / MessageProcessor，Surface 生命周期独立管理。Renderer→Agent 消息由 `@a2ui/web_core/v1_0` 的 `RendererToAgentMessageSchema` 做完整协议校验，再核对 Surface 是否由当前 Task 创建。ActionMessage 交给当前 Task 的 Agent 解释；当前 Finance Catalog 没有注册 Agent Functions，收到 `callAgentFunction` 时返回标准 `agentFunctionResponse.error`，不静默忽略。Renderer 不直接执行 Agent 工具。
 
 旧会话仍通过 Ant Design X Card 的 v0.9 Catalog 渲染。新会话不再把 v0.9 JSON 当作 A2UI 1.0；两种格式有独立的事件类型和解析入口。
 
@@ -253,8 +253,8 @@ A2UI Catalog 和 Finance Chart options 都有组件、数据量和配置约束�
 - `src/main/analytics/duckdb-service.ts`
 - `src/main/memory/agent-memory-store.ts`
 - `src/main/agent-trace-store.ts`
-- `src/shared/a2ui-finance-catalog.ts`
-- `src/main/a2ui-service.ts`
+- `src/shared/a2ui-finance-catalog.mts`
+- `src/main/a2ui-service.mts`
 - `src/renderer/a2ui/A2UIV1Canvas.tsx`
 - `src/renderer/a2ui/finance-renderer-catalog.tsx`
 - `src/renderer/components/AgentA2UICard.tsx`
@@ -262,4 +262,6 @@ A2UI Catalog 和 Finance Chart options 都有组件、数据量和配置约束�
 - `src/renderer/components/FinanceChart.tsx`
 - `src/renderer/components/KnowledgeGraph.tsx`
 - `src/renderer/components/WorkflowDiagram.tsx`
+- `tests/a2ui-v1.test.ts`
+- `tests/agent-memory-store.test.ts`
 - `src/renderer/MemoryManager.tsx`
