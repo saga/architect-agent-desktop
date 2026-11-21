@@ -152,7 +152,7 @@ Memory Note 保留 Workspace Scope、标题、正文、标签、创建/更新时
 
 Memory 分为 Personal 和 Workspace 两层。Personal Memory 只保存用户明确要求跨项目保留的通用偏好、工作方式和用户意图；Workspace Memory 保存项目事实、数据口径、项目流程和工作产物。Workspace Agent 的上下文注入与 memory_search 会同时读取当前 Workspace 和 Personal Memory，并明确区分来源；其他 Workspace 的项目 Note 不会进入当前结果。Personal Task 只读取 Personal scope。
 
-Personal scope 的写入边界由 SQLite 存储层强制执行，而不只依赖 Agent Prompt：只允许 `user_preference` 与 `user_intent` 两类 Note；`decision`、`project_fact`、`workflow_pattern`、`external_fact` 和 `unknown` 必须留在 Workspace。Personal scope 不允许发布知识页、建立 Note 关系或做 Note 替代关系。Personal Task 的 Agent 工具只读取安全分类的 Notes，不读取 Personal 知识页和关系。旧版本中已经误放入 Personal 的项目型 Note 仍会在 Memory Manager 中显示，供用户检查和归档，但会从 Agent 的列表、搜索、来源读取、上下文注入和 Embedding 索引中排除；升级时会删除这些旧记录对应的 Personal 向量。Personal 和 Workspace 的自动 Dreaming 也使用不同提示约束，存储层会再次验证写入类型。
+Personal scope 的写入边界由 SQLite 存储层强制执行，而不只依赖 Agent Prompt：只允许 `user_preference` 与 `user_intent` 两类 Note；`decision`、`project_fact`、`workflow_pattern`、`external_fact` 和 `unknown` 必须留在 Workspace。Personal scope 不允许发布知识页、建立 Note 关系或做 Note 替代关系。Personal Task 的 Agent 工具只读取安全分类的 Notes，不读取 Personal 知识页和关系。旧版本中已经误放入 Personal 的项目型 Note 仍会在 Memory Manager 中显示，供用户检查和归档，但会从 Agent 的列表、搜索、来源读取、上下文注入和 Embedding 索引中排除；升级时会删除这些旧记录对应的 Personal 向量。Personal 和 Workspace 的自动 Dreaming 也使用不同提示约束，存储层会再次验证写入类型。 Workspace Agent 只能读取共享 Personal Note 的简短内容，不能打开该 Note 背后的 Personal Transcript，也不会收到其 sourceId；这样避免一条通用偏好的原始对话中夹带其他项目内容。Personal Task 仍可在该 Note 明确引用时追溯自己的来源。旧版外部事实若曾把同一注册域名下的子域名当作多个独立来源，读取时会将来源状态纠正，并把相应的历史 `validated` 降为 `unverified`。
 
 写入边界比读取边界更严格：Workspace Agent 不能把项目内容直接写入 Personal scope。要保存跨项目通用信息，必须切换到 Personal Task；Personal scope 的证据快照也只有在被活动 Personal Note 引用时，才能由 Workspace Agent 的 memory_read_source 读取。系统不自动把项目 Note 提升为 Personal Note，避免项目机密或业务数据跨 Workspace 扩散。
 
