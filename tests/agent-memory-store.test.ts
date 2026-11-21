@@ -811,6 +811,24 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("supports a separate Personal-scope Dreaming schedule", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const now = Date.now();
+    const saved = store.saveDreamSchedule(null, { enabled: true, intervalMinutes: 360 }, now);
+    expect(saved.enabled).toBe(true);
+    expect(saved.intervalMinutes).toBe(360);
+    expect(saved.nextRunAt).toBe(now + 360 * 60_000);
+
+    const due = store.listDueDreamSchedules(now + 360 * 60_000);
+    expect(due).toHaveLength(1);
+    expect(due[0]?.scope).toBeNull();
+    expect(store.claimDreamSchedule(null, now + 360 * 60_000)).toBe(true);
+    const completed = store.finishDreamSchedule(null, "success", null, now + 360 * 60_000 + 1);
+    expect(completed.lastRunStatus).toBe("success");
+    expect(completed.enabled).toBe(true);
+    store.close();
+  });
+
   it("scopes manual pin and archive operations to the selected Workspace", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const note = store.saveNote({
