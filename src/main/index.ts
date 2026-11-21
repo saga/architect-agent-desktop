@@ -2249,7 +2249,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("plugin:export", async (event, input: unknown) => {
     assertTrustedSender(event);
-    const parsed = z.string().min(3).max(100).safeParse(input);
+    const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("无效的插件 ID。");
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: "选择插件导出目录",
