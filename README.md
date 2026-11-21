@@ -96,7 +96,7 @@ Task、对话、Expert、定时任务和运行记录均保存在本机。Expert 
 
 ### Session Explorer
 
-在 Agent 面板工具栏中打开「Session Explorer」，可以按工作区查看完整会话消息、运行事件时间线、工具调用参数与结果、模型请求耗时以及 SDK 可观察到的上下文内容。模型 Token 用量仅在 Provider 实际返回 usage 数据时展示；SDK 未暴露的底层请求不会被推断。会话消息逐条保存在 SQLite session_messages 表中，不再受旧版 200 条消息截断影响。详见 [ADR-003](docs/architecture/adr/ADR-003-session-explorer.md)。
+在 Agent 面板工具栏中打开「Session Explorer」，默认进入执行 Trajectory：按 Turn/Step 查看用户输入、模型请求/回复、工具调用/结果、权限事件和真实耗时；可选中步骤检查原始输入、输出与关联事件。另有独立的 Context Explorer 标签，复用 common-agent-lib 的 ContextDebugger，检查模型上下文、运行事件、工具链、LLM Calls、最新 Context 和 Context Diff。视图在抽屉打开时会持续刷新。Token 用量仅在 Provider 实际返回 usage 数据时展示；Copilot/CodeBuddy 当前记录的是桌面端到 SDK/CLI 的可见输入，不代表 Provider 最终 HTTP 请求，未暴露的上下文会标记为不完整，不会进行 Token 或 Context Window 估算。会话消息逐条保存在 SQLite session_messages 表中，不再受旧版 200 条消息截断影响。详见 [ADR-003](docs/architecture/adr/ADR-003-session-explorer.md) 和 [Trajectory 与 Context Explorer 设计](docs/architecture/AGENT-TRAJECTORY-AND-CONTEXT-EXPLORER.md)。
 
 ## Agent Runtime 与 Code Mode
 
