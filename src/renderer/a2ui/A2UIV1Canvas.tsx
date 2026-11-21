@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Empty, Space, Tag, Typography } from "antd";
 import { A2uiSurface } from "@a2ui/react";
 import { MessageProcessor } from "@a2ui/web_core";
 import type { SurfaceModel } from "@a2ui/web_core";
+import type { ReactCatalogComponent } from "@a2ui/react";
 import type { AgentToRendererMessage, RendererToAgentMessage } from "@a2ui/agent";
 import { financeRendererCatalog } from "./finance-renderer-catalog";
 
@@ -13,8 +14,11 @@ export interface A2UIV1CanvasProps {
 }
 
 export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交互式分析" }: A2UIV1CanvasProps) {
-  const [surfaces, setSurfaces] = useState<SurfaceModel[]>([]);
+  const [surfaces, setSurfaces] = useState<Array<SurfaceModel<ReactCatalogComponent>>>([]);
   const [errors, setErrors] = useState<string[]>([]);
+  const onRendererMessageRef = useRef(onRendererMessage);
+  const processedCount = useRef(0);
+  onRendererMessageRef.current = onRendererMessage;
   const processor = useMemo(() => new MessageProcessor(
     [financeRendererCatalog],
     undefined,
@@ -22,13 +26,13 @@ export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交
       version: "1.0",
       unifiedOutbound: true,
       outboundListener: (message) => {
-        onRendererMessage?.(message as RendererToAgentMessage);
+        onRendererMessageRef.current?.(message as RendererToAgentMessage);
       },
       errorHandler: (error) => {
         setErrors(current => [...current.slice(-4), error.message]);
       },
     },
-  ), [onRendererMessage]);
+  ), []);
 
   const refreshSurfaces = useCallback(() => {
     setSurfaces([...processor.model.surfacesMap.values()]);
@@ -46,7 +50,9 @@ export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交
   }, [processor, refreshSurfaces]);
 
   useEffect(() => {
-    for (const payload of messages) {
+    if (messages.length < processedCount.current) processedCount.current = 0;
+    const pending = messages.slice(processedCount.current);
+    for (const payload of pending) {
       try {
         const parsed = JSON.parse(payload) as AgentToRendererMessage[];
         if (!Array.isArray(parsed) || parsed.length > 100) throw new Error("A2UI 1.0 消息必须是最多 100 条消息的数组。");
@@ -58,6 +64,7 @@ export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交
         setErrors(current => [...current.slice(-4), error instanceof Error ? error.message : String(error)]);
       }
     }
+    processedCount.current = messages.length;
     refreshSurfaces();
   }, [messages, processor, refreshSurfaces]);
 
@@ -71,7 +78,7 @@ export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交
     {errors.map((error, index) => <Alert key={index} type="warning" showIcon message={error} />)}
     {surfaces.length
       ? surfaces.map(surface => <div className="agent-a2ui-v1-surface" key={surface.id}>
-          <A2uiSurface surface={surface as SurfaceModel<never>} />
+          <A2uiSurface surface={surface} />
         </div>)
       : <Empty description="尚无可显示的 A2UI Surface" />}
   </section>;
