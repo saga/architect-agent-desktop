@@ -110,6 +110,7 @@ function createAgentTraceStore(): AgentTraceStore {
 const agentTraceStore = createAgentTraceStore();
 let activeAgentTraceId: string | null = null;
 let activeAgentTaskId = "";
+const approvedAgentFiles = new Map<string, Set<string>>();
 let agentRequestPending = false;
 let taskActivationPending = false;
 let scheduledCapture: { taskId: string; answer: string; error?: string } | null = null;
@@ -508,6 +509,7 @@ async function activateAgentTask(taskId: string, publish = true, scheduled = fal
     tools: expert.tools,
   } : null);
   await copilotAgent.resetConversation();
+  copilotAgent.setApprovedFiles([...(approvedAgentFiles.get(task.id) ?? [])]);
   activeAgentTaskId = task.id;
   workspaceProject = nextWorkspace;
   writeJsonAtomic(ACTIVE_AGENT_TASK_PATH, { taskId: activeAgentTaskId });
@@ -2173,9 +2175,17 @@ function registerIpcHandlers(): void {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: "选择 Agent 附件",
       properties: ["openFile", "multiSelections"],
+      filters: [{ name: "可分析文件", extensions: ["pdf", "doc", "docx", "xlsx", "xlsm", "csv", "tsv", "json", "txt", "md", "log"] }],
     });
     if (canceled) return [];
-    return filePaths.slice(0, 20).map((file) => file.slice(0, 1000));
+    const taskId = activeAgentTaskId;
+    if (!taskId) throw new Error("当前没有活动 Task。");
+    const selected = filePaths.slice(0, 20).map(file => realpathSync(file)).slice(0, 20);
+    const approved = approvedAgentFiles.get(taskId) ?? new Set<string>();
+    for (const file of selected) approved.add(file);
+    approvedAgentFiles.set(taskId, approved);
+    copilotAgent.setApprovedFiles([...approved]);
+    return selected.map(file => file.slice(0, 1000));
   });
   ipcMain.handle("agent-data:get-directory", (event) => { assertTrustedSender(event); return agentTraceStore.getDirectory(); });
   ipcMain.handle("agent-trace:list-sessions", (event) => {
@@ -2343,6 +2353,7 @@ function registerIpcHandlers(): void {
       prompt: z.string().trim().min(1).max(30000),
       taskId: z.string().min(1).max(100).optional(),
       history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(12000) })).max(20).optional(),
+      attachments: z.array(z.string().min(1).max(1000)).max(20).optional(),
     }).safeParse(input);
     if (!parsed.success) throw new Error("Message must contain 1–30,000 characters.");
     if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
@@ -2352,19 +2363,24 @@ function registerIpcHandlers(): void {
     try {
     const task = taskForId(parsed.data.taskId);
     if (activeAgentTaskId !== task.id) await activateAgentTask(task.id);
+    const allowedAttachments = approvedAgentFiles.get(task.id) ?? new Set<string>();
+    const attachments = parsed.data.attachments ?? [];
+    if (attachments.some(file => !allowedAttachments.has(file))) throw new Error("附件列表包含未经系统文件选择器授权的文件，请重新选择。");
+    copilotAgent.setApprovedFiles([...allowedAttachments]);
     if (task.title === "New task" || task.title.endsWith(" · New task")) {
       const cleanTitle = parsed.data.prompt.replace(/\s+/g, " ").trim();
       task.title = cleanTitle.slice(0, 64) + (cleanTitle.length > 64 ? "…" : "");
     }
     const traceId = randomUUID();
     activeAgentTraceId = traceId;
+    copilotAgent.setMemoryContext(task.sessionId, traceId);
     task.lastRunAt = Date.now();
     task.updatedAt = Date.now();
     persistAgentTasks();
     publishAgentWorkspaceSnapshot();
     recordAgentTrace("turn.started", { prompt: parsed.data.prompt, history: parsed.data.history ?? [], settings: agentSettings, workspacePath: workspaceProject.path, taskId: task.id }, "running");
     try {
-      await copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined);
+      await copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined, attachments);
       recordAgentTrace("turn.completed", { outcome: "completed" }, "completed");
     } catch (error) {
       recordAgentTrace("turn.failed", { error: error instanceof Error ? error.message : String(error) }, "failed");
