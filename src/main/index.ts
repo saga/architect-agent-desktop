@@ -428,17 +428,18 @@ function buildAgentWorkspaceSnapshot(): AgentWorkspaceSnapshot {
   const grouped = new Map<string, AgentWorkspaceSnapshot["workspaces"][number]>();
   const scheduleRunTaskIds = new Set(agentScheduleRuns.map(run => run.taskId).filter((id): id is string => Boolean(id)));
   const visibleTasks = agentTasks.filter(task => !scheduleRunTaskIds.has(task.id));
-  for (const task of visibleTasks) {
+  for (const task of agentTasks) {
+    const isScheduleRun = scheduleRunTaskIds.has(task.id);
     const key = task.workspacePath ?? "";
     const current = grouped.get(key);
     if (current) {
-      current.taskCount += 1;
+      if (!isScheduleRun) current.taskCount += 1;
       current.updatedAt = Math.max(current.updatedAt, task.updatedAt);
     } else {
       grouped.set(key, {
         path: task.workspacePath,
         name: task.workspacePath ? path.basename(task.workspacePath) || task.workspacePath : "个人工作区",
-        taskCount: 1,
+        taskCount: isScheduleRun ? 0 : 1,
         updatedAt: task.updatedAt,
       });
     }
