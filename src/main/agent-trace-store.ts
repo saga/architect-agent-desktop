@@ -262,6 +262,7 @@ export class AgentTraceStore {
           ))
         )
         AND length(trim(m.content)) > 0
+        AND length(trim(m.content)) > 0
         AND m.kind IN ('user','assistant','error','tool','a2ui','a2ui-v1')
       ORDER BY m.created_at ASC, m.session_id ASC, m.id ASC
       LIMIT ?
