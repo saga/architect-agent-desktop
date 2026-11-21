@@ -696,7 +696,7 @@ export class CopilotDesktopAgent {
         : allowedBuiltinTools ?? READ_ONLY_BUILTINS,
       disallowedTools: disallowedBuiltinTools,
     }),
-  };;
+  };
   const abortController=new AbortController();
   this.codeBuddyAbortController=abortController;
   let currentPrompt=historyPrompt(history,prompt);
