@@ -231,6 +231,49 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("archives stale knowledge pages with version checks and rollback support", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const note = store.saveNote({
+      scope: "/workspace/knowledge-archive",
+      title: "Archived page source",
+      content: "The old workflow is no longer applicable.",
+    });
+    const page = store.publishRepresentation({
+      scope: "/workspace/knowledge-archive",
+      slug: "old-workflow",
+      title: "Old workflow",
+      content: "The retired process.",
+      sourceNoteIds: [note.id],
+    });
+    const run = store.prepareDreaming("/workspace/knowledge-archive", [{
+      sessionId: "session-archive",
+      messageId: "message-archive",
+      kind: "user",
+      content: "The old workflow has been replaced by the new approval process.",
+      createdAt: Date.now(),
+    }]);
+
+    store.commitDreaming({
+      scope: "/workspace/knowledge-archive",
+      runId: run!.id,
+      summary: "Archive a knowledge page that no longer represents the current process.",
+      operations: [{
+        op: "archive_knowledge",
+        slug: "old-workflow",
+        baseVersion: page.version,
+        sourceRefs: [run!.evidence[0]!.sourceId],
+        reason: "The source transcript confirms that this process has been replaced.",
+      }],
+    });
+    expect(store.getRepresentations("/workspace/knowledge-archive")).toHaveLength(0);
+    expect(store.getDreamOperations(run!.id, "/workspace/knowledge-archive").some(operation => operation.operation === "archive_knowledge")).toBe(true);
+
+    store.rollbackDreaming("/workspace/knowledge-archive", run!.id, "Verify knowledge-page rollback.");
+    expect(store.getRepresentations("/workspace/knowledge-archive")[0]?.content).toBe("The retired process.");
+    expect(store.getDreamCursor("/workspace/knowledge-archive").createdAt).toBe(0);
+    store.close();
+  });
+
   it("stores before and after versions when expired notes are pruned", () => {
     const directory = temporaryDirectory();
     const databasePath = path.join(directory, "memory.sqlite");
