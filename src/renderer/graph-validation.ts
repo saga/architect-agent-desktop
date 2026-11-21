@@ -101,7 +101,7 @@ export function validateWorkflowGraphJson(input: unknown): Record<string, unknow
   try { encoded = JSON.stringify(input); } catch { return null; }
   if (encoded.length > 1_000_000 || containsUnsafeWorkflowValue(input)) return null;
   const cells = Array.isArray(input.cells) ? input.cells : null;
-  if (!cells || cells.length < 1 || cells.length > 2_000) return null;
+  if (!cells || cells.length > 2_000) return null;
   const allowedShapes = new Set(["edge", "rect", "circle", "ellipse", "polygon"]);
   const ids = new Set<string>();
   for (const cell of cells) {
