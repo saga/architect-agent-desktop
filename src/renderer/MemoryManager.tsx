@@ -3,9 +3,8 @@ import {
   Alert, Button, Card, Collapse, Descriptions, Divider, Empty, List, Modal, Popconfirm,
   Select, Space, Spin, Statistic, Table, Tabs, Tag, Typography, message,
 } from "antd";
-import {
-  AgentMemoryDreamRunDetail, AgentMemoryNoteView, AgentMemorySnapshot,
-  AgentTask,
+import type {
+  AgentMemoryDreamRunDetail, AgentMemoryNoteView, AgentMemorySnapshot, AgentTask,
 } from "../shared/types";
 
 const { Text, Paragraph } = Typography;
@@ -223,7 +222,7 @@ export default function MemoryManager() {
         { key: "knowledge", label: "知识页", children: <List dataSource={snapshot.knowledge} locale={{ emptyText: "尚未发布主题知识页" }} renderItem={item => <List.Item><List.Item.Meta title={<Space><Text strong>{valueOf(item, "title")}</Text><Tag>{valueOf(item, "slug")}</Tag><Tag>v{valueOf(item, "version")}</Tag></Space>} description={<><Paragraph ellipsis={{ rows: 3, expandable: true }}>{valueOf(item, "content")}</Paragraph><Text type="secondary">来源 Notes：{Array.isArray(item.sourceNoteIds) ? item.sourceNoteIds.join(", ") : ""}</Text></>} /></List.Item>} /> },
         { key: "relationships", label: "记忆关系", children: <Table rowKey={row => valueOf(row, "id")} size="small" pagination={{ pageSize: 10 }} dataSource={snapshot.relationships} columns={[
           { title: "来源 Note", dataIndex: "source_note_id", key: "source" },
-          { title: "关系", dataIndex: "relationship", key: "relationship", render: value => <Tag>{String(value)}</Tag> },
+          { title: "关系", dataIndex: "relationship", key: "relationship", render: (value: unknown) => <Tag>{String(value)}</Tag> },
           { title: "目标 Note", dataIndex: "target_note_id", key: "target" },
           { title: "依据", dataIndex: "details", key: "details" },
           { title: "建立时间", key: "created", render: (_: unknown, row: Record<string, unknown>) => dateOf(row.created_at) },
@@ -250,8 +249,8 @@ export default function MemoryManager() {
         </Descriptions>
         <Divider />
         <Collapse items={[
-          { key: "evidence", label: "固定证据集 · " + selectedRun.run.evidence.length, children: <List size="small" dataSource={selectedRun.run.evidence} renderItem={source => <List.Item><List.Item.Meta title={<Space><Text strong>{source.kind}</Text><Text type="secondary">{dateOf(source.createdAt)}</Text><Tag>{source.sourceId}</Tag></Space>} description={<Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{source.content}</Paragraph>} /></List.Item>} /> },
-          { key: "operations", label: "变更审计 · " + selectedRun.operations.length, children: <List size="small" dataSource={selectedRun.operations} renderItem={operation => <List.Item><List.Item.Meta title={<Space><Tag color="blue">{valueOf(operation, "operation")}</Tag><Text code>{valueOf(operation, "entityId")}</Text></Space>} description={<><Paragraph>{valueOf(operation, "reason")}</Paragraph><Text type="secondary">序号 {valueOf(operation, "sequence")} · {valueOf(operation, "entityType")}</Text></>} /></List.Item>} /> },
+          { key: "evidence", label: "固定证据集 · " + selectedRun.run.evidence.length, children: <List size="small" pagination={{ pageSize: 8 }} dataSource={selectedRun.run.evidence} renderItem={source => <List.Item><List.Item.Meta title={<Space><Text strong>{source.kind}</Text><Text type="secondary">{dateOf(source.createdAt)}</Text><Tag>{source.sourceId}</Tag></Space>} description={<Paragraph style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{source.content}</Paragraph>} /></List.Item>} /> },
+          { key: "operations", label: "变更审计 · " + selectedRun.operations.length, children: <List size="small" pagination={{ pageSize: 8 }} dataSource={selectedRun.operations} renderItem={operation => <List.Item><List.Item.Meta title={<Space><Tag color="blue">{valueOf(operation, "operation")}</Tag><Text code>{valueOf(operation, "entityId")}</Text></Space>} description={<><Paragraph>{valueOf(operation, "reason")}</Paragraph><Text type="secondary">序号 {valueOf(operation, "sequence")} · {valueOf(operation, "entityType")}</Text><Collapse size="small" items={[{ key: "before", label: "变更前快照", children: <pre className="memory-json">{valueOf(operation, "before") || "（新建实体）"}</pre> }, { key: "after", label: "变更后快照", children: <pre className="memory-json">{valueOf(operation, "after") || "（已删除实体）"}</pre> }]} /></>} /></List.Item>} /> },
         ]} />
       </>}
     </Modal>
