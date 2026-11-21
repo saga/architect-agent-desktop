@@ -264,7 +264,7 @@ export default function AgentSettingsWindow() {
         <div className="plugin-manager-heading">
           <div>
             <h2>Claude Code Plugins</h2>
-            <p>插件目录采用 Claude Code Plugin 约定：根目录包含 .claude-plugin/plugin.json，组件放在 skills/、commands/ 和 agents/。</p>
+            <p>插件目录采用 Claude Code Plugin 约定：通常包含 .claude-plugin/plugin.json，组件放在 skills/、commands/ 和 agents/；标准允许省略 manifest。</p>
           </div>
           <Space wrap>
             <Button onClick={() => void window.browser.openExternal("https://claude.com/marketplace/plugins")}>浏览 Claude Marketplace</Button>
