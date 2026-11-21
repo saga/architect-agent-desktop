@@ -1443,9 +1443,19 @@ export class AgentMemoryStore {
       const domains=new Set(externalVerification.sources.map(source=>sourceRegistrableDomain(source.domain)));
       externalVerification.status=domains.size>=2?"multi_domain_sources_recorded":"single_domain_sources_recorded";
     }
+    const validationEvidence=parseJson<MemoryValidationEvidence|null>(row.validation_evidence_json,null);
+    const claimType=isClaimType(row.claim_type)?row.claim_type:"unknown";
+    let validation:MemoryValidation=isValidation(row.validation)?row.validation:"unverified";
+    if(validation==="validated"&&(!row.validation_evidence_json||(
+      claimType==="external_fact"&&(
+        validationEvidence?.eligible!==true||
+        validationEvidence.policy!=="human_confirmed_multi_domain_source_review"||
+        externalVerification?.status!=="multi_domain_sources_recorded"
+      )
+    )))validation="unverified";
     return {
       id:String(row.id),title:String(row.title),content:String(row.content),tags:parseJson<string[]>(row.tags_json,[]),
-      validation:isValidation(row.validation)?(row.validation==="validated"&&!row.validation_evidence_json?"unverified":row.validation):"unverified",confidence:Number(row.confidence??0.5),pinned:Number(row.pinned??0)===1,
+      validation,confidence:Number(row.confidence??0.5),pinned:Number(row.pinned??0)===1,
       importance:Number(row.importance??0.5),status:row.status==="archived"||row.status==="superseded"?row.status:"active",
       sourceSessionId:typeof row.source_session_id==="string"?row.source_session_id:null,
       sourceTraceId:typeof row.source_trace_id==="string"?row.source_trace_id:null,sourceRefs:parseJson<string[]>(row.source_refs_json,[]),
@@ -1455,8 +1465,8 @@ export class AgentMemoryStore {
       supersededById:typeof row.superseded_by_id==="string"?row.superseded_by_id:null,
       qualityScore:row.quality_score==null?null:Number(row.quality_score),
       lastQualityReviewedAt:row.last_quality_reviewed_at==null?null:Number(row.last_quality_reviewed_at),
-      claimType:isClaimType(row.claim_type)?row.claim_type:"unknown",
-      validationEvidence:parseJson<MemoryValidationEvidence|null>(row.validation_evidence_json,null),
+      claimType,
+      validationEvidence,
       externalVerification,
     };
   }
