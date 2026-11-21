@@ -387,7 +387,7 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
           <Button onClick={() => { setShowForm(false); reset(); }}>取消</Button>
           <Button type="primary" loading={saving} onClick={() => void createOrUpdate()}>{editingId ? "保存修改" : "创建任务"}</Button>
         </div>
-        <p className="pure-form-help">任务会使用指定 Workspace 和 Expert，以独立 Session 执行并保留运行记录。它继承当前 Agent 的模型和权限；无人值守任务不会自动提升权限。应用退出或电脑休眠期间不会执行，重新启动后只处理当前已到期的任务，不逐次补跑错过的周期。</p>
+        <p className="pure-form-help">任务会使用指定 Workspace 和 Expert，以独立 Session 执行并保留运行记录。它继承当前 Agent 的模型和权限；无人值守任务不会自动提升权限，需要人工确认的工具调用仍遵循原权限策略，可能等待用户确认。应用退出或电脑休眠期间不会执行，重新启动后只处理当前已到期的任务，不逐次补跑错过的周期。</p>
       </section>}
 
       <div className="pure-schedule-list">
