@@ -352,6 +352,13 @@ export class CopilotDesktopAgent {
     })},
     {name:"memory_search",description:"检索当前 Workspace 的长期记忆。检查项目约定、用户偏好、已知决策和历史经验。",schema:z.object({query:z.string().min(1).max(200),limit:z.number().int().min(1).max(30).optional().default(10)}),handler:({query,limit}:{query:string;limit?:number})=>report("Search memory",async()=>JSON.stringify(this.memory.search(this.memoryScope(),query,limit)))},
     {name:"memory_search_history",description:"在当前 Workspace 已保存的会话 transcript 中检索旧任务、决策与操作结果。它搜索已有 Agent Session SQLite 数据，不复制会话记录。",schema:z.object({query:z.string().min(1).max(200),limit:z.number().int().min(1).max(50).optional().default(20)}),handler:({query,limit}:{query:string;limit?:number})=>report("Search Agent history",async()=>JSON.stringify(this.searchTranscriptMessages(this.workspacePath,query,limit)))},
+    {name:"memory_review",description:"复核现有 Memory Note。只有查阅原始会话、文件或可靠证据后才能设为 validated；证据不足保持 unverified；被证伪或过时则标记 disputed。",
+      schema:z.object({id:z.string().min(1).max(100),validation:z.enum(["unverified","validated","disputed"]),confidence:z.number().min(0).max(1)}),
+      handler:({id,validation,confidence}:{id:string;validation:"unverified"|"validated"|"disputed";confidence:number})=>report("Review memory",async()=>{
+        const note=this.memory.list(this.memoryScope(),50).find(item=>item.id===id);
+        if(!note) throw new Error("只能复核当前 Workspace 的活动 Memory Note。");
+        return JSON.stringify(this.memory.setValidation(id,validation,confidence));
+      })},
     {name:"memory_save",description:"保存跨会话仍有价值的经验、项目事实或用户明确要求记住的偏好。默认 unverified；保留依据，不要把推测写成事实。",schema:z.object({title:z.string().min(1).max(160),content:z.string().min(1).max(12000),tags:z.array(z.string().max(40)).max(16).optional(),pinned:z.boolean().optional().default(false)}),handler:({title,content,tags,pinned}:{title:string;content:string;tags?:string[];pinned?:boolean})=>report("Save memory",async()=>JSON.stringify(this.memory.saveNote({scope:this.memoryScope(),title,content,tags,pinned,sourceSessionId:this.memorySessionId,sourceTraceId:this.memoryTraceId})))},
     {name:"memory_publish_knowledge",description:"把 Memory Notes 整理为可检索的知识页，区分确认事实、推测、时效性信息，并引用来源 Note ID。",schema:z.object({slug:z.string().min(1).max(80),title:z.string().min(1).max(160),content:z.string().min(1).max(24000),sourceNoteIds:z.array(z.string().min(1).max(100)).max(100)}),handler:({slug,title,content,sourceNoteIds}:{slug:string;title:string;content:string;sourceNoteIds:string[]})=>report("Publish knowledge",async()=>{
       const available=new Set(this.memory.list(this.memoryScope(),50).map(note=>note.id));
