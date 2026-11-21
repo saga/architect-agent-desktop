@@ -350,8 +350,8 @@ export class CopilotDesktopAgent {
       this.publish({type:"a2ui",text:JSON.stringify(validated)});
       return "A2UI 卡片已发送到会话界面。";
     })},
-    {name:"memory_search",description:"检索当前 Workspace 的长期记忆。检查项目约定、用户偏好、已知决策和历史经验。",schema:z.object({query:z.string().min(1).max(200),limit:z.number().int().min(1).max(30).optional().default(10)}),handler:({query,limit}:{query:string;limit?:number})=>report("Search memory",async()=>JSON.stringify(this.memory.search(this.memoryScope(),query,limit)))},
-    {name:"memory_search_history",description:"在当前 Workspace 已保存的会话 transcript 中检索旧任务、决策与操作结果。它搜索已有 Agent Session SQLite 数据，不复制会话记录。",schema:z.object({query:z.string().min(1).max(200),limit:z.number().int().min(1).max(50).optional().default(20)}),handler:({query,limit}:{query:string;limit?:number})=>report("Search Agent history",async()=>JSON.stringify(this.searchTranscriptMessages(this.workspacePath,query,limit)))},
+    {name:"memory_search",description:"检索当前 Workspace 的长期记忆。检查项目约定、用户偏好、已知决策和历史经验。",schema:z.object({query:z.string().min(1).max(200),limit:z.number().int().min(1).max(30).optional().default(10)}),handler:({query,limit}:{query:string;limit?:number})=>report("Search memory",async()=>JSON.stringify(this.memory.search(this.memoryScope(),query,limit ?? 10)))},
+    {name:"memory_search_history",description:"在当前 Workspace 已保存的会话 transcript 中检索旧任务、决策与操作结果。它搜索已有 Agent Session SQLite 数据，不复制会话记录。",schema:z.object({query:z.string().min(1).max(200),limit:z.number().int().min(1).max(50).optional().default(20)}),handler:({query,limit}:{query:string;limit?:number})=>report("Search Agent history",async()=>JSON.stringify(this.searchTranscriptMessages(this.workspacePath,query,limit ?? 20)))},
     {name:"memory_review",description:"复核现有 Memory Note。只有查阅原始会话、文件或可靠证据后才能设为 validated；证据不足保持 unverified；被证伪或过时则标记 disputed。",
       schema:z.object({id:z.string().min(1).max(100),validation:z.enum(["unverified","validated","disputed"]),confidence:z.number().min(0).max(1)}),
       handler:({id,validation,confidence}:{id:string;validation:"unverified"|"validated"|"disputed";confidence:number})=>report("Review memory",async()=>{
