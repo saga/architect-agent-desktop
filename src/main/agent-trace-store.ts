@@ -134,7 +134,8 @@ export class AgentTraceStore {
       WHERE NOT EXISTS (
         SELECT 1 FROM session_message_revisions r
         WHERE r.session_id=m.session_id AND r.message_id=m.id
-      );
+      )
+      ORDER BY m.created_at ASC,m.session_id ASC,m.id ASC;
     `);
     try {
       this.database.exec(`
@@ -278,11 +279,28 @@ export class AgentTraceStore {
       JOIN sessions s ON s.id=r.session_id
       WHERE s.workspace_path IS ?
         AND r.revision > ?
+        AND (
+          ? > 0
+          OR r.change_type <> 'baseline'
+          OR r.created_at > ?
+          OR (r.created_at = ? AND (
+            r.session_id > ?
+            OR (r.session_id = ? AND r.message_id > ?)
+          ))
+        )
         AND length(trim(r.content)) > 0
         AND r.kind IN ('user','assistant','error','tool','interaction')
       ORDER BY r.revision ASC
       LIMIT ?
-    `).all(workspacePath, Math.max(0, Math.floor(cursor.transcriptRevision ?? 0)), safeLimit) as Array<{
+    `).all(
+      workspacePath,
+      Math.max(0, Math.floor(cursor.transcriptRevision ?? 0)),
+      Math.max(0, Math.floor(cursor.transcriptRevision ?? 0)),
+      Math.max(0, Math.floor(cursor.createdAt)),
+      Math.max(0, Math.floor(cursor.createdAt)),
+      cursor.sessionId, cursor.sessionId, cursor.messageId,
+      safeLimit,
+    ) as Array<{
       sessionId: string; messageId: string; kind: string; content: string;
       createdAt: number; revision: number; changeType: string;
     }>;
