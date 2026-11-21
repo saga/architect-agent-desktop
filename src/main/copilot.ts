@@ -317,6 +317,7 @@ export class CopilotDesktopAgent {
  getMemorySnapshot(scope: string | null) {
   return {
    cursor: this.memory.getDreamCursor(scope),
+   dreamSchedule: this.memory.getDreamSchedule(scope),
    notes: this.memory.listNotes(scope, true, 200),
    relationships: this.memory.listRelationships(scope, [], 200),
    knowledge: this.memory.getRepresentations(scope, 50),
@@ -330,6 +331,21 @@ export class CopilotDesktopAgent {
  archiveMemoryNote(scope:string|null,noteId:string):void {
   if(this.active) throw new Error("Agent 正在运行，不能同时归档 Memory Note。");
   this.memory.archive(noteId,scope);
+ }
+ getMemoryDreamSchedule(scope:string|null) {
+  return this.memory.getDreamSchedule(scope);
+ }
+ saveMemoryDreamSchedule(scope:string|null,input:{enabled:boolean;intervalMinutes:number}) {
+  return this.memory.saveDreamSchedule(scope,input);
+ }
+ listDueMemoryDreamSchedules(now=Date.now(),limit=10) {
+  return this.memory.listDueDreamSchedules(now,limit);
+ }
+ claimMemoryDreamSchedule(scope:string|null,now=Date.now()) {
+  return this.memory.claimDreamSchedule(scope,now);
+ }
+ finishMemoryDreamSchedule(scope:string|null,status:"success"|"error",error:string|null=null,now=Date.now()) {
+  return this.memory.finishDreamSchedule(scope,status,error,now);
  }
  getMemoryDreamRunDetail(scope: string | null, runId: string) {
   const run = this.memory.getDreamRun(runId, scope);
