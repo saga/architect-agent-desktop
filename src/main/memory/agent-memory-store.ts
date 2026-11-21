@@ -479,11 +479,11 @@ export class AgentMemoryStore {
       }
       const now=Date.now();
       const previous=this.database.prepare("SELECT * FROM memory_dream_cursors WHERE scope_key=?").get({}, scopeKey) as Record<string,unknown>|undefined;
-      const next={scope_key:scopeKey,max_source_created_at:Math.max(run.maxSourceCreatedAt,Number(previous?.max_source_created_at??0)),last_run_id:input.runId,updated_at:now};
+      const next={scope_key:scopeKey,max_source_created_at:run.cursorAfter.createdAt,last_source_session_id:run.cursorAfter.sessionId,last_source_message_id:run.cursorAfter.messageId,last_run_id:input.runId,updated_at:now};
       this.recordDreamOperation(input.runId,sequence+1,"cursor",scopeKey,"advance_cursor",previous??null,next,"Advance the transcript cursor after a successful atomic commit.");
       this.upsertCursor(next);
       this.database.prepare("UPDATE memory_dream_runs SET status='completed',summary=?,completed_at=?,operation_count=? WHERE id=? AND scope_key=? AND status='prepared'")
-        .run({}, summary,now,sequence+1,input.runId,scopeKey);
+        .run({}, summary,now,sequence,input.runId,scopeKey);
       this.database.exec("COMMIT");
       return {runId:input.runId,status:"completed",sourceCount:run.sourceCount,operationCount:sequence,createdNoteIds,updatedNoteIds,publishedKnowledgeIds,maxSourceCreatedAt:run.maxSourceCreatedAt};
     }catch(error){this.database.exec("ROLLBACK");throw error;}
