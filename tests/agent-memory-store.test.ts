@@ -107,6 +107,7 @@ describe("AgentMemoryStore", () => {
     expect(contextB).not.toContain("Portfolio A private convention");
     expect(store.getSourceById(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
     expect(store.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toEqual(personalSource);
+    store.abandonDreaming(null, personalRun!.id, "test complete");
 
     expect(() => store.saveNote({
       scope: null,
@@ -151,8 +152,10 @@ describe("AgentMemoryStore", () => {
     expect(store.listAgentAccessibleNotes(null, true).map(note => note.id)).not.toContain(personalNote.id);
     expect(store.search("/workspace/portfolio-b", "architecture review preference").map(note => note.id)).not.toContain(personalNote.id);
     expect(store.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
+    expect(store.getAgentAccessibleSource(personalSource.sourceId, null)).toBeNull();
+    expect(store.listNotesMissingEmbeddings("/workspace/portfolio-b", "ollama", "nomic-embed-text", 20).map(note => note.id)).not.toContain(personalNote.id);
+    expect(store.getEmbeddingIndexStatus("/workspace/portfolio-b", "ollama", "nomic-embed-text").total).toBe(0);
     expect(store.getInjectedContext("/workspace/portfolio-b")).not.toContain("Architecture review preference");
-    store.abandonDreaming(null, personalRun!.id, "test complete");
     store.close();
   });
 
