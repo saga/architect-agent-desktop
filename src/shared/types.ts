@@ -100,6 +100,7 @@ export interface AgentMemorySnapshot {
   workspacePath: string | null;
   cursor: { createdAt: number; sessionId: string; messageId: string; transcriptRevision: number };
   dreamSchedule: AgentMemoryDreamSchedule;
+  embeddingIndex: { enabled: boolean; provider: "disabled" | "ollama"; baseUrl: string; model: string; indexed: number; missing: number; total: number };
   notes: AgentMemoryNoteView[];
   relationships: Array<Record<string, unknown>>;
   knowledge: Array<Record<string, unknown>>;
@@ -303,6 +304,7 @@ export interface BrowserApi {
   agentMemoryAbandonDreaming(taskId: string, runId: string, reason: string): Promise<void>;
   agentMemoryRollbackDreaming(taskId: string, runId: string, reason: string): Promise<void>;
   agentMemorySaveDreamSchedule(taskId: string, schedule: { enabled: boolean; intervalMinutes: number }): Promise<AgentMemoryDreamSchedule>;
+  agentMemoryReindexEmbeddings(taskId: string, limit?: number): Promise<{ enabled: boolean; indexed: number; remaining: number; total?: number; model?: string; warning?: string; message?: string }>;
   copilotCancel(): Promise<void>;
   agentLoadSession(taskId?: string): Promise<AgentSessionItem[]>;
   agentSaveSession(items: AgentSessionItem[], taskId?: string): Promise<void>;
