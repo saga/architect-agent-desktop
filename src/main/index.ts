@@ -2418,7 +2418,19 @@ function registerIpcHandlers(): void {
     try {
       const task = taskForId(parsed.data.taskId);
       if (activeAgentTaskId !== task.id) await activateAgentTask(task.id);
-      const history = loadAgentSession(task.id)
+      const previousTranscript = loadAgentSession(task.id);
+      const actionContent = JSON.stringify(parsed.data.message);
+      const interactionItem = {
+        id: randomUUID(),
+        kind: "interaction" as const,
+        content: actionContent,
+        createdAt: Date.now(),
+      };
+      // Keep renderer actions in the authoritative SQLite transcript. The renderer
+      // receives the same ID so its debounced full-session save cannot erase it.
+      saveAgentSession([...previousTranscript, interactionItem], task.id);
+      copilotAgent.publishInteraction(interactionItem.id, interactionItem.content, interactionItem.createdAt);
+      const history = previousTranscript
         .filter(item => (item.kind === "user" || item.kind === "assistant") && item.content.trim())
         .slice(-20)
         .map(item => ({ role: item.kind as "user" | "assistant", content: item.content.slice(0, 12_000) }));
