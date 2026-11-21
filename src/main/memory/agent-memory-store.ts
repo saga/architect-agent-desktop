@@ -1210,14 +1210,14 @@ export class AgentMemoryStore {
     }else{
       appendNotes("Personal Memory",this.list(null,100),budget-Math.floor(remaining*0.20));
     }
-    appendNotes("Workspace Memory",workspaceNotes,budget-Math.floor(remaining*0.08));
+    appendNotes("Workspace Memory",workspaceNotes,budget-Math.floor(remaining*0.25));
     const appendRepresentations=(heading:string,items:AgentMemoryRepresentation[])=>{
       if(!items.length||used>=budget-100)return;
       const title="## "+heading;
       if(used+title.length+1>budget-80)return;
       lines.push(title);used+=title.length+1;
       for(const item of items){
-        const line="- "+item.title+" ["+item.slug+", v"+item.version+"]: "+item.content.replace(/\s+/g," ").slice(0,120)+
+        const line="- "+item.title+" ["+item.slug+", v"+item.version+"]: "+item.content.replace(/\s+/g," ").slice(0,80)+
           " {source Notes: "+item.sourceNoteIds.slice(0,8).join(", ")+"}";
         if(used+line.length+1>budget-60)break;
         lines.push(line);used+=line.length+1;
