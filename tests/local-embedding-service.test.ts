@@ -52,6 +52,7 @@ describe("LocalEmbeddingService", () => {
       model: "nomic-embed-text",
       input: ["portfolio risk and liquidity"],
     });
+    expect(request.redirect).toBe("error");
     expect(result.vector[0]).toBeCloseTo(0.6);
     expect(result.vector[1]).toBeCloseTo(0.8);
     expect(Math.sqrt(result.vector.reduce((sum, value) => sum + value * value, 0))).toBeCloseTo(1);
