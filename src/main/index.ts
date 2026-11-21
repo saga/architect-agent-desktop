@@ -63,6 +63,7 @@ const permissionGrants = new Map<string, Set<string>>();
 let mainWindow: BrowserWindow | null = null;
 const nativeViewStack = new NativeViewStackManager(() => mainWindow);
 let agentSettingsWindow: BrowserWindow | null = null;
+let sessionExplorerWindow: BrowserWindow | null = null;
 let agentPanelWindow: BrowserWindow | null = null;
 let closingAgentPanelForRedock = false;
 let isQuitting = false;
@@ -1309,7 +1310,7 @@ function createMainWindow(): void {
 }
 
 function isTrustedAppSender(webContents: WebContents): boolean {
-  return Boolean((mainWindow && !mainWindow.isDestroyed() && webContents === mainWindow.webContents) || (agentSettingsWindow && !agentSettingsWindow.isDestroyed() && webContents === agentSettingsWindow.webContents) || (agentPanelWindow && !agentPanelWindow.isDestroyed() && webContents === agentPanelWindow.webContents));
+  return Boolean((mainWindow && !mainWindow.isDestroyed() && webContents === mainWindow.webContents) || (agentSettingsWindow && !agentSettingsWindow.isDestroyed() && webContents === agentSettingsWindow.webContents) || (sessionExplorerWindow && !sessionExplorerWindow.isDestroyed() && webContents === sessionExplorerWindow.webContents) || (agentPanelWindow && !agentPanelWindow.isDestroyed() && webContents === agentPanelWindow.webContents));
 }
 
 function publishWorkspaceProject(): void {
@@ -1417,6 +1418,60 @@ function floatAgentPanel(): void {
   writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
   publishWorkspaceLayout();
   updateActiveBounds();
+}
+
+function openSessionExplorerWindow(): void {
+  if (sessionExplorerWindow && !sessionExplorerWindow.isDestroyed()) {
+    if (sessionExplorerWindow.isMinimized()) sessionExplorerWindow.restore();
+    sessionExplorerWindow.show();
+    sessionExplorerWindow.focus();
+    return;
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  // WebContentsView is a native child view and paints above the main renderer DOM.
+  // Keep Session Explorer in its own window rather than a Drawer that the browser view can cover.
+  const explorerWindow = new BrowserWindow({
+    parent: mainWindow,
+    modal: false,
+    show: false,
+    width: 1320,
+    height: 900,
+    minWidth: 900,
+    minHeight: 640,
+    resizable: true,
+    maximizable: true,
+    title: "Session Explorer",
+    backgroundColor: "#ffffff",
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/index.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  sessionExplorerWindow = explorerWindow;
+  attachWindowDiagnostics(explorerWindow, "session-explorer");
+  explorerWindow.once("ready-to-show", () => {
+    if (!explorerWindow.isDestroyed()) {
+      explorerWindow.center();
+      explorerWindow.show();
+      explorerWindow.focus();
+    }
+  });
+  explorerWindow.on("closed", () => {
+    if (sessionExplorerWindow === explorerWindow) sessionExplorerWindow = null;
+  });
+
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  const loading = devServerUrl
+    ? explorerWindow.loadURL(devServerUrl + (devServerUrl.includes("?") ? "&" : "?") + "session-explorer=1")
+    : explorerWindow.loadFile(path.join(__dirname, "../renderer/index.html"), { query: { "session-explorer": "1" } });
+  void loading.catch((error: unknown) => {
+    console.error("Unable to open Session Explorer", error);
+    if (!explorerWindow.isDestroyed()) explorerWindow.close();
+  });
 }
 
 function openAgentSettingsWindow(): void {
@@ -2093,6 +2148,7 @@ function registerIpcHandlers(): void {
     return skills;
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
+  ipcMain.handle("agent:open-session-explorer", (event) => { assertTrustedSender(event); openSessionExplorerWindow(); });
   ipcMain.handle("agent:pick-files", async (event) => {
     assertTrustedSender(event);
     const { canceled, filePaths } = await dialog.showOpenDialog({
