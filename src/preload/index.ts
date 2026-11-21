@@ -93,6 +93,7 @@ const api: BrowserApi = {
   agentPickFiles: () => ipcRenderer.invoke("agent:pick-files"),
   copilotSend: (prompt, history, taskId, attachments) => ipcRenderer.invoke("copilot:send", { prompt, history, taskId, attachments }),
   agentA2uiMessage: (message, taskId) => ipcRenderer.invoke("agent:a2ui-message", { message, taskId }),
+  agentA2uiMessage: (message, taskId) => ipcRenderer.invoke("agent:a2ui-message", { message, taskId }),
   copilotCancel: () => ipcRenderer.invoke("copilot:cancel"),
   agentLoadSession: (taskId?: string) => ipcRenderer.invoke("agent:load-session", taskId),
   agentSaveSession: (items: AgentSessionItem[], taskId?: string) => ipcRenderer.invoke("agent:save-session", { items, taskId }),
