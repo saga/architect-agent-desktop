@@ -80,7 +80,7 @@ export function McpSettingsPanel() {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(undefined); setModalOpen(true); }}>添加 MCP</Button></Space>
     </div>
     <Alert type="warning" showIcon message="外部 MCP 仅在当前 Agent 的有效工具权限为 Allow all 时连接"
-      description="MCP Server 提供的工具由外部服务定义，不受浏览器工具的细粒度权限控制。请只连接可信服务。密钥建议使用 \${ENV_VAR} 环境变量引用，不要把真实 Token 写入配置。" />
+      description="MCP Server 提供的工具由外部服务定义，不受浏览器工具的细粒度权限控制。请只连接可信服务。密钥建议使用 ${ENV_VAR} 环境变量引用，不要把真实 Token 写入配置。" />
     <div className="extension-list-summary"><Text type="secondary">{servers.length} 个已配置 · {activeCount} 个已启用</Text></div>
     <List className="extension-list" loading={loading} dataSource={servers}
       locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有配置 MCP Server" /> }}
@@ -157,12 +157,21 @@ export function AgentSkillsPanel() {
       description="目录必须包含 SKILL.md，并在 YAML frontmatter 中提供 name 和 description。Skill 中的脚本、命令和其他文件不会被应用自动执行。" />
     <List className="extension-list" loading={loading} dataSource={skills}
       locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span>尚未导入 Skill<br /><Text type="secondary">选择一个包含 SKILL.md 的目录即可添加</Text></span>} /> }}
-      renderItem={skill => <List.Item actions={[
-        <Switch key="enabled" checked={skill.enabled} checkedChildren="启用" unCheckedChildren="停用" onChange={value => void toggle(skill, value)} />,
-        <Popconfirm key="delete" title="删除此 Skill？" description="只删除应用管理目录中的副本，不影响原始目录。" okText="删除" cancelText="取消" onConfirm={() => void remove(skill)}><Button type="text" danger icon={<DeleteOutlined />} /></Popconfirm>,
-      ]}>
-        <List.Item.Meta title={<Space wrap><span>{skill.name}</span><Tag>{skill.id}</Tag>{skill.enabled ? <Tag color="success">已启用</Tag> : <Tag>已停用</Tag></Space>} description={skill.description} />
-      </List.Item>} />
+      renderItem={(skill) => (
+        <List.Item
+          actions={[
+            <Switch key="enabled" checked={skill.enabled} checkedChildren="启用" unCheckedChildren="停用" onChange={(value) => void toggle(skill, value)} />,
+            <Popconfirm key="delete" title="删除此 Skill？" description="只删除应用管理目录中的副本，不影响原始目录。" okText="删除" cancelText="取消" onConfirm={() => void remove(skill)}>
+              <Button type="text" danger icon={<DeleteOutlined />} />
+            </Popconfirm>,
+          ]}
+        >
+          <List.Item.Meta
+            title={<Space wrap><span>{skill.name}</span><Tag>{skill.id}</Tag>{skill.enabled ? <Tag color="success">已启用</Tag> : <Tag>已停用</Tag>}</Space>}
+            description={skill.description}
+          />
+        </List.Item>
+      )} />
     <Divider />
     <div className="settings-field-help">Skill 内容在每次新 Agent Session 创建时读取。切换状态后，下一次新建任务或重置会话生效。</div>
   </div>;
