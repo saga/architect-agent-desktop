@@ -26,6 +26,8 @@ describe("G6 KnowledgeGraph input validation", () => {
   it("only forwards click events for IDs in the validated graph", () => {
     const ids = new Set(["issuer-1", "fund-1"]);
     expect(getKnowledgeGraphClickedNodeId({ target: { id: "issuer-1" } }, ids)).toBe("issuer-1");
+    class GraphElementTarget { id = "fund-1"; }
+    expect(getKnowledgeGraphClickedNodeId({ target: new GraphElementTarget() }, ids)).toBe("fund-1");
     expect(getKnowledgeGraphClickedNodeId({ target: { id: "unknown" } }, ids)).toBeNull();
     expect(getKnowledgeGraphClickedNodeId({ target: { id: { malicious: true } } }, ids)).toBeNull();
     expect(getKnowledgeGraphClickedNodeId({ currentTarget: { id: "issuer-1" } }, ids)).toBeNull();
