@@ -40,6 +40,7 @@ export class AgentA2UIService {
   private readonly catalog = createAgentFinanceCatalog();
   private readonly generator = new A2uiGenerator([new CatalogConfig(this.catalog)]);
   private readonly states = new Map<string, RendererState>();
+  private readonly surfacesBySession = new Map<string, Set<string>>();
 
   promptSnippet(sessionId: string): string {
     const processor = this.generator.createProcessor(
@@ -60,13 +61,13 @@ export class AgentA2UIService {
     const stream = processor.openStream({ state, wrapped: true });
     return {
       promptSnippet: processor.promptSnippet,
-      feed: (chunk) => normalizeParts(stream.feed(chunk)),
-      close: () => normalizeParts(stream.close()),
-      parse: (content) => normalizeParts(processor.parseResponse(content, { state, wrapped: true })),
+      feed: (chunk) => this.trackSurfaceMessages(sessionId, normalizeParts(stream.feed(chunk))),
+      close: () => this.trackSurfaceMessages(sessionId, normalizeParts(stream.close())),
+      parse: (content) => this.trackSurfaceMessages(sessionId, normalizeParts(processor.parseResponse(content, { state, wrapped: true }))),
     };
   }
 
-  async validateRendererMessage(message: unknown): Promise<{ handled: false; replies: AgentToRendererMessage[] }> {
+  async validateRendererMessage(message: unknown, sessionId: string): Promise<{ handled: false; replies: AgentToRendererMessage[] }> {
     if (!message || typeof message !== "object" || Array.isArray(message)) {
       throw new Error("A2UI ActionMessage must be an object.");
     }
@@ -81,6 +82,10 @@ export class AgentA2UIService {
     if (typeof action.surfaceId !== "string" || action.surfaceId.length < 1 || action.surfaceId.length > 120) {
       throw new Error("A2UI ActionMessage action.surfaceId is invalid.");
     }
+    const sessionKey = sessionId.trim() || "__default_agent_session__";
+    if (!this.surfacesBySession.get(sessionKey)?.has(action.surfaceId)) {
+      throw new Error("A2UI ActionMessage references a Surface that was not created in this Agent Task.");
+    }
     if (action.sourceComponentId !== undefined &&
         (typeof action.sourceComponentId !== "string" || action.sourceComponentId.length > 120)) {
       throw new Error("A2UI ActionMessage sourceComponentId is invalid.");
@@ -94,7 +99,44 @@ export class AgentA2UIService {
   }
 
   reset(sessionId: string): void {
-    this.states.delete(sessionId);
+    const key = sessionId.trim() || "__default_agent_session__";
+    this.states.delete(key);
+    this.surfacesBySession.delete(key);
+  }
+
+  private trackSurfaceMessages(sessionId: string, parts: A2UIPart[]): A2UIPart[] {
+    const key = sessionId.trim() || "__default_agent_session__";
+    let surfaces = this.surfacesBySession.get(key);
+    if (!surfaces) {
+      surfaces = new Set<string>();
+      this.surfacesBySession.set(key, surfaces);
+    }
+    for (const part of parts) {
+      if (part.type !== "a2ui") continue;
+      for (const raw of part.messages) {
+        if (!raw || typeof raw !== "object") continue;
+        const message = raw as Record<string, unknown>;
+        const create = message.createSurface;
+        if (create && typeof create === "object" && !Array.isArray(create)) {
+          const surfaceId = (create as Record<string, unknown>).surfaceId;
+          if (typeof surfaceId === "string" && surfaceId.length <= 120) surfaces.add(surfaceId);
+        }
+        const remove = message.deleteSurface;
+        if (remove && typeof remove === "object" && !Array.isArray(remove)) {
+          const surfaceId = (remove as Record<string, unknown>).surfaceId;
+          if (typeof surfaceId === "string") surfaces.delete(surfaceId);
+        }
+      }
+    }
+    if (surfaces.size > 100) {
+      const oldest = [...surfaces].slice(0, surfaces.size - 100);
+      for (const surfaceId of oldest) surfaces.delete(surfaceId);
+    }
+    if (this.states.size > 64) {
+      const oldestSession = this.states.keys().next().value;
+      if (oldestSession && oldestSession !== key) this.reset(oldestSession);
+    }
+    return parts;
   }
 
   private stateFor(sessionId: string): RendererState {
