@@ -61,6 +61,7 @@ const api: BrowserApi = {
   },
   copilotStatus: () => ipcRenderer.invoke("copilot:status"),
   openAgentSettings: () => ipcRenderer.invoke("agent:open-settings"),
+  openSessionExplorer: () => ipcRenderer.invoke("agent:open-session-explorer"),
   agentDataGetDirectory: () => ipcRenderer.invoke("agent-data:get-directory"),
   agentDataSelectDirectory: () => ipcRenderer.invoke("agent-data:select-directory"),
   agentTraceListSessions: () => ipcRenderer.invoke("agent-trace:list-sessions"),
