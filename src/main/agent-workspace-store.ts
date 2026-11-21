@@ -149,7 +149,6 @@ export function nextScheduleRunAt(
       .filter(day => Number.isInteger(day) && day >= 0 && day <= 6).sort((a, b) => a - b);
     const dayNumber = (date: Date) => Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000);
     const anchorDay = dayNumber(anchor);
-    const scan = new Date(anchor);
     for (let offset = 0; offset <= 366 * 8; offset += 1) {
       const candidate = new Date(anchor);
       candidate.setDate(anchor.getDate() + offset);
