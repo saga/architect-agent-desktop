@@ -74,11 +74,24 @@ export interface AgentMemoryNoteView {
   version: number;
   updatedAt: number;
   expiresAt: number | null;
+  qualityScore: number | null;
+  lastQualityReviewedAt: number | null;
+}
+export interface AgentMemoryDreamSchedule {
+  enabled: boolean;
+  intervalMinutes: number;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  lastRunStatus: "success" | "error" | "running" | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+  updatedAt: number;
 }
 export interface AgentMemorySnapshot {
   taskId: string;
   workspacePath: string | null;
-  cursor: { createdAt: number; sessionId: string; messageId: string };
+  cursor: { createdAt: number; sessionId: string; messageId: string; transcriptRevision: number };
+  dreamSchedule: AgentMemoryDreamSchedule;
   notes: AgentMemoryNoteView[];
   relationships: Array<Record<string, unknown>>;
   knowledge: Array<Record<string, unknown>>;
@@ -88,6 +101,7 @@ export interface AgentMemoryDreamRunDetail {
   run: {
     id: string;
     status: string;
+    purpose: "transcript" | "quality_review";
     summary: string;
     sourceCount: number;
     createdAt: number;
@@ -280,6 +294,7 @@ export interface BrowserApi {
   agentMemoryGetDreamRun(taskId: string, runId: string): Promise<AgentMemoryDreamRunDetail>;
   agentMemoryAbandonDreaming(taskId: string, runId: string, reason: string): Promise<void>;
   agentMemoryRollbackDreaming(taskId: string, runId: string, reason: string): Promise<void>;
+  agentMemorySaveDreamSchedule(taskId: string, schedule: { enabled: boolean; intervalMinutes: number }): Promise<AgentMemoryDreamSchedule>;
   copilotCancel(): Promise<void>;
   agentLoadSession(taskId?: string): Promise<AgentSessionItem[]>;
   agentSaveSession(items: AgentSessionItem[], taskId?: string): Promise<void>;
