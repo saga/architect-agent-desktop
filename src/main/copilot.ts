@@ -15,7 +15,7 @@ import { agentProcessEnvironment, proxyUrlFromRules } from "./login-shell-env.js
 import { listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, writeWorkspaceFile } from "./workspace-files.js";
 import { parseDocumentFile } from "./documents/document-service.js";
 import { DuckDbAnalyticsService } from "./analytics/duckdb-service.js";
-import { AgentMemoryStore, type MemoryDreamOperation, type MemorySourceEvidence, type MemoryDreamCursor } from "./memory/agent-memory-store.js";
+import { AgentMemoryStore, type MemoryDreamOperation, type MemorySourceEvidence, type MemoryDreamCursor, type MemoryClaimType } from "./memory/agent-memory-store.js";
 
 export * from "./agent-runtime.js";
 
@@ -231,6 +231,7 @@ const memoryDreamOperationSchema = z.discriminatedUnion("op", [
   op:z.literal("upsert_note"), id:z.string().min(1).max(100).optional(),
   baseVersion:z.number().int().min(1).optional(),
   title:z.string().min(1).max(160), content:z.string().min(1).max(12000),
+  claimType:z.enum(["user_preference","user_intent","decision","project_fact","workflow_pattern","external_fact","unknown"]).optional(),
   tags:z.array(z.string().max(40)).max(16).optional(),
   importance:z.number().min(0).max(1).optional(), pinned:z.boolean().optional(),
   expiresAt:z.number().int().positive().nullable().optional(),
