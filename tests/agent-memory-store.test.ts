@@ -145,6 +145,57 @@ describe("AgentMemoryStore", () => {
     })).toThrow(/Personal Dreaming 只允许沉淀跨项目通用/);
     store.abandonDreaming(null, personalProjectRun!.id, "test complete");
 
+    const secondPersonalNote = store.saveNote({
+      scope: null,
+      title: "User writing preference",
+      content: "Use plain language and state important limitations.",
+      claimType: "user_preference",
+    });
+    const personalRelationshipRun = store.prepareDreaming(null, [{
+      sessionId: "personal-relationship-session",
+      messageId: "personal-relationship-source",
+      kind: "user",
+      content: "The user prefers writing that uses plain language.",
+      createdAt: Date.now() + 2,
+    }]);
+    expect(() => store.commitDreaming({
+      scope: null,
+      runId: personalRelationshipRun!.id,
+      summary: "Attempt to create a Personal Memory relationship.",
+      operations: [{
+        op: "link_notes",
+        sourceId: personalNote.id,
+        targetId: secondPersonalNote.id,
+        relationship: "related_to",
+        sourceRefs: [personalRelationshipRun!.evidence[0]!.sourceId],
+        reason: "This project relation must remain in its Workspace.",
+      }],
+    })).toThrow(/Personal Memory 不建立项目知识关系/);
+    store.abandonDreaming(null, personalRelationshipRun!.id, "test complete");
+
+    const personalKnowledgeRun = store.prepareDreaming(null, [{
+      sessionId: "personal-knowledge-session",
+      messageId: "personal-knowledge-source",
+      kind: "user",
+      content: "The user prefers short architecture summaries.",
+      createdAt: Date.now() + 3,
+    }]);
+    expect(() => store.commitDreaming({
+      scope: null,
+      runId: personalKnowledgeRun!.id,
+      summary: "Attempt to publish a Personal project knowledge page.",
+      operations: [{
+        op: "publish_knowledge",
+        slug: "portfolio-method",
+        title: "Portfolio method",
+        content: "A project-specific portfolio method.",
+        sourceNoteIds: [personalNote.id],
+        sourceRefs: [personalKnowledgeRun!.evidence[0]!.sourceId],
+        reason: "Project knowledge pages must remain Workspace-scoped.",
+      }],
+    })).toThrow(/Personal Memory 不发布项目知识页/);
+    store.abandonDreaming(null, personalKnowledgeRun!.id, "test complete");
+
     // Simulate a legacy personal Note that was incorrectly classified as a project fact.
     const database = (store as unknown as { database: DatabaseSync }).database;
     database.prepare("UPDATE memory_notes SET claim_type='project_fact' WHERE id=?").run({}, personalNote.id);
