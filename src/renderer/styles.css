@@ -1189,3 +1189,17 @@ button { color: inherit; }
   .memory-manager-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .memory-manager .ant-table { min-width:620px; }
 }
+
+.memory-json {
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #44505e;
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.memory-manager .ant-table-wrapper { min-width: 0; }
+.memory-manager .ant-popconfirm { max-width: 320px; }
