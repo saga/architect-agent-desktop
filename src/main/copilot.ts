@@ -16,6 +16,7 @@ import { listWorkspaceFiles, readWorkspaceFile, searchWorkspaceFiles, writeWorks
 import { parseDocumentFile } from "./documents/document-service.js";
 import { DuckDbAnalyticsService } from "./analytics/duckdb-service.js";
 import { AgentMemoryStore, type MemoryDreamOperation, type MemorySourceEvidence, type MemoryDreamCursor, type MemoryClaimType } from "./memory/agent-memory-store.js";
+import { LocalEmbeddingService, normalizeLocalEmbeddingConfig, type LocalEmbeddingConfig } from "./memory/local-embedding-service.js";
 
 export * from "./agent-runtime.js";
 
@@ -294,6 +295,7 @@ export class CopilotDesktopAgent {
  private memoryTraceId: string | null = null;
  private readonly analytics = new DuckDbAnalyticsService(path.join(app.getPath("userData"), "agent-analytics"));
  private readonly memory = new AgentMemoryStore(path.join(app.getPath("userData"), "agent-memory.sqlite"));
+ private readonly localEmbedding = new LocalEmbeddingService();
  private a2ui: A2UIServiceContract | null = null;
  private async ensureA2UI(): Promise<A2UIServiceContract> {
   if (!this.a2ui) {
@@ -327,8 +329,49 @@ export class CopilotDesktopAgent {
    cursor,
   };
  }
+ private memoryEmbeddingConfig():LocalEmbeddingConfig {
+  return normalizeLocalEmbeddingConfig({
+   provider:this.settings.memoryEmbeddingProvider,
+   baseUrl:this.settings.memoryEmbeddingBaseUrl,
+   model:this.settings.memoryEmbeddingModel,
+  });
+ }
+ getMemoryEmbeddingStatus(scope:string|null) {
+  const config=this.memoryEmbeddingConfig();
+  const index=this.memory.getEmbeddingIndexStatus(scope,"ollama",config.model);
+  return {enabled:config.provider==="ollama",provider:config.provider,baseUrl:config.baseUrl,model:config.model,...index};
+ }
+ async reindexMemoryEmbeddings(scope:string|null,limit=200) {
+  const config=this.memoryEmbeddingConfig();
+  if(config.provider==="disabled")return {enabled:false,indexed:0,remaining:0,message:"本地语义检索未启用。"};
+  const pending=this.memory.listNotesMissingEmbeddings(scope,"ollama",config.model,limit);
+  let indexed=0,error:string|undefined;
+  for(let offset=0;offset<pending.length;offset+=16){
+   const batch=pending.slice(offset,offset+16);
+   try{
+    const results=await this.localEmbedding.embedMany(config,batch.map(note=>"Title: "+note.title+"\\n\\n"+note.content));
+    for(let i=0;i<batch.length;i++){
+     const note=batch[i]!,result=results[i]!;
+     if(this.memory.upsertEmbedding({noteId:note.id,scope:note.scope,provider:result.provider,model:result.model,contentHash:note.contentHash,vector:result.vector}))indexed++;
+    }
+   }catch(cause){error=cause instanceof Error?cause.message:String(cause);break;}
+  }
+  const status=this.memory.getEmbeddingIndexStatus(scope,"ollama",config.model);
+  return {enabled:true,provider:"ollama",model:config.model,indexed,remaining:status.missing,total:status.total,...(error?{warning:error}:{})};
+ }
+ private async searchMemory(query:string,limit:number) {
+  const config=this.memoryEmbeddingConfig();
+  if(config.provider==="disabled")return {retrieval:"lexical",results:this.memory.search(this.memoryScope(),query,limit)};
+  try{
+   const embedding=await this.localEmbedding.embed(config,query);
+   return {retrieval:"hybrid",provider:embedding.provider,model:embedding.model,results:this.memory.search(this.memoryScope(),query,limit,{provider:embedding.provider,model:embedding.model,vector:embedding.vector})};
+  }catch(error){
+   return {retrieval:"lexical_fallback",warning:error instanceof Error?error.message:String(error),results:this.memory.search(this.memoryScope(),query,limit)};
+  }
+ }
  getMemorySnapshot(scope: string | null) {
   return {
+   embeddingIndex:this.getMemoryEmbeddingStatus(scope),
    cursor: this.memory.getDreamCursor(scope),
    dreamSchedule: this.memory.getDreamSchedule(scope),
    notes: this.memory.listNotes(scope, true, 200),
@@ -424,7 +467,7 @@ export class CopilotDesktopAgent {
   return rank[this.settings.toolPermission]<=rank[ceiling]?this.settings.toolPermission:ceiling;
  }
  private workspaceInstructions():string{return this.workspacePath?"Current local project workspace root: "+this.workspacePath+". Treat this as the project root. Use relative paths for workspace file tools and do not access files outside this directory.":"No local project workspace is selected. Do not attempt local project file operations until the user selects a workspace."; }
- async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(!["low","medium","high","xhigh"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");if(!["none","browser-only","assisted","allow-all"].includes(settings.toolPermission))throw new Error("Unsupported tool permission.");const changed=settings.provider!==this.settings.provider||settings.copilotModel!==this.settings.copilotModel||settings.codebuddyModel!==this.settings.codebuddyModel||settings.thinkingLevel!==this.settings.thinkingLevel||settings.toolPermission!==this.settings.toolPermission||settings.contextWindow!==this.settings.contextWindow||settings.systemPrompt!==this.settings.systemPrompt;if(changed)await this.stop();this.settings={...settings};}
+ async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(!["low","medium","high","xhigh"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");if(!["none","browser-only","assisted","allow-all"].includes(settings.toolPermission))throw new Error("Unsupported tool permission.");const embedding=normalizeLocalEmbeddingConfig({provider:settings.memoryEmbeddingProvider,baseUrl:settings.memoryEmbeddingBaseUrl,model:settings.memoryEmbeddingModel});const normalized={...settings,memoryEmbeddingProvider:embedding.provider,memoryEmbeddingBaseUrl:embedding.baseUrl,memoryEmbeddingModel:embedding.model};const changed=normalized.provider!==this.settings.provider||normalized.copilotModel!==this.settings.copilotModel||normalized.codebuddyModel!==this.settings.codebuddyModel||normalized.thinkingLevel!==this.settings.thinkingLevel||normalized.toolPermission!==this.settings.toolPermission||normalized.contextWindow!==this.settings.contextWindow||normalized.systemPrompt!==this.settings.systemPrompt||normalized.memoryEmbeddingProvider!==this.settings.memoryEmbeddingProvider||normalized.memoryEmbeddingBaseUrl!==this.settings.memoryEmbeddingBaseUrl||normalized.memoryEmbeddingModel!==this.settings.memoryEmbeddingModel;if(changed)await this.stop();this.settings=normalized;}
 
  async inspectModels(provider: AgentProvider): Promise<AgentModelInfo[]> {
   if (provider === "codebuddy") { const models=readCodeBuddyCatalog().map(model => normalizeModelInfo("codebuddy", model)).filter((m): m is AgentModelInfo => Boolean(m)); models.forEach(model=>this.inspectedModels.set("codebuddy:"+model.id,model)); return models; }
