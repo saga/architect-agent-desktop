@@ -73,6 +73,97 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("shares Personal Memory across Workspaces without exposing project Notes", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const personalRun = store.prepareDreaming(null, [{
+      sessionId: "personal-session",
+      messageId: "personal-source",
+      kind: "user",
+      content: "I prefer concise architecture reviews with explicit trade-offs and operational constraints.",
+      createdAt: Date.now(),
+    }]);
+    const personalSource = personalRun!.evidence[0]!;
+    const personalNote = store.saveNote({
+      scope: null,
+      title: "Architecture review preference",
+      content: "Prefer concise architecture reviews with explicit trade-offs and operational constraints.",
+      claimType: "user_preference",
+      sourceRefs: [personalSource.sourceId],
+    });
+    store.saveNote({
+      scope: "/workspace/portfolio-a",
+      title: "Portfolio A private convention",
+      content: "Portfolio A uses a confidential internal valuation convention.",
+    });
+
+    expect(store.search("/workspace/portfolio-a", "architecture review preference").map(note => note.id)).toContain(personalNote.id);
+    expect(store.search("/workspace/portfolio-b", "architecture review preference").map(note => note.id)).toContain(personalNote.id);
+    expect(store.search("/workspace/portfolio-b", "confidential internal valuation convention")).toHaveLength(0);
+    const contextA = store.getInjectedContext("/workspace/portfolio-a");
+    const contextB = store.getInjectedContext("/workspace/portfolio-b");
+    expect(contextA).toContain("Architecture review preference");
+    expect(contextA).toContain("Portfolio A private convention");
+    expect(contextB).toContain("Architecture review preference");
+    expect(contextB).not.toContain("Portfolio A private convention");
+    expect(store.getSourceById(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
+    expect(store.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toEqual(personalSource);
+    store.abandonDreaming(null, personalRun!.id, "test complete");
+    store.close();
+  });
+
+  it("requires source-class and independent-session evidence before validating facts", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const run = store.prepareDreaming("/workspace/validation-policy", [{
+      sessionId: "assistant-session",
+      messageId: "assistant-source",
+      kind: "assistant",
+      content: "The portfolio uses a single base currency.",
+      createdAt: Date.now(),
+    }, {
+      sessionId: "user-session",
+      messageId: "user-source",
+      kind: "user",
+      content: "The portfolio reports in USD.",
+      createdAt: Date.now() + 1,
+    }]);
+    const assistant = run!.evidence.find(source => source.kind === "assistant")!;
+    const user = run!.evidence.find(source => source.kind === "user")!;
+    const fact = store.saveNote({
+      scope: "/workspace/validation-policy",
+      title: "Portfolio reporting currency",
+      content: "The portfolio reports in USD.",
+      claimType: "project_fact",
+      sourceRefs: [assistant.sourceId, user.sourceId],
+    });
+    expect(() => store.setValidation(fact.id, "validated", 0.9, [assistant.sourceId, user.sourceId], "/workspace/validation-policy"))
+      .toThrow(/至少两个独立会话.*direct_user 与 tool_observation/);
+
+    const preference = store.saveNote({
+      scope: "/workspace/validation-policy",
+      title: "User preference",
+      content: "The user prefers concise output.",
+      claimType: "user_preference",
+      sourceRefs: [assistant.sourceId],
+    });
+    expect(() => store.setValidation(preference.id, "validated", 0.9, [assistant.sourceId], "/workspace/validation-policy"))
+      .toThrow(/direct user statement/);
+
+    const validPreference = store.saveNote({
+      scope: "/workspace/validation-policy",
+      title: "Directly stated preference",
+      content: "The user asked for concise output.",
+      claimType: "user_preference",
+      sourceRefs: [user.sourceId],
+    });
+    const validated = store.setValidation(validPreference.id, "validated", 0.96, [user.sourceId], "/workspace/validation-policy");
+    expect(validated.validation).toBe("validated");
+    expect(validated.validationEvidence?.eligible).toBe(true);
+    expect(validated.validationEvidence?.directUserSources).toBe(1);
+    expect(validated.validationEvidence?.independentSessions).toBe(1);
+    store.abandonDreaming("/workspace/validation-policy", run!.id, "test complete");
+    store.close();
+  });
+
   it("marks evidence previews when a Transcript message exceeds the per-source limit", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const run = store.prepareDreaming("/workspace/truncated-source", [{
