@@ -90,6 +90,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
   const completed = response !== undefined || /completed|success|finished|fail|error|cancel|abort/i.test(event.status ?? '');
   const runStatus: ContextRun['status'] = /fail|error/i.test(event.status ?? '') ? 'failed' : /cancel/i.test(event.status ?? '') ? 'cancelled' : /abort/i.test(event.status ?? '') ? 'aborted' : completed ? 'completed' : 'running';
   const attempt = number(data.attempt);
+  const actualModel = snapshot.model ?? event.model;
 
   const requestId = string(data.requestId);
   return {
@@ -378,7 +379,6 @@ export function contextSessionFromTrajectoryEvents(
     const usage = usageOf(eventRecord?.usage) ?? usageOf(snapshot.usage);
     const contextUsage = contextUsageOf(eventRecord?.contextUsage);
     const requestId = string(details.requestId);
-    const actualModel = snapshot.model ?? event.model;
     runs.push({
       id: string(details.runId ?? details.apiCallId ?? details.providerCallId) ?? event.id,
       sequence: event.sequence ?? runs.length + 1, sessionId, turnId: event.turnId,
