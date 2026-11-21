@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Descriptions, Drawer, Empty, Input, List, Spin, Statistic, Tabs, Tag, Typography } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import type { AgentSessionItem } from "../shared/types";
+import AgentTrajectory from "./AgentTrajectory";
+import { ContextDebugger, contextSessionsFromAgentEvents, type AgentTraceEventLike } from "./context-explorer";
 
 type TraceSession = {
   id: string;
@@ -119,11 +121,40 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
       })
       .catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason)); })
       .finally(() => { if (!cancelled) setLoadingEvents(false); });
-    return () => { cancelled = true; };
+    const liveTimer = window.setInterval(() => {
+      void Promise.all([
+        window.browser.agentTraceQuery({ sessionId: selectedId, limit: 1000 }),
+        window.browser.agentTraceListSessionItems(selectedId),
+      ]).then(([eventRows, messageRows]) => {
+        if (cancelled) return;
+        setEvents(eventRows as TraceEvent[]);
+        setMessages(messageRows);
+      }).catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+      });
+    }, 1500);
+    return () => { cancelled = true; window.clearInterval(liveTimer); };
   }, [open, selectedId]);
 
   const selected = sessions.find((item) => item.id === selectedId);
   const chronological = useMemo(() => [...events].reverse(), [events]);
+  const contextEvents = useMemo<AgentTraceEventLike[]>(() => chronological.map(event => ({
+    id: event.id,
+    timestamp: event.timestamp,
+    type: event.type,
+    sessionId: event.sessionId,
+    traceId: event.traceId,
+    sequence: event.sequence,
+    ...(event.provider ? { provider: event.provider } : {}),
+    ...(event.model ? { model: event.model } : {}),
+    ...(event.status ? { status: event.status } : {}),
+    ...(event.payloadComplete !== undefined ? { payloadComplete: event.payloadComplete } : {}),
+    data: event.data,
+  })), [chronological]);
+  const contextSession = useMemo(
+    () => contextSessionsFromAgentEvents(contextEvents, { sessionId: selectedId })[0],
+    [contextEvents, selectedId],
+  );
   const visibleEvents = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return chronological;
@@ -281,12 +312,16 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
             <Text type="secondary">更新时间：{formatTime(selected.updatedAt)} · {selected.messageCount ?? 0} 条消息 · {selected.eventCount ?? 0} 个事件</Text>
           </div>
           <Input.Search allowClear placeholder="搜索事件类型、工具名称或内容" value={search} onChange={(event) => setSearch(event.target.value)} />
-          <Tabs defaultActiveKey="messages" items={[
+          <Tabs defaultActiveKey="trajectory" items={[
+            { key: "trajectory", label: "执行 Trajectory", children: <AgentTrajectory events={contextEvents} /> },
+            { key: "context-explorer", label: "Context Explorer", children: contextSession
+              ? <ContextDebugger session={contextSession} />
+              : <Empty description="当前 Session 暂无可检查的上下文事件" /> },
             { key: "messages", label: "会话记录", children: transcript },
             { key: "timeline", label: "事件时间线", children: timeline },
             { key: "tools", label: "工具调用", children: tools },
             { key: "models", label: "模型分析", children: models },
-            { key: "context", label: "Context 调试", children: context },
+            { key: "context", label: "采集来源", children: context },
           ]} />
           <Text type="secondary">事件时间线显示最近最多 1,000 个事件；会话消息从 SQLite session_messages 表完整读取。</Text>
         </>}
