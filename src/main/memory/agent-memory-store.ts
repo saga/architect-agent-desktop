@@ -434,13 +434,13 @@ export class AgentMemoryStore {
       if(nextRevision>previousRevision || (!hasRevision&&createdAt>Number(previous.createdAt)))candidates.set(keyForMessage,source);
     }
     const prepared:StoredMemorySource[]=[];
-    let totalChars=0;
+    let totalBytes=0;
     for(const source of candidates.values()){
       const sessionId=String(source.sessionId).slice(0,100),messageId=String(source.messageId).slice(0,100);
       const content=scrubEvidence(String(source.content??"")),createdAt=Number(source.createdAt);
       if(!content.trim())continue;
-      totalChars+=content.length;
-      if(totalChars>MAX_DREAM_EVIDENCE_CHARS)throw new Error("Dreaming 证据包超过 320 KB，请缩小来源数量或单条消息长度。");
+      totalBytes+=Buffer.byteLength(content,"utf8");
+      if(totalBytes>MAX_DREAM_EVIDENCE_CHARS)throw new Error("Dreaming 证据包超过 320 KB，请缩小来源数量或单条消息长度。");
       const revision=Number.isSafeInteger(Number(source.revision))&&Number(source.revision)>0?Number(source.revision):undefined;
       const sourceId=createHash("sha256").update(runId+"\\0"+sessionId+"\\0"+messageId).digest("hex").slice(0,32);
       prepared.push({
