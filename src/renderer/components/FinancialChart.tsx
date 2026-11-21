@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as echarts from "echarts/core";
-import type { EChartsOption, EChartsType } from "echarts";
+import type { EChartsOption, EChartsType } from "echarts/core";
 import {
   BarChart, CandlestickChart, LineChart, PieChart, ScatterChart,
 } from "echarts/charts";
