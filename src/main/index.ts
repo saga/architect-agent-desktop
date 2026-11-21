@@ -27,7 +27,7 @@ import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
 import { writeJsonAtomic } from "./json-store";
 import { exportPlugin, importPlugin, listPlugins, readEnabledPluginInstructions, removePlugin, setPluginEnabled } from "./plugins/plugin-registry";
-import { importAgentSkill, listAgentSkills, listMcpServers, readEnabledAgentSkillInstructions, removeAgentSkill, removeMcpServer, saveMcpServer, setAgentSkillEnabled, setMcpServerEnabled } from "./agent-extensions";
+import { importAgentSkill, importAgentSkillArchive, listAgentSkills, listMcpServers, readEnabledAgentSkillInstructions, removeAgentSkill, removeMcpServer, saveMcpServer, setAgentSkillEnabled, setMcpServerEnabled } from "./agent-extensions";
 import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./login-shell-env";
 import { calculateLayout } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
@@ -1894,6 +1894,29 @@ function registerIpcHandlers(): void {
     await copilotAgent.resetConversation();
     const skill = importAgentSkill(filePaths[0], AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
     recordOperation("agent-skill", "import " + skill.id);
+    return skill;
+  });
+  ipcMain.handle("agent-skill:import-zip", async (event) => {
+    assertTrustedSender(event);
+    assertAgentExtensionsIdle();
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "上传 Agent Skill ZIP（Claude Desktop 格式）",
+      properties: ["openFile"],
+      filters: [{ name: "Agent Skill ZIP", extensions: ["zip"] }],
+    });
+    if (canceled || !filePaths[0]) return null;
+    await copilotAgent.resetConversation();
+    const skill = importAgentSkillArchive(filePaths[0], AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    recordOperation("agent-skill", "import ZIP " + skill.id);
+    return skill;
+  });
+  ipcMain.handle("agent-skill:install-sample", async (event) => {
+    assertTrustedSender(event);
+    assertAgentExtensionsIdle();
+    await copilotAgent.resetConversation();
+    const samplePath = path.join(app.getAppPath(), "examples", "skills", "web-research");
+    const skill = importAgentSkill(samplePath, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    recordOperation("agent-skill", "install sample " + skill.id);
     return skill;
   });
   ipcMain.handle("agent-skill:set-enabled", async (event, input: unknown) => {
