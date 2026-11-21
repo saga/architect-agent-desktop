@@ -220,7 +220,7 @@ export interface WorkspaceProject { path: string | null; name: string | null; }
 export interface WorkspaceLayoutState { version: 1; agentPanelWidth: number; agentPanelVisible: boolean; agentPanelPosition: "left" | "right" | "top" | "bottom"; }
 export interface WorkspaceDocument { version: 2; root: import("./workspace-document").WorkspaceDocument["root"]; tabGroups: import("./workspace-document").WorkspaceTabGroup[]; floating: import("./workspace-document").FloatingPanelRoot[]; activePanelId: string; }
 
-export interface PluginSummary { manifestVersion: 1; sourceFormat: "claude-code"; id: string; name: string; version: string; description?: string; skills: string[]; commands: string[]; agents: string[]; inlineCommands: Array<{ name: string; content: string }>; enabled: boolean; }
+export interface PluginSummary { id: string; name: string; version: string; description?: string; skills: string[]; commands: string[]; agents: string[]; inlineCommands: Array<{ name: string; content: string }>; enabled: boolean; }
 
 export type McpServerConfig =
   | { id: string; transport: "stdio"; enabled: boolean; description?: string; command: string; args: string[]; env: Record<string, string>; cwd?: string; timeout?: number }
