@@ -50,7 +50,7 @@ function uniqueHeaders(values: unknown[], width: number): string[] {
   });
 }
 
-function csvRows(input: string): string[][] {
+function csvRows(input: string, delimiter = ","): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -62,7 +62,7 @@ function csvRows(input: string): string[][] {
       else if (char === '"') quoted = false;
       else cell += char;
     } else if (char === '"' && cell.length === 0) quoted = true;
-    else if (char === ",") { row.push(cell); cell = ""; }
+    else if (char === delimiter) { row.push(cell); cell = ""; }
     else if (char === "\n") { row.push(cell.replace(/\r$/, "")); rows.push(row); row = []; cell = ""; }
     else cell += char;
   }
@@ -99,7 +99,7 @@ async function parsePdf(filePath: string, buffer: Buffer): Promise<ParsedDocumen
   return {
     path: filePath, name: path.basename(filePath), format: "PDF", text,
     pageCount: document.numPages, tables: [],
-    warnings: text.length >= MAX_TEXT_CHARS ? ["PDF 文本达到提取上限，后续页面未全部写入上下文。"] : [],
+    warnings: !text.trim() ? ["未提取到可搜索文本：该 PDF 可能是扫描件或仅含图片，当前版本不执行 OCR。"] : text.length >= MAX_TEXT_CHARS ? ["PDF 文本达到提取上限，后续页面未全部写入上下文。"] : [],
   };
 }
 
@@ -126,39 +126,24 @@ async function parseWord(filePath: string, buffer: Buffer, extension: string): P
 }
 
 async function parseWorkbook(filePath: string, buffer: Buffer): Promise<ParsedDocument> {
-  const ExcelJS = (await import("exceljs")).default;
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  const xlsx = (await import("node-xlsx")).default;
+  const worksheets = xlsx.parse(buffer) as Array<{ name: string; data: unknown[][] }>;
   const tables: DocumentTable[] = [];
   const warnings: string[] = [];
-  for (const sheet of workbook.worksheets.slice(0, MAX_SHEETS)) {
-    const matrix: unknown[][] = [];
-    sheet.eachRow({ includeEmpty: false }, row => {
-      if (matrix.length >= MAX_ROWS + 1) return;
-      const values = row.values as unknown[];
-      matrix.push(values.slice(1, MAX_COLUMNS + 1).map(plainCell));
-    });
-    const table = tableFromMatrix(sheet.name, matrix);
+  for (const sheet of worksheets.slice(0, MAX_SHEETS)) {
+    const table = tableFromMatrix(sheet.name, sheet.data);
     if (table) tables.push(table);
     if (table?.truncated) warnings.push("工作表 " + sheet.name + " 超过 " + MAX_ROWS + " 行，仅导入前 " + MAX_ROWS + " 行。");
   }
-  if (workbook.worksheets.length > MAX_SHEETS) warnings.push("工作表数量超过限制，仅处理前 " + MAX_SHEETS + " 个。");
-  const summary = tables.map(table =>
-    "工作表：" + table.name + "；数据行：" + table.rowCount +
-    "；字段：" + table.columns.join(", ") +
-    "\n预览：\n" + JSON.stringify(table.rows.slice(0, 8), null, 2),
-  ).join("\n\n");
-  return {
-    path: filePath, name: path.basename(filePath), format: "XLSX",
-    text: summary.slice(0, MAX_TEXT_CHARS), tables, warnings,
-  };
+  if (worksheets.length > MAX_SHEETS) warnings.push("工作表数量超过限制，仅处理前 " + MAX_SHEETS + " 个。");
+  const summary = tables.map(table => "工作表：" + table.name + "；数据行：" + table.rowCount + "；字段：" + table.columns.join(", ") + "\n预览：\n" + JSON.stringify(table.rows.slice(0, 8), null, 2)).join("\n\n");
+  return { path: filePath, name: path.basename(filePath), format: path.extname(filePath).slice(1).toUpperCase(), text: summary.slice(0, MAX_TEXT_CHARS), tables, warnings };
 }
-
 async function parseDelimitedOrJson(filePath: string, buffer: Buffer, extension: string): Promise<ParsedDocument> {
   const source = buffer.toString("utf8");
   if (extension === ".csv" || extension === ".tsv") {
-    const matrix = csvRows(source.replace(/^\uFEFF/, ""));
-    const table = tableFromMatrix(path.basename(filePath, extension), matrix.map(row => extension === ".tsv" ? row[0]!.split("\t") : row));
+    const matrix = csvRows(source.replace(/^\uFEFF/, ""), extension === ".tsv" ? "\t" : ",");
+    const table = tableFromMatrix(path.basename(filePath, extension), matrix);
     const tables = table ? [table] : [];
     return {
       path: filePath, name: path.basename(filePath), format: extension.slice(1).toUpperCase(),
@@ -189,10 +174,10 @@ export async function parseDocumentFile(filePath: string): Promise<ParsedDocumen
   const buffer = await readFile(filePath);
   if (extension === ".pdf") return parsePdf(filePath, buffer);
   if (extension === ".doc" || extension === ".docx") return parseWord(filePath, buffer, extension);
-  if (extension === ".xlsx" || extension === ".xlsm") return parseWorkbook(filePath, buffer);
+  if (extension === ".xls" || extension === ".xlsx" || extension === ".xlsm") return parseWorkbook(filePath, buffer);
   if (extension === ".csv" || extension === ".tsv" || extension === ".json") return parseDelimitedOrJson(filePath, buffer, extension);
   if (extension === ".txt" || extension === ".md" || extension === ".log") {
     return { path: filePath, name: path.basename(filePath), format: extension.slice(1).toUpperCase(), text: buffer.toString("utf8").slice(0, MAX_TEXT_CHARS), tables: [], warnings: [] };
   }
-  throw new Error("暂不支持该文件格式。支持 PDF、DOC、DOCX、XLSX、XLSM、CSV、TSV、JSON、TXT 和 Markdown。");
+  throw new Error("暂不支持该文件格式。支持 PDF、DOC、DOCX、XLS、XLSX、XLSM、CSV、TSV、JSON、TXT 和 Markdown。");
 }
