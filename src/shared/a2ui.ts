@@ -35,9 +35,11 @@ export function validateAgentA2UICommands(input: unknown): AgentA2UICommand[] {
       if (!boundedString(payload.surfaceId, 80) || payload.catalogId !== AGENT_A2UI_CATALOG_ID) {
         throw new Error("A2UI Surface 必须使用 Architect Agent Finance Catalog。");
       }
+      if (createdSurface) throw new Error("每次 A2UI 渲染只允许创建一个 Surface。");
       createdSurface = payload.surfaceId;
     } else {
-      if (!boundedString(payload.surfaceId, 80) || (createdSurface && payload.surfaceId !== createdSurface)) {
+      if (!createdSurface) throw new Error("必须先创建 A2UI Surface，再发送更新命令。");
+      if (!boundedString(payload.surfaceId, 80) || payload.surfaceId !== createdSurface) {
         throw new Error("A2UI 命令引用了无效 Surface。");
       }
       if (operation === "updateComponents") {
