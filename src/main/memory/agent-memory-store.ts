@@ -383,6 +383,59 @@ export class AgentMemoryStore {
     return this.toNote(row);
   }
 
+  private requireValidationEvidence(scope: string | null, claimType: MemoryClaimType, sourceRefs: string[]): MemoryValidationEvidence {
+    const uniqueRefs = safeIds(sourceRefs, 100);
+    const sources = uniqueRefs.map(ref => this.getSourceById(ref, scope)).filter((source): source is StoredMemorySource => source !== null);
+    const sessions = new Set(sources.map(source => source.sessionId));
+    const directUserSources = sources.filter(source => source.evidenceClass === "direct_user").length;
+    const toolObservations = sources.filter(source => source.evidenceClass === "tool_observation").length;
+    const evidenceClasses = [...new Set(sources.map(source => source.evidenceClass))].sort() as MemoryEvidenceClass[];
+    let eligible = false;
+    let policy = "";
+    let reason = "";
+    if (claimType === "user_preference" || claimType === "user_intent" || claimType === "decision") {
+      policy = "one_direct_user_statement";
+      eligible = directUserSources >= 1;
+      reason = eligible
+        ? "A direct user statement supports this preference, intent or decision."
+        : "This claim type needs at least one direct user statement; assistant summaries and tool outputs cannot establish the user's intent.";
+    } else if (claimType === "project_fact" || claimType === "workflow_pattern") {
+      policy = "two_sessions_plus_user_and_tool";
+      eligible = sessions.size >= 2 && directUserSources >= 1 && toolObservations >= 1;
+      reason = eligible
+        ? "At least two separate sessions contain both direct user evidence and a tool observation."
+        : "Project facts and recurring workflows require at least two separate sessions, including a direct user statement and a tool observation.";
+    } else if (claimType === "external_fact") {
+      policy = "two_sessions_plus_user_and_tool";
+      eligible = sessions.size >= 2 && directUserSources >= 1 && toolObservations >= 1;
+      reason = eligible
+        ? "At least two separate sessions contain a direct user statement and a tool observation; external facts still need source-level verification when used for consequential decisions."
+        : "External facts require at least two separate sessions, including a direct user statement and a tool observation. A model-generated answer alone is not verification.";
+    } else {
+      policy = "claim_type_required";
+      reason = "Select a specific claim type before marking a Note as validated. Unknown claims remain unverified.";
+    }
+    return {
+      claimType,
+      sourceCount: sources.length,
+      independentSessions: sessions.size,
+      directUserSources,
+      toolObservations,
+      evidenceClasses,
+      eligible,
+      policy,
+      reason,
+    };
+  }
+
+  private requireValidationEvidence(scope: string | null, claimType: MemoryClaimType, sourceRefs: string[]): MemoryValidationEvidence {
+    const profile = this.requireValidationEvidence(scope, claimType, sourceRefs);
+    if (!profile.eligible) {
+      throw new Error("不能将该 Memory Note 标记为 validated：" + profile.reason);
+    }
+    return profile;
+  }
+
   setValidation(id:string,validation:MemoryValidation,confidence:number|undefined,sourceRefs:string[],scope:string|null=null):AgentMemoryNote{
     const scopeKey=normalizeScope(scope);
     if(!isValidation(validation))throw new Error("Invalid Memory validation state.");
@@ -392,8 +445,11 @@ export class AgentMemoryStore {
     if(!existing||existing.status!=="active")throw new Error("当前 Workspace 中不存在该活动 Memory Note。");
     const version=Number(existing.version)+1,now=Date.now();
     const refs=[...new Set([...parseJson<string[]>(existing.source_refs_json,[]),...sourceRefs])].slice(-100);
-    this.database.prepare("UPDATE memory_notes SET validation=?,confidence=?,last_verified_at=?,source_refs_json=?,updated_at=?,version=? WHERE id=? AND scope_key=?")
-      .run({},validation,clamp(confidence??0.5,0,1),validation==="validated"?now:(typeof existing.last_verified_at==="number"?existing.last_verified_at:null),JSON.stringify(refs),now,version,id,scopeKey);
+    const claimType=isClaimType(existing.claim_type)?existing.claim_type as MemoryClaimType:"unknown";
+    const evidenceProfile=validation==="validated"?this.requireValidationEvidence(scope,claimType,refs):
+      parseJson<MemoryValidationEvidence|null>(existing.validation_evidence_json,null);
+    this.database.prepare("UPDATE memory_notes SET validation=?,confidence=?,last_verified_at=?,source_refs_json=?,updated_at=?,version=?,validation_evidence_json=? WHERE id=? AND scope_key=?")
+      .run({},validation,clamp(confidence??0.5,0,1),validation==="validated"?now:(typeof existing.last_verified_at==="number"?existing.last_verified_at:null),JSON.stringify(refs),now,version,evidenceProfile?JSON.stringify(evidenceProfile):null,id,scopeKey);
     const row=this.getNoteRow(id,scopeKey) as Record<string,unknown>;
     this.saveVersion(scopeKey,"note",id,version,row,null);
     return this.toNote(row);
