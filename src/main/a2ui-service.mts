@@ -2,9 +2,8 @@ import {
   A2uiGenerator,
   CatalogConfig,
   RendererState,
-  RendererToAgentMessageProcessor,
 } from "@a2ui/agent";
-import type { AgentToRendererMessage, RendererToAgentMessage } from "@a2ui/agent";
+import type { AgentToRendererMessage } from "@a2ui/agent";
 import { createAgentFinanceCatalog, FINANCE_A2UI_CATALOG_ID } from "../shared/a2ui-finance-catalog.mjs";
 
 export type A2UIPart =
@@ -67,14 +66,31 @@ export class AgentA2UIService {
     };
   }
 
-  async validateRendererMessage(message: unknown): Promise<{ handled: boolean; replies: AgentToRendererMessage[] }> {
-    const processor = new RendererToAgentMessageProcessor({
-      catalogs: [this.catalog],
-      // Actions are deliberately left for the model to interpret. Returning false
-      // validates the v1.0 envelope but allows the calling app to continue the turn.
-      onAction: () => false,
-    });
-    return processor.processMessage(message);
+  async validateRendererMessage(message: unknown): Promise<{ handled: false; replies: AgentToRendererMessage[] }> {
+    if (!message || typeof message !== "object" || Array.isArray(message)) {
+      throw new Error("A2UI ActionMessage must be an object.");
+    }
+    const envelope = message as Record<string, unknown>;
+    if (envelope.version !== "1.0" || !envelope.action || typeof envelope.action !== "object" || Array.isArray(envelope.action)) {
+      throw new Error("A2UI ActionMessage must use protocol version 1.0.");
+    }
+    const action = envelope.action as Record<string, unknown>;
+    if (typeof action.name !== "string" || action.name.length < 1 || action.name.length > 120) {
+      throw new Error("A2UI ActionMessage action.name is invalid.");
+    }
+    if (typeof action.surfaceId !== "string" || action.surfaceId.length < 1 || action.surfaceId.length > 120) {
+      throw new Error("A2UI ActionMessage action.surfaceId is invalid.");
+    }
+    if (action.sourceComponentId !== undefined &&
+        (typeof action.sourceComponentId !== "string" || action.sourceComponentId.length > 120)) {
+      throw new Error("A2UI ActionMessage sourceComponentId is invalid.");
+    }
+    if (Buffer.byteLength(JSON.stringify(message), "utf8") > 32 * 1024) {
+      throw new Error("A2UI ActionMessage exceeds the 32 KiB limit.");
+    }
+    // Renderer actions are user input. Validate only the protocol envelope here;
+    // the Agent interprets them as untrusted context and still uses Tool Broker.
+    return { handled: false, replies: [] };
   }
 
   reset(sessionId: string): void {
