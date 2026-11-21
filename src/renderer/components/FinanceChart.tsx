@@ -43,6 +43,11 @@ export default function FinanceChart(props: FinanceChartProps) {
     if (!Array.isArray(props.data) || props.data.length > MAX_DATA_POINTS) {
       return { error: "图表数据必须是数组，最多 20,000 个数据点。" };
     }
+    try {
+      if (JSON.stringify(props.data).length > 1_000_000) return { error: "图表数据超过 1 MB，请先聚合或分页。" };
+    } catch {
+      return { error: "图表数据无法序列化。" };
+    }
     const Component = chartComponents[props.chartType];
     if (!Component) return { error: "不支持的图表类型：" + props.chartType };
     const rawOptions = isRecord(props.options) ? props.options : {};
