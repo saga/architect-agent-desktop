@@ -346,7 +346,7 @@ export class AgentMemoryStore {
       unchanged && before?.quality_score != null ? Number(before.quality_score) : null,
       unchanged && typeof before?.last_quality_reviewed_at === "number" ? before.last_quality_reviewed_at : null,
       claimType, evidenceProfile ? JSON.stringify(evidenceProfile) : null,
-      unchanged ? (before?.external_verification_json ?? null) : null
+      unchanged && typeof before?.external_verification_json === "string" ? before.external_verification_json : null
     );
     const after = this.getNoteRow(id, scopeKey);
     this.saveVersion(scopeKey, "note", id, Math.max(1, oldVersion + 1), after, null);
