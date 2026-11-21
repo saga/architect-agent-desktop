@@ -138,7 +138,7 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
 
   const selected = sessions.find((item) => item.id === selectedId);
   const chronological = useMemo(() => [...events].reverse(), [events]);
-  const contextEvents = useMemo<AgentTraceEventLike[]>(() => chronological.map(event => ({
+  const traceContextEvents = useMemo<AgentTraceEventLike[]>(() => chronological.map(event => ({
     id: event.id,
     timestamp: event.timestamp,
     type: event.type,
@@ -152,8 +152,8 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
     data: event.data,
   })), [chronological]);
   const contextSession = useMemo(
-    () => contextSessionsFromAgentEvents(contextEvents, { sessionId: selectedId })[0],
-    [contextEvents, selectedId],
+    () => contextSessionsFromAgentEvents(traceContextEvents, { sessionId: selectedId })[0],
+    [traceContextEvents, selectedId],
   );
   const visibleEvents = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -313,7 +313,7 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
           </div>
           <Input.Search allowClear placeholder="搜索事件类型、工具名称或内容" value={search} onChange={(event) => setSearch(event.target.value)} />
           <Tabs defaultActiveKey="trajectory" items={[
-            { key: "trajectory", label: "执行 Trajectory", children: <AgentTrajectory events={contextEvents} /> },
+            { key: "trajectory", label: "执行 Trajectory", children: <AgentTrajectory events={traceContextEvents} /> },
             { key: "context-explorer", label: "Context Explorer", children: contextSession
               ? <ContextDebugger session={contextSession} />
               : <Empty description="当前 Session 暂无可检查的上下文事件" /> },
