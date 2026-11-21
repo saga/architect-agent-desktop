@@ -129,6 +129,15 @@ export function projectAgentTrajectory(events: readonly AgentTraceEventLike[]): 
   for (const [traceId, source] of groups) {
     const ordered = [...source].sort((a, b) => time(a) - time(b) || (a.sequence ?? 0) - (b.sequence ?? 0));
     if (!ordered.length) continue;
+    // A trace ID is also used for standalone Task/Session lifecycle records.
+    // Those records are activity, not Agent execution turns. A real turn has an
+    // explicit start marker; older records without one may be recovered from a
+    // Provider request or an actual tool-loop event.
+    const hasTurnBoundary = ordered.some(event => event.type === "turn.started" || event.type === "schedule.started");
+    const hasExecutionEvidence = ordered.some(event =>
+      event.type === "provider.request" || event.type === "tool.call" || event.type === "provider.raw_tool_loop"
+    );
+    if (!hasTurnBoundary && !hasExecutionEvidence) continue;
     const rows: TrajectoryRow[] = [];
     const requests = new Map<string, TrajectoryRow>();
     const pendingTools = new Map<string, TrajectoryRow[]>();
