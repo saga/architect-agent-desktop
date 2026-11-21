@@ -79,8 +79,9 @@ export default function KnowledgeGraph({
       },
       behaviors: interactive ? ["drag-canvas", "zoom-canvas", "drag-element", "click-select"] : [],
     });
-    const handleNodeClick = (event: { target?: { id?: string } }) => {
-      const nodeId = event.target?.id;
+    const handleNodeClick = (event: unknown) => {
+      const target = (event as { target?: unknown }).target;
+      const nodeId = target && typeof target === "object" && "id" in target ? String((target as { id?: unknown }).id ?? "") : "";
       if (!nodeId) return;
       callbacks.current.setSelectedNodeId?.(String(nodeId));
       callbacks.current.onNodeSelect?.();
