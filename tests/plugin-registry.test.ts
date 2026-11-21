@@ -92,4 +92,36 @@ describe("declarative plugin packages", () => {
     expect(listPlugins(pluginRoot, registry)[0].sourceFormat).toBe("claude-code");
   });
 
+
+  it("imports manifest-less Claude plugins and supports standard custom component paths", () => {
+    const root = makeDirectory();
+    const source = path.join(root, "team-tools");
+    mkdirSync(path.join(source, "extra-skills", "portfolio"), { recursive: true });
+    mkdirSync(path.join(source, "extra-commands"), { recursive: true });
+    mkdirSync(path.join(source, "agents"), { recursive: true });
+    writeFileSync(path.join(source, "extra-skills", "portfolio", "SKILL.md"), "Use portfolio-specific review steps.");
+    writeFileSync(path.join(source, "extra-commands", "summarize.md"), "Summarize the current analysis.");
+    writeFileSync(path.join(source, "agents", "reviewer.md"), "Review evidence quality.");
+    mkdirSync(path.join(source, ".claude-plugin"), { recursive: true });
+    writeFileSync(path.join(source, ".claude-plugin", "plugin.json"), JSON.stringify({
+      name: "team-tools",
+      skills: ["./extra-skills/"],
+      commands: {
+        summarize: { source: "./extra-commands/summarize.md" },
+        "quick-note": { content: "Write a dated research note." },
+      },
+      agents: ["./agents/reviewer.md"],
+    }));
+
+    const pluginRoot = path.join(root, "installed");
+    const registry = path.join(root, "plugins.json");
+    const imported = importPlugin(source, pluginRoot, registry);
+    expect(imported.skills).toEqual(["extra-skills/portfolio/SKILL.md"]);
+    expect(imported.commands).toEqual(["extra-commands/summarize.md"]);
+    expect(imported.inlineCommands).toEqual([{ name: "quick-note", content: "Write a dated research note." }]);
+    const instructions = readEnabledPluginInstructions(pluginRoot, registry);
+    expect(instructions).toContain("Write a dated research note.");
+    expect(instructions).toContain("Review evidence quality.");
+  });
+
 });
