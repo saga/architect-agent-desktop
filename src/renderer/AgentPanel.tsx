@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { Alert, App as AntApp, Button, Dropdown, Popconfirm, message, Tooltip } from "antd";
-import { FolderOpenOutlined, HistoryOutlined, MoreOutlined, SettingOutlined } from "@ant-design/icons";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, App as AntApp, Button, Dropdown, Popconfirm, Tag, message, Tooltip } from "antd";
+import { FolderOpenOutlined, HistoryOutlined, LinkOutlined, MoreOutlined, PaperClipOutlined, SettingOutlined } from "@ant-design/icons";
 import SessionExplorer from "./SessionExplorer";
-import { Bubble, Sender } from "@ant-design/x";
+import { Bubble, Sender, Think, ThoughtChain } from "@ant-design/x";
+import type { ThoughtChainItemType } from "@ant-design/x";
 import XMarkdown from "@ant-design/x-markdown";
 import { markdownComponents } from "./MarkdownLink";
 import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } from "../shared/types";
@@ -23,16 +24,41 @@ function toSessionItems(items: ChatItem[]): AgentSessionItem[] {
   }));
 }
 
-function ToolCard({ name, detail, state }: { name: string; detail: string; state: "done" | "error" }) {
-  const failed = state === "error";
-  return <div className={"agent-tool-card" + (failed ? " is-error" : "")}>
-    <div className="agent-tool-head">
-      <span className="agent-tool-icon" aria-hidden>{failed ? "!" : "✓"}</span>
-      <strong className="agent-tool-name">{name}</strong>
-      <span className="agent-tool-state">{failed ? "失败" : "完成"}</span>
-    </div>
-    {detail.trim() && <pre className="agent-tool-detail">{detail.trim()}</pre>}
-  </div>;
+function shortPath(file: string): string {
+  return file.split(/[\\/]/).pop() || file;
+}
+
+function formatToolDetail(detail: string): string {
+  const text = detail.trim();
+  if (!text) return "";
+  try {
+    const value = JSON.parse(text) as unknown;
+    if (value && typeof value === "object") return JSON.stringify(value, null, 2);
+  } catch { /* keep original text */ }
+  return text;
+}
+
+function ThinkBlock({ content, streaming }: { content: string; streaming: boolean }) {
+  return <Think className="agent-think" title={streaming ? "深度思考中…" : "深度思考"} loading={streaming} blink={streaming}
+    defaultExpanded={false} destroyOnHidden={false}>
+    <div className="agent-think-content">{content}</div>
+  </Think>;
+}
+
+function ToolChain({ steps }: { steps: ChatItem[] }) {
+  const items: ThoughtChainItemType[] = steps.map((step) => {
+    const detail = formatToolDetail(step.content);
+    return {
+      key: step.id,
+      title: step.toolName || "工具调用",
+      description: step.toolState === "running" ? "执行中…" : step.toolState === "error" ? "调用失败" : "调用完成",
+      status: step.toolState === "error" ? "error" : step.toolState === "running" ? "loading" : "success",
+      collapsible: Boolean(detail),
+      destroyOnHidden: false,
+      content: detail ? <pre className="agent-thought-detail">{detail}</pre> : undefined,
+    };
+  });
+  return <ThoughtChain className="agent-thought-chain" line="solid" defaultExpandedKeys={items.map((item) => String(item.key))} items={items} />;
 }
 
 const bubbleRoles = {
@@ -49,15 +75,17 @@ const bubbleRoles = {
     shape: "corner" as const,
     contentRender: (content: string) => <div className="agent-bubble-text">{content}</div>,
   },
-  tool: (data: any) => ({
+  thinking: (data: any) => ({
     placement: "start" as const,
     variant: "borderless" as const,
     shape: "corner" as const,
-    contentRender: () => <ToolCard
-      name={String(data.extraInfo?.toolName ?? "Tool")}
-      detail={String(data.content ?? "")}
-      state={data.extraInfo?.toolState === "error" ? "error" : "done"}
-    />,
+    contentRender: (content: string) => <ThinkBlock content={content} streaming={data.extraInfo?.streaming === true} />,
+  }),
+  thoughtchain: (data: any) => ({
+    placement: "start" as const,
+    variant: "borderless" as const,
+    shape: "corner" as const,
+    contentRender: () => <ToolChain steps={(data.extraInfo?.steps ?? []) as ChatItem[]} />,
   }),
   error: {
     placement: "start" as const,
@@ -88,9 +116,13 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const [sessionExplorerOpen, setSessionExplorerOpen] = useState(false);
 
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [references, setReferences] = useState<string[]>([]);
+  const [senderPanel, setSenderPanel] = useState<"files" | "reference" | null>(null);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<ChatItem[]>([]);
   const [sessionReady, setSessionReady] = useState(false);
+  const loadingRef = useRef(false);
   const latestItems = useRef<ChatItem[]>([]);
   const loadedTaskId = useRef<string | undefined>(undefined);
   const sessionReadyRef = useRef(false);
@@ -125,9 +157,36 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       setSessionReady(true);
       const off = window.browser.onCopilotEvent((event: CopilotEvent) => {
         if (event.taskId && taskId && event.taskId !== taskId) return;
+        const finalizeThinking = (next: ChatItem[]) => {
+          for (let i = next.length - 1; i >= 0; i -= 1) {
+            if (next[i].kind === "thinking" && next[i].streaming) {
+              next[i] = { ...next[i], streaming: false };
+              break;
+            }
+          }
+        };
         if (event.type === "status" && event.status) setStatus(event.status);
+        if (event.type === "thinking" && event.text) {
+          const thinkingText = event.text;
+          setItems((current) => {
+          const next = [...current];
+          let index = -1;
+          for (let i = next.length - 1; i >= 0; i -= 1) {
+            if (next[i].kind === "thinking" && next[i].streaming) { index = i; break; }
+          }
+          if (index >= 0 && event.streaming) {
+            next[index] = { ...next[index], content: next[index].content + thinkingText };
+          } else if (index >= 0) {
+            next[index] = { ...next[index], content: thinkingText, streaming: false };
+          } else {
+            next.push({ id: crypto.randomUUID(), kind: "thinking", content: thinkingText, createdAt: Date.now(), streaming: event.streaming === true });
+          }
+          return next;
+          });
+        }
         if (event.type === "delta" && event.text) setItems((current) => {
           const next = [...current];
+          finalizeThinking(next);
           const last = next[next.length - 1];
           if (last?.kind === "assistant" && last.streaming) {
             next[next.length - 1] = { ...last, content: last.content + event.text };
@@ -138,6 +197,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
         });
         if (event.type === "message" && event.text) setItems((current) => {
           const next = [...current];
+          finalizeThinking(next);
           const last = next[next.length - 1];
           if (last?.kind === "assistant") {
             next[next.length - 1] = { ...last, content: event.text ?? last.content, streaming: false };
@@ -146,14 +206,24 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
           }
           return next;
         });
-        if (event.type === "tool") setItems((current) => [...current, {
-          id: crypto.randomUUID(),
-          kind: "tool",
-          content: event.toolDetail ?? "",
-          toolName: event.toolName ?? "Tool",
-          toolState: event.toolState === "error" ? "error" : "done",
-          createdAt: Date.now(),
-        }]);
+        if (event.type === "tool") setItems((current) => {
+          const next = [...current];
+          const id = event.toolId ?? crypto.randomUUID();
+          const createdAt = Date.now();
+          const state = event.toolState === "running" || event.toolState === "error" ? event.toolState : "done";
+          const toolItem: ChatItem = {
+            id,
+            kind: "tool",
+            content: event.toolDetail ?? "",
+            toolName: event.toolName ?? "Tool",
+            toolState: state,
+            createdAt,
+          };
+          const index = next.findIndex((item) => item.id === id);
+          if (index >= 0) next[index] = { ...toolItem, createdAt: next[index].createdAt };
+          else next.push(toolItem);
+          return next;
+        });
         if (event.type === "done") {
           setLoading(false);
           setStatus("ready");
@@ -179,17 +249,18 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   }, [taskId]);
 
   useEffect(() => {
-    if (!sessionReady || loadedTaskId.current !== taskId || typeof window.browser.agentSaveSession !== "function") return;
+    if (!sessionReady || loading || loadedTaskId.current !== taskId || typeof window.browser.agentSaveSession !== "function") return;
     const timer = setTimeout(() => {
       void window.browser.agentSaveSession(toSessionItems(items), taskId).catch(() => undefined);
     }, SESSION_SAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [items, sessionReady, taskId]);
+  }, [items, sessionReady, taskId, loading]);
 
   useEffect(() => { latestItems.current = items; }, [items]);
   useEffect(() => { sessionReadyRef.current = sessionReady; }, [sessionReady]);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
   useEffect(() => () => {
-    if (!sessionReadyRef.current || loadedTaskId.current !== taskId || typeof window.browser.agentSaveSession !== "function") return;
+    if (loadingRef.current || !sessionReadyRef.current || loadedTaskId.current !== taskId || typeof window.browser.agentSaveSession !== "function") return;
     void window.browser.agentSaveSession(toSessionItems(latestItems.current), taskId).catch(() => undefined);
   }, [taskId]);
 
@@ -210,6 +281,24 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
   };
 
+  const pickFiles = async () => {
+    try {
+      if (typeof window.browser.agentPickFiles !== "function") return;
+      const files = await window.browser.agentPickFiles();
+      if (files.length) setAttachments((current) => [...new Set([...current, ...files])].slice(0, 20));
+      setSenderPanel("files");
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+  };
+
+  const addCurrentPage = async () => {
+    try {
+      const state = await window.browser.getState();
+      const url = state.tabs.find((tab) => tab.id === state.activeTabId)?.url;
+      if (url && /^https?:/i.test(url)) setReferences((current) => [...new Set([...current, url])].slice(0, 10));
+      setSenderPanel("reference");
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+  };
+
   const clearSession = async () => {
     try {
       if (typeof window.browser.agentClearSession === "function") await window.browser.agentClearSession(taskId);
@@ -222,13 +311,23 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const send = async (value: string) => {
     const prompt = value.trim();
     if (!prompt || loading) return;
+    const contextLines = [
+      ...(attachments.length ? ["Attached files:", ...attachments.map((file) => "- " + file)] : []),
+      ...(references.length ? ["References:", ...references.map((url) => "- " + url)] : []),
+    ];
+    const effectivePrompt = contextLines.length ? contextLines.join("\n") + "\n\n" + prompt : prompt;
     const history = items
       .filter((item) => (item.kind === "user" || item.kind === "assistant") && !item.streaming && item.content.trim())
       .slice(-12)
       .map((item) => ({ role: item.kind as "user" | "assistant", content: item.content.trim().slice(0, 6000) }));
     setItems((current) => [...current, { id: crypto.randomUUID(), kind: "user", content: prompt, createdAt: Date.now() }]);
     setLoading(true);
-    try { await window.browser.copilotSend(prompt, history, taskId); }
+    try {
+      await window.browser.copilotSend(effectivePrompt, history, taskId);
+      setAttachments([]);
+      setReferences([]);
+      setSenderPanel(null);
+    }
     catch (error) { setLoading(false); message.error(error instanceof Error ? error.message : String(error)); }
   };
 
@@ -269,6 +368,35 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     onDock(key as "left" | "right" | "top" | "bottom");
   };
 
+  const renderItems = useMemo(() => {
+    const result: Array<{ key: string; role: string; content: string; extraInfo: Record<string, unknown>; loading: boolean }> = [];
+    let chain: ChatItem[] = [];
+    const flushChain = () => {
+      if (!chain.length) return;
+      result.push({
+        key: "chain-" + chain[0].id,
+        role: "thoughtchain",
+        content: "",
+        extraInfo: { steps: chain },
+        loading: false,
+      });
+      chain = [];
+    };
+    for (const item of items) {
+      if (item.kind === "tool") { chain.push(item); continue; }
+      flushChain();
+      result.push({
+        key: item.id,
+        role: item.kind,
+        content: item.content,
+        extraInfo: { streaming: item.streaming === true },
+        loading: item.kind !== "thinking" && item.streaming === true && !item.content,
+      });
+    }
+    flushChain();
+    return result;
+  }, [items]);
+
   return <aside className="agent-panel">
     <header className="agent-panel-header">
       <div
@@ -307,20 +435,38 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     {status === "unauthenticated" && settings.provider === "copilot" && <Alert type="warning" showIcon message="尚未完成 GitHub Copilot CLI 登录" description={<div>{statusMessage && <p>{statusMessage}</p>}本应用调用本机 Copilot CLI 凭据，不会自动复用 VS Code 扩展登录状态。<ol><li>打开 macOS「终端」应用。</li><li>运行 <code>copilot login</code>。如果提示找不到命令，先运行 <code>brew install --cask copilot-cli</code> 安装。</li><li>选择 GitHub.com，再选择浏览器登录。</li><li>在浏览器中登录正确的 GitHub 账号，并授权 GitHub Copilot CLI。</li><li>看到终端提示登录成功后，回到本应用发送消息。</li></ol>也可以运行 <code>copilot</code> 进入交互界面后输入 <code>/login</code>；使用 <code>/user</code> 检查账号。</div>} />}
     {settings.provider === "codebuddy" && status !== "ready" && items.length === 0 && <Alert type="info" showIcon message="CodeBuddy 使用本机 CLI 登录态" description={<div>在系统终端运行 <code>codebuddy</code>，按 CLI 提示完成登录，并确认账号有可用模型权限。首次请求会实际验证认证和模型可用性。</div>} />}
     <div className="agent-messages">
-      <Bubble.List role={bubbleRoles} autoScroll items={items.map((item) => ({
-        key: item.id,
-        role: item.kind === "tool" ? "tool" : item.kind === "error" ? "error" : item.kind,
-        content: item.content,
-        extraInfo: { toolName: item.toolName, toolState: item.toolState, streaming: item.streaming === true },
-        loading: item.streaming && !item.content,
-      }))} />
+      <Bubble.List role={bubbleRoles} autoScroll items={renderItems} />
     </div>
     <div className="agent-composer">
-      <Sender rootClassName="agent-sender" value={input} onChange={setInput}
+      <Sender rootClassName="agent-sender" value={input} onChange={setInput} submitType="enter"
         onSubmit={(value) => { setInput(""); void send(value); }}
         onCancel={() => void window.browser.copilotCancel()}
         loading={loading} autoSize={{ minRows: 1, maxRows: 6 }}
-        placeholder={"使用 " + (settings.provider === "copilot" ? "GitHub Copilot" : "CodeBuddy") + " 询问页面或操作当前网页…"} />
+        placeholder={"使用 " + (settings.provider === "copilot" ? "GitHub Copilot" : "CodeBuddy") + " 询问页面或操作当前网页…"}
+        prefix={<div className="agent-sender-prefix">
+          <Tooltip title="选择附件"><Button type="text" size="small" aria-label="选择附件" icon={<PaperClipOutlined />} onClick={() => void pickFiles()} /></Tooltip>
+        </div>}
+        header={<Sender.Header title={senderPanel === "reference" ? "引用当前页面" : "附件"} open={senderPanel !== null} forceRender closable
+          onOpenChange={(open) => { if (!open) setSenderPanel(null); }}>
+          {senderPanel === "reference" ? <div className="agent-sender-panel">
+            <Button size="small" icon={<LinkOutlined />} onClick={() => void addCurrentPage()}>添加当前页面</Button>
+            <div className="agent-sender-chips">
+              {references.length ? references.map((url) => <Tag key={url} closable onClose={(event) => { event.preventDefault(); setReferences((current) => current.filter((item) => item !== url)); }}>{url}</Tag>) : <span className="agent-sender-empty">尚未添加引用。</span>}
+            </div>
+          </div> : <div className="agent-sender-panel">
+            <Button size="small" icon={<PaperClipOutlined />} onClick={() => void pickFiles()}>选择文件</Button>
+            <div className="agent-sender-chips">
+              {attachments.length ? attachments.map((file) => <Tag key={file} closable onClose={(event) => { event.preventDefault(); setAttachments((current) => current.filter((item) => item !== file)); }} title={file}>{shortPath(file)}</Tag>) : <span className="agent-sender-empty">尚未添加附件。</span>}
+            </div>
+          </div>}
+        </Sender.Header>}
+        suffix={(_oriNode, { components }) => {
+          const { SendButton, LoadingButton } = components;
+          return <div className="agent-sender-suffix">
+            <Tooltip title="引用当前页面"><Button type="text" size="small" aria-label="引用当前页面" icon={<LinkOutlined />} onClick={() => void addCurrentPage()} /></Tooltip>
+            {loading ? <LoadingButton /> : <SendButton />}
+          </div>;
+        }} />
       <div className="agent-composer-hint">Enter 发送 · Shift + Enter 换行</div>
     </div>
   </aside>;

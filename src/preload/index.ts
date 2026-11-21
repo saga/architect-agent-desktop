@@ -78,6 +78,7 @@ const api: BrowserApi = {
     return () => ipcRenderer.removeListener("agent:settings-updated", handler);
   },
   agentSaveSettings: (settings: AgentSettings) => ipcRenderer.invoke("agent:save-settings", settings),
+  agentPickFiles: () => ipcRenderer.invoke("agent:pick-files"),
   copilotSend: (prompt, history, taskId) => ipcRenderer.invoke("copilot:send", { prompt, history, taskId }),
   copilotCancel: () => ipcRenderer.invoke("copilot:cancel"),
   agentLoadSession: (taskId?: string) => ipcRenderer.invoke("agent:load-session", taskId),

@@ -1837,6 +1837,15 @@ function registerIpcHandlers(): void {
     return destination;
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
+  ipcMain.handle("agent:pick-files", async (event) => {
+    assertTrustedSender(event);
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "选择 Agent 附件",
+      properties: ["openFile", "multiSelections"],
+    });
+    if (canceled) return [];
+    return filePaths.slice(0, 20).map((file) => file.slice(0, 1000));
+  });
   ipcMain.handle("agent-data:get-directory", (event) => { assertTrustedSender(event); return agentTraceStore.getDirectory(); });
   ipcMain.handle("agent-trace:list-sessions", (event) => { assertTrustedSender(event); return agentTraceStore.listSessions(); });
   ipcMain.handle("agent-trace:list-session-items", (event, input: unknown) => {
@@ -2049,7 +2058,10 @@ function registerIpcHandlers(): void {
     const targetTaskId = parsed.data.taskId ?? activeAgentTaskId;
     if (targetTaskId !== activeAgentTaskId) throw new Error("Cannot save a transcript for a Task that is no longer active.");
     if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
-      throw new Error("Agent is still running or changing Task; the session save was rejected.");
+      // Renderer autosave is debounced and can land while a turn or Task switch is in flight.
+      // Skipping is safe: the transcript is resaved on "done"/"error" or after the switch.
+      recordOperation("session", "save skipped while agent busy: " + targetTaskId);
+      return;
     }
     const items = parseAgentSessionItems(parsed.data.items);
     saveAgentSession(items, targetTaskId);

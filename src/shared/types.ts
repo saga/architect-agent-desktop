@@ -58,14 +58,14 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt.",
 };
 
-export interface CopilotEvent { type: "status" | "delta" | "message" | "error" | "done" | "tool"; taskId?: string; status?: string; text?: string; toolName?: string; toolDetail?: string; toolState?: "done" | "error"; }
+export interface CopilotEvent { type: "status" | "delta" | "thinking" | "message" | "error" | "done" | "tool"; taskId?: string; status?: string; text?: string; streaming?: boolean; toolId?: string; toolName?: string; toolDetail?: string; toolState?: "running" | "done" | "error"; }
 
 export interface AgentSessionItem {
   id: string;
-  kind: "user" | "assistant" | "tool" | "error";
+  kind: "user" | "assistant" | "thinking" | "tool" | "error";
   content: string;
   toolName?: string;
-  toolState?: "done" | "error";
+  toolState?: "running" | "done" | "error";
   createdAt: number;
 }
 
@@ -189,6 +189,7 @@ export interface BrowserApi {
   agentInspectModels(provider: AgentProvider): Promise<AgentModelInfo[]>;
   onAgentSettingsUpdated(listener: (settings: AgentSettings) => void): () => void;
   agentSaveSettings(settings: AgentSettings): Promise<AgentSettings>;
+  agentPickFiles(): Promise<string[]>;
   copilotSend(prompt: string, history?: AgentChatMessage[], taskId?: string): Promise<void>;
   copilotCancel(): Promise<void>;
   agentLoadSession(taskId?: string): Promise<AgentSessionItem[]>;

@@ -169,8 +169,8 @@ export default function SessionExplorer({ open, onClose }: { open: boolean; onCl
     {loadingEvents ? <Spin /> : messages.length ? <List dataSource={messages} renderItem={(item) => <List.Item>
       <div className={"session-message is-" + item.kind}>
         <div className="session-message-heading">
-          <Text strong>{item.kind === "user" ? "用户" : item.kind === "assistant" ? "Agent" : item.kind === "tool" ? item.toolName || "工具调用" : "错误"}</Text>
-          <Tag color={item.kind === "error" ? "red" : item.kind === "user" ? "blue" : item.kind === "tool" ? "gold" : "default"}>{item.kind}</Tag>
+          <Text strong>{item.kind === "user" ? "用户" : item.kind === "assistant" ? "Agent" : item.kind === "thinking" ? "深度思考" : item.kind === "tool" ? item.toolName || "工具调用" : "错误"}</Text>
+          <Tag color={item.kind === "error" ? "red" : item.kind === "user" ? "blue" : item.kind === "thinking" ? "purple" : item.kind === "tool" ? "gold" : "default"}>{item.kind}</Tag>
           <Text type="secondary">{formatTime(item.createdAt)}</Text>
         </div>
         <pre>{item.content}</pre>
