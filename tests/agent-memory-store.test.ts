@@ -429,7 +429,9 @@ describe("AgentMemoryStore", () => {
       expiresAt: 100,
     });
 
+    expect(store.hasExpiredNotes("/workspace/expiry", 101)).toBe(true);
     expect(store.pruneExpired("/workspace/expiry", 101)).toEqual({ archived: 1 });
+    expect(store.hasExpiredNotes("/workspace/expiry", 101)).toBe(false);
     const archived = store.listNotes("/workspace/expiry", true).find(item => item.id === note.id);
     expect(archived?.status).toBe("archived");
     expect(archived?.version).toBe(note.version + 1);
