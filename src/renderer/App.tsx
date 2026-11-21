@@ -3,7 +3,7 @@ import type { AgentWorkspacePreferences, BrowserDownloadEvent, BrowserState, Bro
 import { activateWorkspaceTab, createWorkspaceTabGroup, DEFAULT_WORKSPACE_DOCUMENT, setWorkspacePanelVisibility, ungroupWorkspacePanel } from "../shared/workspace-document";
 import AgentPanel from "./AgentPanel";
 import PureAgentWorkspace from "./PureAgentWorkspace";
-import { Button } from "antd";
+import { Button, message } from "antd";
 import { RobotOutlined } from "@ant-design/icons";
 
 const EMPTY_STATE: BrowserState = { tabs: [], activeTabId: null };
@@ -351,6 +351,18 @@ function App() {
               <Button size="small" type={activeWorkspacePanel === "agent" ? "primary" : "text"} onClick={() => activateWorkspacePanel("agent")}>Agent</Button>
               <Button size="small" type="text" onClick={splitAgentFromBrowser}>Split</Button>
             </div>}
+            <button className="toolbar-button" type="button"
+              aria-label="用 Google Chrome 打开当前网页"
+              title="用已安装的 Google Chrome 打开当前网页；未检测到时使用系统默认浏览器"
+              disabled={!activeTab || !/^https?:\/\//i.test(activeTab.url)}
+              onClick={() => {
+                if (!activeTab) return;
+                void window.browser.openInChrome(activeTab.url)
+                  .then(target => message.success(target === "chrome" ? "已在 Google Chrome 中打开。" : "未检测到 Google Chrome，已使用系统默认浏览器。"))
+                  .catch(error => message.error(error instanceof Error ? error.message : String(error)));
+              }}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6" /></svg>
+            </button>
             <button className="toolbar-button download-button" type="button"
               aria-label="Dismiss recent download status"
               title={latestDownload ? latestDownload.fileName : "Downloads"}
