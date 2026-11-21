@@ -240,9 +240,9 @@ Run 状态：
 
 对重要任务，系统提示要求 Agent 主动执行 prepare → evidence review → commit。整理目标不局限于失败记录，还包括成功流程、稳定的用户偏好、项目约定、业务定义、数据口径、重复出现的错误和已解决问题。模型必须区分事实、推测、冲突和时效性信息；证据不足时保持 unverified，矛盾并存时记录 contradicts 或 disputed，不为了减少 Note 数量而删除唯一知识。对重要、高风险或可能变化的旧 Note，Agent 应通过 `memory_read_source` 按 `sourceId` 读取历史证据快照，并结合 `memory_search_history` 搜索更早 Transcript；不能只凭 Note 自身内容完成自我验证。
 
-Settings → Memory & Dreaming 提供 Notes、知识页、关系、Run 审计和质量分数管理，并允许手动启动整理、单独复查质量、继续处理已有 prepared Run、置顶/取消置顶 Note、归档 Note、放弃 prepared Run 或回滚最近一次提交。也可以为每个 Workspace 单独启用自动 Dreaming，设置 6 小时至 7 天的周期。调度复用主进程现有的 15 秒 Schedule 检查循环，按 Workspace 串行执行 Transcript 整理、到期质量复查和过期 Note 清理。每次调度先通过本地 SQLite/Transcript 查询预检；没有新 revision、到期质量复查、过期 Note 或待恢复 Run 时直接跳过，不启动模型调用。实际运行失败采用退避重试，运行结束检查是否残留 prepared Run，并写入 Trace。
+Settings → Memory & Dreaming 提供 Notes、知识页、关系、Run 审计和质量分数管理，并允许手动启动整理、单独复查质量、继续处理已有 prepared Run、置顶/取消置顶 Note、归档 Note、放弃 prepared Run 或回滚最近一次提交。自动 Dreaming 可在 Personal scope 单独启用，也可为每个 Workspace 单独启用，周期为 6 小时至 7 天。调度复用主进程现有的 15 秒 Schedule 检查循环，按 scope 串行执行 Transcript 整理、到期质量复查和过期 Note 清理。每次调度先通过本地 SQLite/Transcript 查询预检；没有新 revision、到期质量复查、过期 Note 或待恢复 Run 时直接跳过，不启动模型调用。实际运行失败采用退避重试，运行结束检查是否残留 prepared Run，并写入 Trace。
 
-自动调度默认关闭，只在桌面应用运行时工作。它不会扩大现有工具权限：全局工具权限和所选 Expert 必须至少允许 assisted，且 Expert 必须开放完整长期记忆工具组。Workspace 路径失效或不存在时跳过执行，避免把项目记忆误写到 Personal Memory。
+自动调度默认关闭，只在桌面应用运行时工作。它不会扩大现有工具权限：全局工具权限和所选 Expert 必须至少允许 assisted，且 Expert 必须开放完整长期记忆工具组。Personal schedule 使用 Personal Task；Workspace schedule 只匹配同一路径的 Task，并在执行前验证 Workspace 路径仍然存在且是 canonical directory，避免把项目记忆误写到 Personal Memory。
 
 ### Memory 生命周期
 
@@ -275,7 +275,7 @@ A2UI Catalog 和 Finance Chart options 都有组件、数据量和配置约束�
 5. 新会话使用 A2UI 1.0 的 Agent/Core/React SDK 和本地 Finance Catalog；旧会话保留 x-card v0.9。新组件必须同步扩展 Agent API schema 与 Renderer 实现。
 6. Dreaming 现有 evidence manifest、不可变 Transcript revision、复合兼容游标、版本冲突检查、原子事务、实体/关系版本快照和最新 Run 回滚。旧 Session 数据会在首次打开时建立 baseline 修订记录；旧的已提交 Memory cursor 会继续作为 baseline 过滤依据。
 7. Memory Notes 有独立的质量复查 Run、来源映射、质量分数与最近复查时间；质量复查不推进 Transcript cursor，并支持审计和回滚。质量分数仍由模型根据来源证据判断，并非独立事实校验器。
-8. Workspace 自动 Dreaming 已接入现有主进程 Schedule 循环，默认关闭、按 Workspace 保存周期、仅在桌面应用运行时执行，并受全局与 Expert 工具权限约束；失败会退避重试，残留 prepared Run 不会被报告为成功。
+8. Personal 与 Workspace 自动 Dreaming 已接入现有主进程 Schedule 循环，默认关闭、按 Memory scope 分别保存周期、仅在桌面应用运行时执行，并受全局与 Expert 工具权限约束；失败会退避重试，残留 prepared Run 不会被报告为成功。
 9. 尚未实现 PDF OCR、PDF 表格重建、Embedding/向量记忆，以及跨 Workspace 的个人长期记忆层。Transcript revision 按每条消息保留最近 12 个快照；长期大量新增消息仍会自然增加本地 SQLite 文件体积，尚未实现跨 Workspace 的历史归档工具。
 10. `validated`、confidence 和 qualityScore 仍由模型根据来源证据作判断；当前没有强制来源等级、独立交叉来源门槛或外部事实校验器。
 11. 目前没有独立的 Memory Goal / Policy 配置；可以通过 Expert Prompt 提供领域目标，但还不能为不同 Workspace 设置结构化的记忆采集、保留和验证规则。知识页也没有完整的页面间链接、反向链接和孤儿页面自动检查。
