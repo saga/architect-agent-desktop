@@ -8,10 +8,26 @@ const TOOL_GROUPS: Array<{ label: string; tools: string[] }> = [
   { label: "工作区（只读）", tools: ["workspace_list_files", "workspace_read_file", "workspace_search_files"] },
   { label: "工作区（写入）", tools: ["workspace_write_file"] },
   { label: "数据分析", tools: ["duckdb_list_tables", "duckdb_query", "document_extract", "a2ui_render"] },
-  { label: "长期记忆", tools: ["memory_search", "memory_search_history", "memory_review", "memory_save", "memory_publish_knowledge", "memory_dreaming"] },
+  { label: "长期记忆", tools: ["memory_search", "memory_search_history", "memory_save", "memory_list_notes", "memory_list_knowledge", "memory_list_relationships", "memory_dreaming_prepare", "memory_dreaming_commit", "memory_dreaming_list_runs", "memory_dreaming_get_run", "memory_dreaming_get_operations", "memory_dreaming_abandon", "memory_dreaming_rollback", "memory_prune_expired"] },
   { label: "页面增强", tools: ["browser_execute_javascript", "browser_inject_css", "browser_cdp"] },
   { label: "Code Mode", tools: ["execute_code"] },
 ];
+
+const LEGACY_MEMORY_TOOL_MAP: Record<string, string[]> = {
+  memory_review: ["memory_dreaming_commit"],
+  memory_publish_knowledge: ["memory_dreaming_commit"],
+  memory_dreaming: [
+    "memory_dreaming_prepare", "memory_dreaming_commit", "memory_dreaming_list_runs",
+    "memory_dreaming_get_run", "memory_dreaming_get_operations", "memory_dreaming_abandon",
+    "memory_dreaming_rollback", "memory_list_notes", "memory_list_knowledge",
+    "memory_list_relationships", "memory_prune_expired",
+  ],
+};
+function migrateExpertTools(tools: string[]): string[] {
+  const migrated = tools.filter(tool => !Object.hasOwn(LEGACY_MEMORY_TOOL_MAP, tool));
+  for (const tool of tools) migrated.push(...(LEGACY_MEMORY_TOOL_MAP[tool] ?? []));
+  return [...new Set(migrated)];
+}
 
 const EMPTY_EXPERT: Omit<AgentExpert, "createdAt" | "updatedAt"> = {
   id: "",
@@ -37,7 +53,7 @@ export default function ExpertManager({ onChanged }: ExpertManagerProps) {
   const refresh = async (preferredId?: string) => {
     try {
       const snapshot = await window.browser.getAgentWorkspaceSnapshot();
-      setExperts(snapshot.experts);
+      setExperts(snapshot.experts.map(item => ({ ...item, tools: migrateExpertTools(item.tools) })));
       setSelectedId(current => preferredId && snapshot.experts.some(item => item.id === preferredId) ? preferredId : current && snapshot.experts.some(item => item.id === current) ? current : snapshot.experts[0]?.id ?? null);
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
