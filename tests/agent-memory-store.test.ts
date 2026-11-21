@@ -221,7 +221,10 @@ describe("AgentMemoryStore", () => {
     expect(reopened.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
     expect(reopened.getAgentAccessibleSource(personalSource.sourceId, null)).toBeNull();
     expect(reopened.listNotesMissingEmbeddings("/workspace/portfolio-b", "ollama", "nomic-embed-text", 20).map(note => note.id)).not.toContain(personalNote.id);
-    expect(reopened.getEmbeddingIndexStatus("/workspace/portfolio-b", "ollama", "nomic-embed-text").total).toBe(0);
+    const accessiblePersonalEmbeddings=reopened.listNotesMissingEmbeddings("/workspace/portfolio-b", "ollama", "nomic-embed-text", 20);
+    expect(accessiblePersonalEmbeddings.map(note=>note.id)).not.toContain(personalNote.id);
+    expect(accessiblePersonalEmbeddings.map(note=>note.id)).toContain(secondPersonalNote.id);
+    expect(reopened.getEmbeddingIndexStatus("/workspace/portfolio-b", "ollama", "nomic-embed-text").total).toBe(1);
     expect(reopened.getInjectedContext("/workspace/portfolio-b")).not.toContain("Architecture review preference");
     reopened.close();
   });
