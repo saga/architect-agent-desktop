@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Alert, Typography } from "antd";
-import { Graph } from "@antv/g6";
+import { Graph, NodeEvent } from "@antv/g6";
 
 export interface KnowledgeGraphProps {
   nodes: unknown;
@@ -9,6 +9,8 @@ export interface KnowledgeGraphProps {
   title?: string;
   height?: number;
   interactive?: boolean;
+  selectedNodeId?: string;
+  setSelectedNodeId?: (nodeId: string) => void;
   onNodeSelect?: () => void;
 }
 
@@ -39,9 +41,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-export default function KnowledgeGraph({ nodes, edges, layout = "force", title, height = 420, interactive = true }: KnowledgeGraphProps) {
+export default function KnowledgeGraph({
+  nodes, edges, layout = "force", title, height = 420, interactive = true,
+  selectedNodeId, setSelectedNodeId, onNodeSelect,
+}: KnowledgeGraphProps) {
   const host = useRef<HTMLDivElement>(null);
   const graph = useRef<Graph | null>(null);
+  const callbacks = useRef({ setSelectedNodeId, onNodeSelect });
+  callbacks.current = { setSelectedNodeId, onNodeSelect };
   const data = normaliseGraphData(nodes, edges);
 
   useEffect(() => {
@@ -72,6 +79,13 @@ export default function KnowledgeGraph({ nodes, edges, layout = "force", title, 
       },
       behaviors: interactive ? ["drag-canvas", "zoom-canvas", "drag-element", "click-select"] : [],
     });
+    const handleNodeClick = (event: { target?: { id?: string } }) => {
+      const nodeId = event.target?.id;
+      if (!nodeId) return;
+      callbacks.current.setSelectedNodeId?.(String(nodeId));
+      callbacks.current.onNodeSelect?.();
+    };
+    if (interactive) instance.on(NodeEvent.CLICK, handleNodeClick);
     graph.current = instance;
     void instance.render();
     const resize = new ResizeObserver(() => {
@@ -81,10 +95,16 @@ export default function KnowledgeGraph({ nodes, edges, layout = "force", title, 
     resize.observe(container);
     return () => {
       resize.disconnect();
+      instance.off(NodeEvent.CLICK, handleNodeClick);
       instance.destroy();
       if (graph.current === instance) graph.current = null;
     };
-  }, [data, height, layout]);
+  }, [data, height, layout, interactive]);
+
+  useEffect(() => {
+    if (!selectedNodeId || !graph.current) return;
+    graph.current.setElementState(selectedNodeId, "selected");
+  }, [selectedNodeId]);
 
   if (!data) return <Alert type="warning" showIcon message="关系图数据格式无效，或节点/边数量超过限制。" />;
   return <section className="agent-knowledge-graph" style={{ width: "100%", minWidth: 0 }}>
