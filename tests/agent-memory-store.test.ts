@@ -43,7 +43,7 @@ describe("AgentMemoryStore", () => {
     expect(store.search("/workspace/portfolio", "holdings")).toHaveLength(1);
     expect(store.search("/workspace/another-project", "holdings")).toHaveLength(0);
 
-    const reviewed = store.setValidation(note.id, "validated", 0.95, [evidence.sourceId]);
+    const reviewed = store.setValidation(note.id, "validated", 0.95, [evidence.sourceId], "/workspace/portfolio");
     expect(reviewed.validation).toBe("validated");
     expect(reviewed.confidence).toBe(0.95);
 
@@ -59,7 +59,7 @@ describe("AgentMemoryStore", () => {
     expect(context).toContain("[validated");
     expect(context.length).toBeLessThanOrEqual(1300);
 
-    store.archive(note.id);
+    store.archive(note.id, "/workspace/portfolio");
     expect(store.getNote(note.id, "/workspace/portfolio")).toBeNull();
     store.close();
   });
@@ -80,7 +80,7 @@ describe("AgentMemoryStore", () => {
       content: "已确认组合风险分析必须区分净敞口、总敞口和衍生品名义本金。",
       createdAt: Date.now(),
     }]);
-    store.setValidation(note.id, "disputed", 0.2, [prepared!.evidence[0]!.sourceId]);
+    store.setValidation(note.id, "disputed", 0.2, [prepared!.evidence[0]!.sourceId], "/workspace/cn");
     expect(store.getInjectedContext("/workspace/cn")).toContain("[disputed");
     store.close();
   });
