@@ -102,6 +102,7 @@ const api: BrowserApi = {
   agentMemoryRollbackDreaming: (taskId, runId, reason) => ipcRenderer.invoke("agent:memory-rollback", { taskId, runId, reason }),
   agentMemorySaveDreamSchedule: (taskId, schedule) => ipcRenderer.invoke("agent:memory-save-dream-schedule", { taskId, ...schedule }),
   agentMemoryReindexEmbeddings: (taskId, limit) => ipcRenderer.invoke("agent:memory-reindex-embeddings", { taskId, limit }),
+  agentMemoryCheckEmbedding: (config) => ipcRenderer.invoke("agent:memory-check-embedding", config),
   agentMemoryRecordExternalSources: (taskId, input) => ipcRenderer.invoke("agent:memory-record-external-sources", { taskId, ...input }),
   agentMemoryConfirmExternalVerification: (taskId, noteId, baseVersion) => ipcRenderer.invoke("agent:memory-confirm-external-verification", { taskId, noteId, baseVersion }),
   copilotCancel: () => ipcRenderer.invoke("copilot:cancel"),
