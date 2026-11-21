@@ -22,7 +22,7 @@ afterEach(() => {
       createdAt,
     }]);
     expect(run?.status).toBe("prepared");
-    expect(store.getDreamCursor("/workspace/dream")).toBe(0);
+    expect(store.getDreamCursor("/workspace/dream").createdAt).toBe(0);
     const sourceId = run!.evidence[0]!.sourceId;
     const committed = store.commitDreaming({
       scope: "/workspace/dream",
@@ -40,7 +40,7 @@ afterEach(() => {
     });
     expect(committed.status).toBe("completed");
     expect(committed.createdNoteIds).toHaveLength(1);
-    expect(store.getDreamCursor("/workspace/dream")).toBe(createdAt);
+    expect(store.getDreamCursor("/workspace/dream").createdAt).toBe(createdAt);
     const note = store.getNote(committed.createdNoteIds[0]!, "/workspace/dream");
     expect(note?.validation).toBe("unverified");
     expect(note?.sourceRefs).toContain(sourceId);
@@ -78,7 +78,7 @@ afterEach(() => {
       }],
     })).toThrow(/版本已变化/);
     expect(store.getDreamRun(first!.id, "/workspace/conflict")?.status).toBe("prepared");
-    expect(store.getDreamCursor("/workspace/conflict")).toBe(0);
+    expect(store.getDreamCursor("/workspace/conflict").createdAt).toBe(0);
     expect(store.getNote(note.id, "/workspace/conflict")?.content).toContain("避免保留字");
     store.abandonDreaming("/workspace/conflict", first!.id, "版本冲突后放弃");
     store.close();
