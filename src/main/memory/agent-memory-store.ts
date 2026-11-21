@@ -77,10 +77,13 @@ function safeIds(ids: unknown, max = 100): string[] {
   if (!Array.isArray(ids)) return [];
   return [...new Set(ids.filter((value): value is string => typeof value === "string").map(value => value.trim().slice(0, 120)).filter(Boolean))].slice(0, max);
 }
-function scrubEvidence(value: string): string {
-  let result = value.slice(0, MAX_SOURCE_CHARS);
+function redactSecrets(value: string, maxChars: number): string {
+  let result = value.slice(0, maxChars);
   for (const pattern of SECRET_PATTERNS) result = result.replace(pattern, "[REDACTED_SECRET]");
   return result;
+}
+function scrubEvidence(value: string): string {
+  return redactSecrets(value, MAX_SOURCE_CHARS);
 }
 function parseJson<T>(value: unknown, fallback: T): T {
   try { return JSON.parse(String(value ?? "")) as T; } catch { return fallback; }
@@ -204,8 +207,8 @@ export class AgentMemoryStore {
     expiresAt?: number | null; sourceSessionId?: string | null; sourceTraceId?: string | null; sourceRefs?: string[];
   }): AgentMemoryNote {
     const scopeKey = normalizeScope(input.scope);
-    const title = input.title.trim().slice(0, 160);
-    const content = input.content.trim().slice(0, 12_000);
+    const title = redactSecrets(input.title.trim(), 160);
+    const content = redactSecrets(input.content.trim(), 12_000);
     if (!title || !content) throw new Error("Memory note 标题和内容不能为空。");
     const id = input.id?.trim().slice(0, 100) || randomUUID();
     const conflict = this.database.prepare("SELECT scope_key FROM memory_notes WHERE id=?").get({}, id) as { scope_key?: string } | undefined;
@@ -331,7 +334,7 @@ export class AgentMemoryStore {
   publishRepresentation(input:{scope?:string|null;slug:string;title:string;content:string;sourceNoteIds?:string[]}):AgentMemoryRepresentation{
     const scopeKey=normalizeScope(input.scope);
     const slug=input.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,80);
-    const title=input.title.trim().slice(0,160),content=input.content.trim().slice(0,24000),ids=safeIds(input.sourceNoteIds,100);
+    const title=redactSecrets(input.title.trim(),160),content=redactSecrets(input.content.trim(),24000),ids=safeIds(input.sourceNoteIds,100);
     if(!slug||!title||!content||!ids.length)throw new Error("Knowledge page 必须包含 slug、标题、正文和来源 Note。");
     const valid=this.database.prepare("SELECT COUNT(*) AS count FROM memory_notes WHERE scope_key=? AND status='active' AND id IN ("+ids.map(()=>"?").join(",")+")").get({}, scopeKey,...ids) as {count?:number};
     if(Number(valid.count??0)!==ids.length)throw new Error("知识页引用了当前 Workspace 之外、不存在或已归档的 Note。");
@@ -461,7 +464,7 @@ export class AgentMemoryStore {
     const scopeKey=normalizeScope(input.scope),run=this.getDreamRun(input.runId,input.scope??null);
     if(!run||run.status!=="prepared")throw new Error("Dreaming Run 不存在或不处于 prepared 状态。");
     if(input.operations.length>MAX_DREAM_OPERATIONS)throw new Error("单次 Dreaming 最多提交 80 项变更。");
-    const allowedSources=new Set(run.evidence.map(source=>source.sourceId)),summary=input.summary.trim().slice(0,4000);
+    const allowedSources=new Set(run.evidence.map(source=>source.sourceId)),summary=redactSecrets(input.summary.trim(),4000);
     if(!summary)throw new Error("Dreaming 必须提供整理摘要。");
     const createdNoteIds:string[]=[],updatedNoteIds:string[]=[],publishedKnowledgeIds:string[]=[];
     this.database.exec("BEGIN IMMEDIATE");
@@ -474,7 +477,7 @@ export class AgentMemoryStore {
         const refs=safeIds(operation.sourceRefs,50);
         if(!refs.length)throw new Error("每项 Dreaming 变更必须引用至少一条证据。");
         for(const ref of refs)if(!allowedSources.has(ref))throw new Error("变更引用了当前 Dreaming Run 以外的证据："+ref);
-        const reason=operation.reason.trim().slice(0,500);
+        const reason=redactSecrets(operation.reason.trim(),500);
         if(!reason)throw new Error("每项 Dreaming 变更必须记录整理理由。");
         if(operation.op==="upsert_note"){
           const result=this.dreamUpsertNote(scopeKey,input.runId,sequence,operation,refs,reason);
@@ -504,7 +507,7 @@ export class AgentMemoryStore {
   }
 
   private dreamUpsertNote(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"upsert_note"}>,refs:string[],reason:string):{id:string;created:boolean}{
-    const title=op.title.trim().slice(0,160),content=scrubEvidence(op.content.trim()).slice(0,12_000);
+    const title=redactSecrets(op.title.trim(),160),content=redactSecrets(op.content.trim(),12_000);
     if(!title||!content)throw new Error("upsert_note 必须包含标题和正文。");
     const id=op.id?.trim().slice(0,100)||randomUUID(),before=this.getNoteRow(id,scopeKey);
     const conflict=this.database.prepare("SELECT scope_key FROM memory_notes WHERE id=?").get({}, id) as {scope_key?:string}|undefined;
@@ -577,7 +580,7 @@ export class AgentMemoryStore {
     const noteRows=this.database.prepare("SELECT * FROM memory_notes WHERE scope_key=? AND status='active' AND id IN ("+ids.map(()=>"?").join(",")+")").all({}, scopeKey,...ids) as Array<Record<string,unknown>>;
     if(noteRows.length!==ids.length)throw new Error("知识页只能引用当前 Workspace 的活动 Note。");
     const slug=op.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,80);
-    const title=op.title.trim().slice(0,160),content=op.content.trim().slice(0,24000);
+    const title=redactSecrets(op.title.trim(),160),content=redactSecrets(op.content.trim(),24000);
     if(!slug||!title||!content)throw new Error("知识页必须包含有效的 slug、标题和正文。");
     const id=createHash("sha256").update(scopeKey+":"+slug).digest("hex").slice(0,32),before=this.getRepresentationRow(id,scopeKey);
     const after={
