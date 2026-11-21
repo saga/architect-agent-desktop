@@ -615,7 +615,7 @@ export class AgentMemoryStore {
       const hostname=parsed.hostname.toLowerCase().replace(/^www\./,"");
       const isIp=/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)||hostname.includes(":");
       const sensitiveQueryKey=[...parsed.searchParams.keys()].some(key=>
-        /(^|[-_])(token|access[_-]?token|api[_-]?key|secret|signature|sig|auth|authorization|session|password|code)([-_]|$)/i.test(key)
+        /(^|[-_])(token|access[_-]?token|api[_-]?key|key|credential|secret|signature|sig|auth|authorization|session|password|code|jwt|rlkey)([-_]|$)/i.test(key)
       );
       if(parsed.protocol!=="https:"||parsed.username||parsed.password||parsed.hash||sensitiveQueryKey||isIp||
         hostname==="localhost"||hostname.endsWith(".local")||hostname.endsWith(".internal")||hostname.endsWith(".intranet")||hostname.endsWith(".test")||hostname.endsWith(".example")||!hostname.includes("."))
