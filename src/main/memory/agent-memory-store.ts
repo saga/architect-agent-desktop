@@ -183,7 +183,7 @@ export class AgentMemoryStore {
       status: "TEXT NOT NULL DEFAULT 'completed'", started_at: "INTEGER NOT NULL DEFAULT 0",
       completed_at: "INTEGER", max_source_created_at: "INTEGER NOT NULL DEFAULT 0",
       cursor_before_created_at: "INTEGER NOT NULL DEFAULT 0", cursor_before_session_id: "TEXT", cursor_before_message_id: "TEXT",
-      cursor_after_session_id: "TEXT", cursor_after_message_id: "TEXT",
+      cursor_after_created_at: "INTEGER NOT NULL DEFAULT 0", cursor_after_session_id: "TEXT", cursor_after_message_id: "TEXT",
       evidence_manifest_json: "TEXT NOT NULL DEFAULT '[]'", rollback_reason: "TEXT",
       operation_count: "INTEGER NOT NULL DEFAULT 0",
       purpose: "TEXT NOT NULL DEFAULT 'transcript'",
@@ -378,68 +378,130 @@ export class AgentMemoryStore {
   }
 
   getDreamCursor(scope:string|null):MemoryDreamCursor{
-    const row=this.database.prepare("SELECT max_source_created_at,last_source_session_id,last_source_message_id FROM memory_dream_cursors WHERE scope_key=?")
-      .get({}, normalizeScope(scope)) as {max_source_created_at?:number;last_source_session_id?:string;last_source_message_id?:string}|undefined;
+    const row=this.database.prepare("SELECT max_source_created_at,last_source_session_id,last_source_message_id,transcript_revision FROM memory_dream_cursors WHERE scope_key=?")
+      .get({}, normalizeScope(scope)) as {max_source_created_at?:number;last_source_session_id?:string;last_source_message_id?:string;transcript_revision?:number}|undefined;
     return {
       createdAt:Number(row?.max_source_created_at??0),
       sessionId:String(row?.last_source_session_id??""),
       messageId:String(row?.last_source_message_id??""),
+      transcriptRevision:Number(row?.transcript_revision??0),
     };
   }
 
-  prepareDreaming(scope:string|null,sourceInput:MemorySourceEvidence[]):MemoryDreamRun|null{
+  prepareDreaming(scope:string|null,sourceInput:MemorySourceEvidence[],purpose:"transcript"|"quality_review"="transcript"):MemoryDreamRun|null{
     const key=normalizeScope(scope);
-    if(sourceInput.length>MAX_DREAM_SOURCES)throw new Error("每次 Dreaming 最多处理 160 条 transcript 消息。");
+    if(sourceInput.length>MAX_DREAM_SOURCES)throw new Error("每次 Dreaming 最多处理 160 条消息证据。");
     const pending=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='prepared' LIMIT 1").get({}, key) as {id?:string}|undefined;
     if(pending?.id)throw new Error("当前 Workspace 已存在待处理 Dreaming Run，请先 commit 或 abandon："+pending.id);
-    const cursor=this.getDreamCursor(scope),runId=randomUUID(),deduped=new Map<string,StoredMemorySource>();
-    let totalChars=0;
+    const cursor=this.getDreamCursor(scope),runId=randomUUID();
+    const candidates=new Map<string,MemorySourceEvidence>();
     for(const source of sourceInput){
       const sessionId=String(source.sessionId??"").slice(0,100),messageId=String(source.messageId??"").slice(0,100);
+      const createdAt=Number(source.createdAt),revision=Number(source.revision);
+      if(!sessionId||!messageId||!Number.isFinite(createdAt))continue;
+      const hasRevision=Number.isSafeInteger(revision)&&revision>0;
+      const isAfterCursor=purpose==="quality_review" || (hasRevision
+        ? revision>cursor.transcriptRevision
+        : createdAt>cursor.createdAt || (createdAt===cursor.createdAt &&
+          (sessionId>cursor.sessionId || (sessionId===cursor.sessionId&&messageId>cursor.messageId))));
+      if(!isAfterCursor||!String(source.content??"").trim())continue;
+      const keyForMessage=sessionId+"\\0"+messageId,previous=candidates.get(keyForMessage);
+      if(!previous){candidates.set(keyForMessage,source);continue;}
+      const previousRevision=Number(previous.revision??0),nextRevision=hasRevision?revision:0;
+      if(nextRevision>previousRevision || (!hasRevision&&createdAt>Number(previous.createdAt)))candidates.set(keyForMessage,source);
+    }
+    const prepared:StoredMemorySource[]=[];
+    let totalChars=0;
+    for(const source of candidates.values()){
+      const sessionId=String(source.sessionId).slice(0,100),messageId=String(source.messageId).slice(0,100);
       const content=scrubEvidence(String(source.content??"")),createdAt=Number(source.createdAt);
-      const isAfterCursor = createdAt > cursor.createdAt ||
-        (createdAt === cursor.createdAt && (sessionId > cursor.sessionId ||
-          (sessionId === cursor.sessionId && messageId > cursor.messageId)));
-      if(!sessionId||!messageId||!Number.isFinite(createdAt)||!isAfterCursor||!content.trim())continue;
-      const sourceId=createHash("sha256").update(runId+"\\0"+sessionId+"\\0"+messageId).digest("hex").slice(0,32);
-      if(deduped.has(sourceId))continue;
+      if(!content.trim())continue;
       totalChars+=content.length;
       if(totalChars>MAX_DREAM_EVIDENCE_CHARS)throw new Error("Dreaming 证据包超过 320 KB，请缩小来源数量或单条消息长度。");
-      deduped.set(sourceId,{sourceId,sessionId,messageId,kind:String(source.kind??"message").slice(0,40),content,contentHash:createHash("sha256").update(content).digest("hex"),createdAt});
+      const revision=Number.isSafeInteger(Number(source.revision))&&Number(source.revision)>0?Number(source.revision):undefined;
+      const sourceId=createHash("sha256").update(runId+"\\0"+sessionId+"\\0"+messageId).digest("hex").slice(0,32);
+      prepared.push({
+        sourceId,sessionId,messageId,kind:String(source.kind??"message").slice(0,40),content,
+        contentHash:createHash("sha256").update(content).digest("hex"),createdAt,
+        ...(revision===undefined?{}:{revision}),
+      });
     }
-    const sources=[...deduped.values()].sort((a,b)=>
-      a.createdAt-b.createdAt ||
-      (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0) ||
-      (a.messageId < b.messageId ? -1 : a.messageId > b.messageId ? 1 : 0)
-    );
+    const sources=prepared.sort((a,b)=>{
+      if(a.revision!==undefined&&b.revision!==undefined)return a.revision-b.revision;
+      return a.createdAt-b.createdAt || (a.sessionId<b.sessionId?-1:a.sessionId>b.sessionId?1:0) ||
+        (a.messageId<b.messageId?-1:a.messageId>b.messageId?1:0);
+    });
     if(!sources.length)return null;
-    const id=runId,now=Date.now(),maxSourceCreatedAt=sources[sources.length-1]!.createdAt;
-    const cursorAfter:MemoryDreamCursor={createdAt:maxSourceCreatedAt,sessionId:sources[sources.length-1]!.sessionId,messageId:sources[sources.length-1]!.messageId};
+    const now=Date.now(),maxSourceCreatedAt=Math.max(...sources.map(source=>source.createdAt));
+    const maxRevision=sources.reduce((max,source)=>Math.max(max,source.revision??0),cursor.transcriptRevision);
+    const lastSource=sources[sources.length-1]!;
+    const cursorAfter:MemoryDreamCursor=purpose==="quality_review"?cursor:{
+      createdAt:lastSource.createdAt,sessionId:lastSource.sessionId,messageId:lastSource.messageId,
+      transcriptRevision:maxRevision,
+    };
     this.database.exec("BEGIN IMMEDIATE");
     try{
       const pending=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='prepared' LIMIT 1").get({},key) as {id?:string}|undefined;
-      if(pending?.id) throw new Error("当前 Workspace 已存在待处理 Dreaming Run，请先 commit 或 abandon："+pending.id);
-      if(canonicalJson(this.getDreamCursor(scope))!==canonicalJson(cursor)) {
-        throw new Error("Transcript cursor changed while evidence was being prepared; retry with a fresh evidence batch.");
-      }
+      if(pending?.id)throw new Error("当前 Workspace 已存在待处理 Dreaming Run，请先 commit 或 abandon："+pending.id);
+      if(canonicalJson(this.getDreamCursor(scope))!==canonicalJson(cursor))throw new Error("Transcript cursor changed while evidence was being prepared; retry with a fresh evidence batch.");
       this.database.prepare(
-        "INSERT INTO memory_dream_runs(id,scope_key,status,summary,source_count,created_at,started_at,completed_at,max_source_created_at,cursor_before_created_at,cursor_before_session_id,cursor_before_message_id,cursor_after_session_id,cursor_after_message_id,evidence_manifest_json,rollback_reason,operation_count) "+
-        "VALUES(?,?,'prepared','',?,?,?,NULL,?,?,?,?,?,?,?,NULL,0)"
-      ).run({}, id,key,sources.length,now,now,maxSourceCreatedAt,cursor.createdAt,cursor.sessionId,cursor.messageId,cursorAfter.sessionId,cursorAfter.messageId,JSON.stringify(sources.map(source=>source.sourceId)));
-      const insert=this.database.prepare("INSERT INTO memory_dream_sources(source_id,run_id,session_id,message_id,kind,content,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?)");
-      for(const source of sources)insert.run({}, source.sourceId,id,source.sessionId,source.messageId,source.kind,source.content,source.contentHash,source.createdAt);
+        "INSERT INTO memory_dream_runs(id,scope_key,status,summary,source_count,created_at,started_at,completed_at,max_source_created_at,"+
+        "cursor_before_created_at,cursor_before_session_id,cursor_before_message_id,cursor_after_created_at,cursor_after_session_id,cursor_after_message_id,"+
+        "evidence_manifest_json,rollback_reason,operation_count,purpose,cursor_before_revision,cursor_after_revision) "+
+        "VALUES(?,?,'prepared','',?,?,?,NULL,?,?,?,?,?,?,?,?,NULL,0,?,?,?)"
+      ).run({},runId,key,sources.length,now,now,maxSourceCreatedAt,cursor.createdAt,cursor.sessionId,cursor.messageId,
+        cursorAfter.createdAt,cursorAfter.sessionId,cursorAfter.messageId,JSON.stringify(sources.map(source=>source.sourceId)),
+        purpose,cursor.transcriptRevision,cursorAfter.transcriptRevision);
+      const insert=this.database.prepare("INSERT INTO memory_dream_sources(source_id,run_id,session_id,message_id,kind,content,content_hash,created_at,source_revision) VALUES(?,?,?,?,?,?,?,?,?)");
+      for(const source of sources)insert.run({},source.sourceId,runId,source.sessionId,source.messageId,source.kind,source.content,source.contentHash,source.createdAt,source.revision??null);
       this.database.exec("COMMIT");
     }catch(error){this.database.exec("ROLLBACK");throw error;}
-    return this.getDreamRun(id,scope);
+    return this.getDreamRun(runId,scope);
+  }
+
+  prepareQualityReview(scope:string|null,limit=20,now=Date.now()):MemoryDreamRun|null{
+    const candidates=this.listQualityReviewCandidates(scope,Math.max(1,Math.min(Math.floor(limit),80)),now);
+    const evidence:MemorySourceEvidence[]=[];
+    for(const note of candidates){
+      for(const sourceId of note.sourceRefs){
+        const source=this.getSourceById(sourceId,scope);
+        if(source)evidence.push({
+          sessionId:source.sessionId,messageId:source.messageId,kind:source.kind,
+          content:source.content,createdAt:source.createdAt,revision:source.revision,
+        });
+      }
+    }
+    return this.prepareDreaming(scope,evidence,"quality_review");
+  }
+
+  listQualityReviewCandidates(scope:string|null,limit=30,now=Date.now()):AgentMemoryNote[]{
+    const cutoff=now-30*24*60*60*1000;
+    const rows=this.database.prepare(
+      "SELECT * FROM memory_notes WHERE scope_key=? AND status='active' AND expires_at IS NULL OR 1=0"
+    );
+    const candidates=this.database.prepare(
+      "SELECT * FROM memory_notes WHERE scope_key=? AND status='active' "+
+      "AND (expires_at IS NULL OR expires_at>?) "+
+      "AND COALESCE(last_quality_reviewed_at,created_at)<=? "+
+      "AND source_refs_json<>'[]' "+
+      "ORDER BY pinned DESC,importance DESC,COALESCE(last_quality_reviewed_at,created_at) ASC LIMIT ?"
+    ).all({},normalizeScope(scope),now,cutoff,Math.max(1,Math.min(Math.floor(limit),80))) as Record<string,unknown>[];
+    void rows;
+    return candidates.map(row=>this.toNote(row));
   }
 
   getDreamRun(id:string,scope:string|null):MemoryDreamRun|null{
-    const row=this.database.prepare("SELECT * FROM memory_dream_runs WHERE id=? AND scope_key=?").get({}, id,normalizeScope(scope)) as Record<string,unknown>|undefined;
+    const row=this.database.prepare("SELECT * FROM memory_dream_runs WHERE id=? AND scope_key=?").get({},id,normalizeScope(scope)) as Record<string,unknown>|undefined;
     if(!row)return null;
-    const sources=this.database.prepare("SELECT * FROM memory_dream_sources WHERE run_id=? ORDER BY created_at").all({}, id) as Record<string,unknown>[];
+    const sources=this.database.prepare("SELECT * FROM memory_dream_sources WHERE run_id=? ORDER BY COALESCE(source_revision,created_at),session_id,message_id").all({},id) as Record<string,unknown>[];
     return {
-      id:String(row.id),status:row.status as MemoryDreamStatus,summary:String(row.summary??""),sourceCount:Number(row.source_count??0),
-      maxSourceCreatedAt:Number(row.max_source_created_at??0),cursorBefore:{createdAt:Number(row.cursor_before_created_at??0),sessionId:String(row.cursor_before_session_id??""),messageId:String(row.cursor_before_message_id??"")},cursorAfter:{createdAt:Number(row.max_source_created_at??0),sessionId:String(row.cursor_after_session_id??""),messageId:String(row.cursor_after_message_id??"")},createdAt:Number(row.created_at),startedAt:Number(row.started_at??row.created_at),
+      id:String(row.id),status:row.status as MemoryDreamStatus,
+      purpose:row.purpose==="quality_review"?"quality_review":"transcript",
+      summary:String(row.summary??""),sourceCount:Number(row.source_count??0),
+      maxSourceCreatedAt:Number(row.max_source_created_at??0),
+      cursorBefore:{createdAt:Number(row.cursor_before_created_at??0),sessionId:String(row.cursor_before_session_id??""),messageId:String(row.cursor_before_message_id??""),transcriptRevision:Number(row.cursor_before_revision??0)},
+      cursorAfter:{createdAt:Number(row.cursor_after_created_at??row.max_source_created_at??0),sessionId:String(row.cursor_after_session_id??""),messageId:String(row.cursor_after_message_id??""),transcriptRevision:Number(row.cursor_after_revision??0)},
+      createdAt:Number(row.created_at),startedAt:Number(row.started_at??row.created_at),
       completedAt:row.completed_at==null?null:Number(row.completed_at),evidence:sources.map(source=>this.toSource(source)),
     };
   }
