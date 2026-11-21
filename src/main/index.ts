@@ -1494,12 +1494,12 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 let scheduleRunnerActive = false;
 let schedulerTimer: NodeJS.Timeout | null = null;
 
-function notifyScheduleRun(title: string, succeeded: boolean, detail: string): void {
+function notifyScheduleRun(title: string, succeeded: boolean): void {
   try {
     if (!Notification.isSupported()) return;
     const notification = new Notification({
       title: succeeded ? "定时任务已完成" : "定时任务执行失败",
-      body: detail ? title + " · " + detail.slice(0, 180) : title,
+      body: title + (succeeded ? " · 结果已保存，可在运行记录中查看。" : " · 请在运行记录中查看失败原因。"),
     });
     notification.on("click", () => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1645,7 +1645,7 @@ async function processDueAgentSchedules(manualScheduleId?: string): Promise<void
           catch (error) { recordOperation("schedule", "failed to restore Task: " + (error instanceof Error ? error.message : String(error))); }
         }
         publishAgentWorkspaceSnapshot();
-        notifyScheduleRun(schedule.title, succeeded, errorText || (captured?.answer.trim().slice(0, 180) ?? ""));
+        notifyScheduleRun(schedule.title, succeeded);
       }
       if (manual) break;
     }
