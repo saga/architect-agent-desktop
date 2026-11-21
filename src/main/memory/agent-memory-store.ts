@@ -51,6 +51,7 @@ export interface AgentMemoryNote {
   version: number; expiresAt: number | null; lastVerifiedAt: number | null; supersededById: string | null;
   qualityScore: number | null; lastQualityReviewedAt: number | null;
   claimType: MemoryClaimType; validationEvidence: MemoryValidationEvidence | null;
+  externalVerification: AgentMemoryExternalVerification | null;
 }
 export interface MemoryDreamSchedule {
   enabled: boolean;
@@ -597,7 +598,7 @@ export class AgentMemoryStore {
       const hostname=parsed.hostname.toLowerCase().replace(/^www\./,"");
       const isIp=/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)||hostname.includes(":");
       if(parsed.protocol!=="https:"||parsed.username||parsed.password||parsed.hash||isIp||
-        hostname==="localhost"||hostname.endsWith(".local")||!hostname.includes("."))
+        hostname==="localhost"||hostname.endsWith(".local")||hostname.endsWith(".internal")||hostname.endsWith(".intranet")||hostname.endsWith(".test")||hostname.endsWith(".example")||!hostname.includes("."))
         throw new Error("外部事实来源必须是公开 HTTPS 域名，不能是本机地址、IP 或内网主机。");
       const sourceContent=source.content.toLowerCase();
       if(!sourceContent.includes(parsed.hostname.toLowerCase())&&!sourceContent.includes(parsed.toString().toLowerCase()))
