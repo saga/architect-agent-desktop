@@ -25,14 +25,22 @@ export interface FinancialChartProps {
 function sanitizeOption(value: EChartsOption | Record<string, unknown>): EChartsOption {
   const serialized = JSON.stringify(value);
   if (serialized.length > 50_000) throw new Error("图表配置超过 50 KB。");
-  const parsed = JSON.parse(serialized) as EChartsOption;
-  const escapeText = (input: unknown): unknown => {
-    if (typeof input === "string") return input.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    if (Array.isArray(input)) return input.map(escapeText);
-    if (input && typeof input === "object") return Object.fromEntries(Object.entries(input).map(([key, item]) => [key, escapeText(item)]));
-    return input;
+  const parsed = JSON.parse(serialized) as Record<string, unknown>;
+  const sanitize = (input: unknown): unknown => {
+    if (Array.isArray(input)) return input.map(sanitize);
+    if (!input || typeof input !== "object") return input;
+    const output: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(input as Record<string, unknown>)) {
+      if (key === "formatter" || key === "extraCssText") continue;
+      output[key] = sanitize(item);
+    }
+    return output;
   };
-  return escapeText(parsed) as EChartsOption;
+  const safe = sanitize(parsed) as Record<string, unknown>;
+  if (safe.tooltip && typeof safe.tooltip === "object" && !Array.isArray(safe.tooltip)) {
+    safe.tooltip = { ...(safe.tooltip as Record<string, unknown>), renderMode: "richText" };
+  }
+  return safe as EChartsOption;
 }
 
 export default function FinancialChart({ option, height = 360, label }: FinancialChartProps) {
