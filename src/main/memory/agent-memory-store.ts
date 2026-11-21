@@ -1072,8 +1072,8 @@ export class AgentMemoryStore {
     if(workspaceScope===null)return null;
     const personalKey=normalizeScope(null);
     const rows=this.database.prepare(
-      "SELECT source_refs_json FROM memory_notes WHERE scope_key=? AND status='active'"
-    ).all({},personalKey) as Array<{source_refs_json?:unknown}>;
+      "SELECT source_refs_json FROM memory_notes WHERE scope_key=? AND status='active' AND (expires_at IS NULL OR expires_at>?)"
+    ).all({},personalKey,Date.now()) as Array<{source_refs_json?:unknown}>;
     const referenced=rows.some(row=>parseJson<string[]>(row.source_refs_json,[]).includes(sourceId));
     return referenced?this.getSourceById(sourceId,null):null;
   }
