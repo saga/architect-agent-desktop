@@ -664,7 +664,7 @@ describe("AgentMemoryStore", () => {
 
     const context = store.getInjectedContext("/workspace/context-priority", 1000);
     expect(context).toContain(pinned.title);
-    expect(context.indexOf(pinned.title)).toBeLessThan(context.indexOf("Knowledge Page Index"));
+    expect(context.indexOf(pinned.title)).toBeLessThan(context.indexOf("Workspace Knowledge Index"));
     expect(context.length).toBeLessThanOrEqual(1000);
     store.close();
   });
