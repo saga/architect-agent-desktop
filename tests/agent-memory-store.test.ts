@@ -182,6 +182,40 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("does not return unrelated semantic-only vectors", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const relevant = store.saveNote({
+      scope: "/workspace/semantic-threshold",
+      title: "Unrelated lexical title",
+      content: "No matching query words appear in this content.",
+    });
+    const irrelevant = store.saveNote({
+      scope: "/workspace/semantic-threshold",
+      title: "Another unrelated title",
+      content: "This note is not semantically similar either.",
+    });
+    const pending = store.listNotesMissingEmbeddings("/workspace/semantic-threshold", "ollama", "nomic-embed-text", 10);
+    const relevantPending = pending.find(note => note.id === relevant.id)!;
+    const irrelevantPending = pending.find(note => note.id === irrelevant.id)!;
+    const base = [1, 0, 0, 0, 0, 0, 0, 0];
+    const opposite = [-1, 0, 0, 0, 0, 0, 0, 0];
+    store.upsertEmbedding({
+      noteId: relevant.id, scope: "/workspace/semantic-threshold", provider: "ollama",
+      model: "nomic-embed-text", contentHash: relevantPending.contentHash, vector: base,
+    });
+    store.upsertEmbedding({
+      noteId: irrelevant.id, scope: "/workspace/semantic-threshold", provider: "ollama",
+      model: "nomic-embed-text", contentHash: irrelevantPending.contentHash, vector: opposite,
+    });
+
+    const results = store.search("/workspace/semantic-threshold", "rare terminology absent from both notes", 10, {
+      provider: "ollama", model: "nomic-embed-text", vector: base,
+    });
+    expect(results.map(note => note.id)).toContain(relevant.id);
+    expect(results.map(note => note.id)).not.toContain(irrelevant.id);
+    store.close();
+  });
+
   it("performs scope-safe semantic retrieval and invalidates stale vectors", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const workspace = store.saveNote({
@@ -258,6 +292,53 @@ describe("AgentMemoryStore", () => {
       .toMatchObject({ total: 2, indexed: 1, missing: 1 });
     expect(store.listNotesMissingEmbeddings("/workspace/semantic", "ollama", "nomic-embed-text", 20)
       .map(note => note.id)).toContain(workspace.id);
+    store.close();
+  });
+
+  it("does not treat sibling subdomains as independent external publishers", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const run = store.prepareDreaming("/workspace/external-subdomains", [{
+      sessionId: "claim-session",
+      messageId: "claim",
+      kind: "user",
+      content: "The regulator issued this reporting notice.",
+      createdAt: Date.now(),
+    }, {
+      sessionId: "regulator-session",
+      messageId: "apex-source",
+      kind: "tool",
+      content: "Fetched https://regulator.example.gov/notices/42.",
+      createdAt: Date.now() + 1,
+    }, {
+      sessionId: "news-session",
+      messageId: "subdomain-source",
+      kind: "tool",
+      content: "Fetched https://news.regulator.example.gov/coverage/42.",
+      createdAt: Date.now() + 2,
+    }]);
+    const userSource = run!.evidence.find(source => source.kind === "user")!;
+    const apexSource = run!.evidence.find(source => source.messageId === "apex-source")!;
+    const subdomainSource = run!.evidence.find(source => source.messageId === "subdomain-source")!;
+    const note = store.saveNote({
+      scope: "/workspace/external-subdomains",
+      title: "Regulatory reporting notice",
+      content: "The regulator issued this reporting notice.",
+      claimType: "external_fact",
+      sourceRefs: [userSource.sourceId],
+    });
+    const recorded = store.recordExternalSources("/workspace/external-subdomains", {
+      noteId: note.id,
+      baseVersion: note.version,
+      sources: [
+        { sourceRef: apexSource.sourceId, url: "https://regulator.example.gov/notices/42", publisher: "Regulator" },
+        { sourceRef: subdomainSource.sourceId, url: "https://news.regulator.example.gov/coverage/42", publisher: "Regulator News" },
+      ],
+      note: "Two URLs are from sibling subdomains of the same registrable domain.",
+    });
+    expect(recorded.externalVerification?.status).toBe("single_domain_sources_recorded");
+    expect(() => store.confirmExternalVerification("/workspace/external-subdomains", note.id, recorded.version))
+      .toThrow(/两个不同 HTTPS 域名/);
+    store.abandonDreaming("/workspace/external-subdomains", run!.id, "test complete");
     store.close();
   });
 
