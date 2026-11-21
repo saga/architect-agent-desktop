@@ -176,7 +176,7 @@ completed / list / rollback
 
 `memory_dreaming_prepare` 从当前 Workspace 已保存的 Session Transcript 读取 cursor 之后的消息。每次最多处理 160 条（默认 80 条）、证据包不超过 320 KB；单条消息最多 4,000 字符，先做常见密钥/Token 模式脱敏，再保存 source hash、session/message ID、消息类型和时间。超过单条上限时，证据正文会带 `[TRUNCATED]` 标记；Dreaming 必须先通过 `memory_search_history` 回查原始 Transcript，不能把预览片段当成完整证据。证据 ID 按 Run 生成，重试不会与已放弃 Run 的主键冲突。
 
-游标由 `createdAt + sessionId + messageId` 组成。相同毫秒时间戳的消息仍有稳定顺序，分批整理时不会仅按时间戳而漏掉同一批尾部消息。游标只在事务成功提交时前移。
+增量证据现在以 Session SQLite 的不可变 `session_message_revisions` 修订序号为主游标。每次新增或修改消息都会记录新的 revision、修改时间和 changeType；同一消息在一个批次内多次修订时只取最新快照。旧数据库首次升级时按旧的 `createdAt + sessionId + messageId` 游标过滤 baseline，避免重新整理已经处理过的历史消息。后续即使修改数周前的消息，也会进入新的证据批次。游标只在 Transcript Run 成功提交时前移，质量复查 Run 不会移动该游标。
 
 **变更操作**
 
@@ -210,11 +210,19 @@ Run 状态：
 
 `memory_dreaming_rollback` 只能回滚当前 Workspace 最新的 completed Run。回滚前逐项比对当前实体与本次提交后的快照；如果之后有人工或 Agent 修改，则拒绝回滚，避免用旧快照覆盖新内容。回滚同样在事务中恢复 Note、知识页、关系和 cursor。
 
-**Agent 的整理策略**
+**质量复查**
 
-对重要任务，系统提示要求 Agent 主动执行 prepare → evidence review → commit。整理目标不局限于失败记录，还包括成功流程、稳定的用户偏好、项目约定、业务定义、数据口径、重复出现的错误和已解决问题。模型必须区分事实、推测、冲突和时效性信息；证据不足时保持 unverified，矛盾并存时记录 contradicts 或 disputed，不为了减少 Note 数量而删除唯一知识。 对重要、高风险或可能变化的旧 Note，Agent 应通过 `memory_read_source` 按 `sourceId` 读取历史证据快照，并结合 `memory_search_history` 搜索更早 Transcript；不能只凭 Note 自身内容完成自我验证。
+质量复查是独立的 `quality_review` Run，不与新 Transcript 整理混在同一个游标事务里。系统筛选超过 30 天未复查、仍处于活动状态且具有来源引用的 Note；`memory_quality_review_prepare` 固定历史证据，`memory_quality_review_list({runId})` 将候选 Note 映射到本次 Run 的 source ID。Agent 必须使用 `qualityReviewSourceRefs`，不能把旧 Run 的 sourceRef 当作本次提交证据。复查通过 `review_note` 记录 0–1 的 `qualityScore`、confidence 和验证状态；质量分数考虑来源可靠性、直接性、清晰程度、时效性和交叉印证。质量 Run 只接受带质量分数的 review_note，不允许顺手创建、归档或发布其他实体；空候选应 abandon，而不是提交空复查事务。
 
-当前是 Agent 驱动的任务后整理，Settings → Memory & Dreaming 提供查看 Notes、知识页、关系和 Run 审计的管理界面，并允许手动启动整理、继续处理已有 prepared Run、置顶/取消置顶 Note、归档 Note、放弃 prepared Run 或回滚最近一次提交。手动整理需要当前 Expert 开放长期记忆工具，且 Agent 工具权限至少为 assisted。也可以让 Agent 在重要任务结束时执行同样的完整工具链。当前不自动启动后台定时模型调用，避免未经用户配置就产生额外成本或静默修改。
+质量分数是模型基于已固定证据作出的复核判断，不是外部事实验证器或统计置信区间。来源不足时保持 unverified；旧 Note 不能仅凭自身内容完成自我验证。后续仍需要来源等级、独立交叉来源门槛和更强的评估策略。
+
+**Agent 的整理策略与调度**
+
+对重要任务，系统提示要求 Agent 主动执行 prepare → evidence review → commit。整理目标不局限于失败记录，还包括成功流程、稳定的用户偏好、项目约定、业务定义、数据口径、重复出现的错误和已解决问题。模型必须区分事实、推测、冲突和时效性信息；证据不足时保持 unverified，矛盾并存时记录 contradicts 或 disputed，不为了减少 Note 数量而删除唯一知识。对重要、高风险或可能变化的旧 Note，Agent 应通过 `memory_read_source` 按 `sourceId` 读取历史证据快照，并结合 `memory_search_history` 搜索更早 Transcript；不能只凭 Note 自身内容完成自我验证。
+
+Settings → Memory & Dreaming 提供 Notes、知识页、关系、Run 审计和质量分数管理，并允许手动启动整理、单独复查质量、继续处理已有 prepared Run、置顶/取消置顶 Note、归档 Note、放弃 prepared Run 或回滚最近一次提交。也可以为每个 Workspace 单独启用自动 Dreaming，设置 6 小时至 7 天的周期。调度复用主进程现有的 15 秒 Schedule 检查循环，按 Workspace 串行执行 Transcript 整理、到期质量复查和过期 Note 清理；失败采用退避重试，运行结束检查是否残留 prepared Run，并写入 Trace。
+
+自动调度默认关闭，只在桌面应用运行时工作。它不会扩大现有工具权限：全局工具权限和所选 Expert 必须至少允许 assisted，且 Expert 必须开放完整长期记忆工具组。Workspace 路径失效或不存在时跳过执行，避免把项目记忆误写到 Personal Memory。
 
 ### Memory 生命周期
 
@@ -245,11 +253,12 @@ A2UI Catalog 和 Finance Chart options 都有组件、数据量和配置约束�
 3. Word 解析提取正文，暂不保留复杂版面与修订痕迹。
 4. 当前附件解析、DuckDB 导入和工具查询有明确大小、行数和返回行数上限。
 5. 新会话使用 A2UI 1.0 的 Agent/Core/React SDK 和本地 Finance Catalog；旧会话保留 x-card v0.9。新组件必须同步扩展 Agent API schema 与 Renderer 实现。
-6. Dreaming 已有 evidence manifest、复合游标、版本冲突检查、原子事务、实体/关系版本快照和最新 Run 回滚；Settings 提供 Memory/Dreaming 管理界面。整理由 Agent 在重要任务中执行或由用户手动触发，不是默认开启的后台定时模型服务。
-7. 尚未实现 PDF OCR、PDF 表格重建、Embedding/向量记忆、跨 Workspace 全局记忆，以及独立的后台定时 Dreaming 服务。
-8. Transcript 增量游标仍基于消息创建时间。若旧消息在 Dreaming 游标前移后被回写修改，当前批次不会自动重新读取该消息；旧记忆纠错需要 Agent 主动读取历史 sourceRef 或搜索 Transcript。后续应改为 revision-aware 的 Transcript cursor。
-9. `validated` 和 confidence 仍由模型根据来源证据作判断，不是独立事实校验器；当前没有强制的来源等级、交叉来源门槛或定期质量评估。
-10. 目前没有独立的 Memory Goal / Policy 配置；可以通过 Expert Prompt 提供领域目标，但还不能为不同 Workspace 设置结构化的记忆采集、保留和验证规则。知识页也没有完整的页面间链接、反向链接和孤儿页面自动检查。
+6. Dreaming 现有 evidence manifest、不可变 Transcript revision、复合兼容游标、版本冲突检查、原子事务、实体/关系版本快照和最新 Run 回滚。旧 Session 数据会在首次打开时建立 baseline 修订记录；旧的已提交 Memory cursor 会继续作为 baseline 过滤依据。
+7. Memory Notes 有独立的质量复查 Run、来源映射、质量分数与最近复查时间；质量复查不推进 Transcript cursor，并支持审计和回滚。质量分数仍由模型根据来源证据判断，并非独立事实校验器。
+8. Workspace 自动 Dreaming 已接入现有主进程 Schedule 循环，默认关闭、按 Workspace 保存周期、仅在桌面应用运行时执行，并受全局与 Expert 工具权限约束；失败会退避重试，残留 prepared Run 不会被报告为成功。
+9. 尚未实现 PDF OCR、PDF 表格重建、Embedding/向量记忆，以及跨 Workspace 的个人长期记忆层。Transcript revision 日志目前没有独立的历史压缩/保留策略，长期高频改写会增加本地 SQLite 文件体积。
+10. `validated`、confidence 和 qualityScore 仍由模型根据来源证据作判断；当前没有强制来源等级、独立交叉来源门槛或外部事实校验器。
+11. 目前没有独立的 Memory Goal / Policy 配置；可以通过 Expert Prompt 提供领域目标，但还不能为不同 Workspace 设置结构化的记忆采集、保留和验证规则。知识页也没有完整的页面间链接、反向链接和孤儿页面自动检查。
 
 ## 主要实现文件
 
