@@ -288,7 +288,8 @@ export class AgentMemoryStore {
       (isClaimType(before?.claim_type) ? before.claim_type as MemoryClaimType : "unknown");
     const unchanged = Boolean(before && String(before.content) === content && String(before.title) === title &&
       String(before.claim_type ?? "unknown") === claimType);
-    const validation: MemoryValidation = unchanged && isValidation(before?.validation)
+    const validation: MemoryValidation = unchanged && isValidation(before?.validation) &&
+      (before?.validation !== "validated" || Boolean(before?.validation_evidence_json))
       ? before.validation
       : input.validation === "disputed" ? "disputed" : "unverified";
     const requestedSourceRefs = safeIds(input.sourceRefs);
@@ -546,9 +547,10 @@ export class AgentMemoryStore {
       totalBytes+=Buffer.byteLength(content,"utf8");
       if(totalBytes>MAX_DREAM_EVIDENCE_CHARS)throw new Error("Dreaming 证据包超过 320 KB，请缩小来源数量或单条消息长度。");
       const revision=Number.isSafeInteger(Number(source.revision))&&Number(source.revision)>0?Number(source.revision):undefined;
+      const kind=String(source.kind??"message").slice(0,40);
       const sourceId=createHash("sha256").update(runId+"\\0"+sessionId+"\\0"+messageId).digest("hex").slice(0,32);
       prepared.push({
-        sourceId,sessionId,messageId,kind:String(source.kind??"message").slice(0,40),content,
+        sourceId,sessionId,messageId,kind,evidenceClass:evidenceClassForKind(kind),content,
         contentHash:createHash("sha256").update(content).digest("hex"),createdAt,
         ...(revision===undefined?{}:{revision}),
       });
@@ -778,7 +780,7 @@ export class AgentMemoryStore {
     const snapshot={
       id,scope_key:scopeKey,title,content,tags_json:JSON.stringify(safeTags(op.tags??parseJson(before?.tags_json,[]))),
       claim_type:claimType,validation_evidence_json:same?(before?.validation_evidence_json??null):null,
-      validation:same&&isValidation(before?.validation)?before.validation:"unverified",
+      validation:same&&isValidation(before?.validation)&&(before?.validation!=="validated"||Boolean(before?.validation_evidence_json))?before.validation:"unverified",
       confidence:same?Number(before?.confidence??0.5):0.5,
       pinned:op.pinned===undefined?Number(before?.pinned??0):op.pinned?1:0,status:"active",
       source_session_id:firstSource?.sessionId??before?.source_session_id??null,source_trace_id:before?.source_trace_id??null,
@@ -1127,7 +1129,7 @@ export class AgentMemoryStore {
   private toNote(row:Record<string,unknown>):AgentMemoryNote{
     return {
       id:String(row.id),title:String(row.title),content:String(row.content),tags:parseJson<string[]>(row.tags_json,[]),
-      validation:isValidation(row.validation)?row.validation:"unverified",confidence:Number(row.confidence??0.5),pinned:Number(row.pinned??0)===1,
+      validation:isValidation(row.validation)?(row.validation==="validated"&&!row.validation_evidence_json?"unverified":row.validation):"unverified",confidence:Number(row.confidence??0.5),pinned:Number(row.pinned??0)===1,
       importance:Number(row.importance??0.5),status:row.status==="archived"||row.status==="superseded"?row.status:"active",
       sourceSessionId:typeof row.source_session_id==="string"?row.source_session_id:null,
       sourceTraceId:typeof row.source_trace_id==="string"?row.source_trace_id:null,sourceRefs:parseJson<string[]>(row.source_refs_json,[]),
