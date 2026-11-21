@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, App as AntApp, Button, Dropdown, Popconfirm, Tag, message, Tooltip } from "antd";
 import { FolderOpenOutlined, HistoryOutlined, LinkOutlined, MoreOutlined, PaperClipOutlined, SettingOutlined } from "@ant-design/icons";
-import SessionExplorer from "./SessionExplorer";
+
 import { Bubble, Sender, Think, ThoughtChain } from "@ant-design/x";
 import type { ThoughtChainItemType } from "@ant-design/x";
 import XMarkdown from "@ant-design/x-markdown";
@@ -113,7 +113,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
   const [statusMessage, setStatusMessage] = useState("");
   const [settings, setSettings] = useState<AgentSettings>(EMPTY_SETTINGS);
   const [workspaceProject, setWorkspaceProject] = useState<WorkspaceProject>({ path: null, name: null });
-  const [sessionExplorerOpen, setSessionExplorerOpen] = useState(false);
+  
 
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -422,7 +422,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       <div className="agent-panel-toolbar">
         {onModeChange && <Tooltip title={mode === "pure" ? "切换到 Sidepanel 模式" : "切换到 Pure Agent 模式"}><Button type="text" size="small" onClick={onModeChange}>{mode === "pure" ? "Sidepanel" : "Pure Agent"}</Button></Tooltip>}
         {mode === "pure" && onToggleRightPane && <Tooltip title={rightPaneVisible ? "隐藏右侧工作区" : "显示右侧工作区"}><Button type="text" size="small" onClick={onToggleRightPane}>{rightPaneVisible ? "隐藏预览" : "显示预览"}</Button></Tooltip>}
-        <Tooltip title="执行轨迹与 Context Explorer"><Button type="text" size="small" aria-label="执行轨迹与 Context Explorer" icon={<HistoryOutlined />} onClick={() => setSessionExplorerOpen(true)} /></Tooltip>
+        <Tooltip title="执行轨迹与 Context Explorer"><Button type="text" size="small" aria-label="执行轨迹与 Context Explorer" icon={<HistoryOutlined />} onClick={() => void window.browser.openSessionExplorer()} /></Tooltip>
         <Tooltip title="Agent 配置"><Button type="text" size="small" aria-label="Agent 配置" icon={<SettingOutlined />} onClick={() => void openSettings()} /></Tooltip>
         <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: moreItems, onClick: onMoreClick }}>
           <Button type="text" size="small" aria-label="更多操作" icon={<MoreOutlined />} />
@@ -430,7 +430,6 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
         <Tooltip title="关闭"><Button type="text" size="small" aria-label="关闭面板" onClick={onClose}>×</Button></Tooltip>
       </div>
     </header>
-    <SessionExplorer open={sessionExplorerOpen} onClose={() => setSessionExplorerOpen(false)} />
     {status === "error" && settings.provider === "copilot" && <Alert type="error" showIcon message="GitHub Copilot Agent 初始化失败" description={<div>{statusMessage}<p>这通常是 SDK 配置或运行时问题，不代表 CLI 一定未登录。请检查应用版本和运行日志。</p></div>} />}
     {status === "unauthenticated" && settings.provider === "copilot" && <Alert type="warning" showIcon message="尚未完成 GitHub Copilot CLI 登录" description={<div>{statusMessage && <p>{statusMessage}</p>}本应用调用本机 Copilot CLI 凭据，不会自动复用 VS Code 扩展登录状态。<ol><li>打开 macOS「终端」应用。</li><li>运行 <code>copilot login</code>。如果提示找不到命令，先运行 <code>brew install --cask copilot-cli</code> 安装。</li><li>选择 GitHub.com，再选择浏览器登录。</li><li>在浏览器中登录正确的 GitHub 账号，并授权 GitHub Copilot CLI。</li><li>看到终端提示登录成功后，回到本应用发送消息。</li></ol>也可以运行 <code>copilot</code> 进入交互界面后输入 <code>/login</code>；使用 <code>/user</code> 检查账号。</div>} />}
     {settings.provider === "codebuddy" && status !== "ready" && items.length === 0 && <Alert type="info" showIcon message="CodeBuddy 使用本机 CLI 登录态" description={<div>在系统终端运行 <code>codebuddy</code>，按 CLI 提示完成登录，并确认账号有可用模型权限。首次请求会实际验证认证和模型可用性。</div>} />}
