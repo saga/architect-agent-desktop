@@ -34,7 +34,7 @@ describe("DuckDbAnalyticsService SQL boundary", () => {
       const result = await analytics.query("/workspace/portfolio-a", `SELECT * FROM "${imported.table}" ORDER BY "Ticker"`);
       expect(result.columns).toEqual(["Ticker", "Market_Value"]);
       expect(result.rows).toHaveLength(2);
-      expect(result.rows[0]).toMatchObject({ Ticker: "AAPL", Market_Value: 125 });
+      expect(result.rows[0]).toMatchObject({ Ticker: "AAPL", Market_Value: "125" });
       expect((await analytics.listTables("/workspace/portfolio-b"))).toHaveLength(0);
 
       const failingRows: unknown[][] = Array.from({ length: 500 }, (_, index) => [index + 1]);
@@ -43,7 +43,7 @@ describe("DuckDbAnalyticsService SQL boundary", () => {
         .rejects.toThrow();
       const afterFailure = await analytics.query("/workspace/portfolio-a", `SELECT * FROM "${imported.table}"`);
       expect(afterFailure.rows).toHaveLength(2);
-      expect(afterFailure.rows[0]).toMatchObject({ Ticker: "AAPL", Market_Value: 125 });
+      expect(afterFailure.rows[0]).toMatchObject({ Ticker: "AAPL", Market_Value: "125" });
     } finally {
       await analytics.close();
     }
