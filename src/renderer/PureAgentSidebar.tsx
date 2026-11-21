@@ -69,7 +69,7 @@ export default function PureAgentSidebar({
 
     <nav className="pure-sidebar-nav" aria-label="Agent workspace navigation">
       <button type="button" className={section === "schedule" ? "active" : ""} onClick={() => onSectionChange("schedule")}>
-        <CalendarOutlined /><span>Schedule</span>
+        <CalendarOutlined /><span>定时任务</span>
         {snapshot.schedules.some(item => item.enabled) && <span className="pure-nav-count">{snapshot.schedules.filter(item => item.enabled).length}</span>}
       </button>
       <button type="button" className={section === "expert" ? "active" : ""} onClick={() => onSectionChange("expert")}>
