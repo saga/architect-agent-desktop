@@ -97,7 +97,7 @@ export default function MemoryManager() {
     setRunning(true);
     try {
       await window.browser.copilotSend(
-        "请对当前 Workspace 执行完整的 Memory Dreaming 生命周期。先调用 memory_dreaming_prepare 读取新的 Transcript 证据；若没有新证据就明确报告 up_to_date。检查当前 Memory Notes、知识页和关系，识别长期有效的项目事实、业务定义、明确偏好、成功流程、已解决问题、反复出现的失败与相互矛盾的信息。只保留可复用且有证据的内容；每条变更必须引用本次 Run 的 sourceId 并给出 reason，更新已有 Note 必须带 baseVersion。证据不足保持 unverified；冲突用 contradicts 关系或 disputed 表示；不要为了精简而归档唯一或置顶知识。最后用 memory_dreaming_commit 原子提交，并读取 Run 审计结果汇报新增、更新、归档、关系和知识页。禁止把本次整理操作本身或模型猜测当作事实。",
+        "请对当前 Workspace 执行完整的 Memory Dreaming 生命周期。先调用 memory_dreaming_prepare 读取新的 Transcript 证据；若没有新证据就明确报告 up_to_date。检查当前 Memory Notes、知识页和关系，识别长期有效的项目事实、业务定义、明确偏好、成功流程、已解决问题、反复出现的失败与相互矛盾的信息。只保留可复用且有证据的内容；每条变更必须引用本次 Run 的 sourceId 并给出 reason，更新已有 Note 必须带 baseVersion。证据不足保持 unverified；冲突用 contradicts 关系或 disputed 表示；不要为了精简而归档唯一或置顶知识。如果没有任何长期知识需要新增、更新或归档，也要用 operations=[] 提交一个 no-op Run，表示这批 Transcript 已经完成评估，避免下次重复处理。最后读取 Run 审计结果汇报新增、更新、归档、关系和知识页。禁止把本次整理操作本身或模型猜测当作事实。",
         [], taskId,
       );
       message.success("Memory Dreaming 已完成。");
