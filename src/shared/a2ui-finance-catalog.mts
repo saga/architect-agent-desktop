@@ -45,7 +45,6 @@ export const WorkflowDiagramApi = {
     title: CommonSchemas.DynamicString.optional(),
     height: CommonSchemas.DynamicNumber.optional(),
     editable: CommonSchemas.DynamicBoolean.optional(),
-    onChange: CommonSchemas.Action.optional(),
     onSave: CommonSchemas.Action.optional(),
   }).strict(),
 };
