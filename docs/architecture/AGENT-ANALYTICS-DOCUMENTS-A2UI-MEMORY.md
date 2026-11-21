@@ -188,6 +188,7 @@ completed / list / rollback
 - `supersede_note`：将旧 Note 标记为被新 Note 替代，并建立关系。
 - `link_notes`：建立 supports、contradicts、refines、derived_from、related_to、supersedes 关系。
 - `publish_knowledge`：把多条活动 Note 整理成有来源的知识页。新建时不需要版本号；更新已有知识页必须传入读取时的 `baseVersion`，避免覆盖并发修改。
+- `archive_knowledge`：归档已经失效或被替代的知识页；必须携带当前 `baseVersion`，归档动作进入 Run 审计，并支持随 Run 回滚。
 
 所有操作必须引用当前 Run 的 evidence source ID 并提供 reason。对现有 Note 的改动必须提供版本号；更新已有知识页也必须提供 `baseVersion`。如果在准备后被其他操作更新，整个提交会失败回滚，不会覆盖更新后的内容。
 
