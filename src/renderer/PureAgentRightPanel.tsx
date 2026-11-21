@@ -176,7 +176,7 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
         <div className="pure-result-meta">{item.kind === "error" ? "错误" : "Agent 结果"} · {new Date(item.createdAt).toLocaleString()}</div>
         {item.kind === "assistant" ? <XMarkdown content={item.content} components={markdownComponents} escapeRawHtml /> : item.kind === "a2ui" ? <AgentA2UICard content={item.content} /> : <pre>{item.content}</pre>}
       </article>) : <Empty description="完成任务后，Agent 的结果会显示在这里" />}
-      <A2UIV1Canvas messages={a2uiV1Messages} onRendererMessage={onA2UIRendererMessage} />
+      <A2UIV1Canvas key={task?.id || "default-task"} messages={a2uiV1Messages} onRendererMessage={onA2UIRendererMessage} />
     </div>}
   </aside>;
 }
