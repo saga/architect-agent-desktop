@@ -597,9 +597,12 @@ export class AgentMemoryStore {
       try{parsed=new URL(item.url);}catch{throw new Error("外部事实来源 URL 无效。");}
       const hostname=parsed.hostname.toLowerCase().replace(/^www\./,"");
       const isIp=/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)||hostname.includes(":");
-      if(parsed.protocol!=="https:"||parsed.username||parsed.password||parsed.hash||isIp||
+      const sensitiveQueryKey=[...parsed.searchParams.keys()].some(key=>
+        /(^|[-_])(token|access[_-]?token|api[_-]?key|secret|signature|sig|auth|authorization|session|password|code)([-_]|$)/i.test(key)
+      );
+      if(parsed.protocol!=="https:"||parsed.username||parsed.password||parsed.hash||sensitiveQueryKey||isIp||
         hostname==="localhost"||hostname.endsWith(".local")||hostname.endsWith(".internal")||hostname.endsWith(".intranet")||hostname.endsWith(".test")||hostname.endsWith(".example")||!hostname.includes("."))
-        throw new Error("外部事实来源必须是公开 HTTPS 域名，不能是本机地址、IP 或内网主机。");
+        throw new Error("外部事实来源必须是公开 HTTPS 域名，不能使用本机地址、内网主机或带访问令牌的签名 URL。");
       const sourceContent=source.content.toLowerCase();
       if(!sourceContent.includes(parsed.hostname.toLowerCase())&&!sourceContent.includes(parsed.toString().toLowerCase()))
         throw new Error("来源 URL 的域名没有出现在对应的工具证据中，不能仅凭模型提供的链接登记来源。");
