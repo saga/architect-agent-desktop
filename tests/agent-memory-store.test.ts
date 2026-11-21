@@ -241,6 +241,23 @@ describe("AgentMemoryStore", () => {
       .toMatchObject({ total: 2, indexed: 1, missing: 1 });
     expect(store.listNotesMissingEmbeddings("/workspace/semantic", "ollama", "nomic-embed-text", 20)
       .map(note => note.id)).toContain(workspace.id);
+
+    const pendingAfterContentEdit = store.listNotesMissingEmbeddings("/workspace/semantic", "ollama", "nomic-embed-text", 20)
+      .find(note => note.id === workspace.id)!;
+    expect(store.upsertEmbedding({
+      noteId: workspace.id, scope: "/workspace/semantic", provider: "ollama", model: "nomic-embed-text",
+      contentHash: pendingAfterContentEdit.contentHash, vector: base,
+    })).toBe(true);
+    store.saveNote({
+      id: workspace.id,
+      scope: "/workspace/semantic",
+      title: "Issuer liquidity and contingent funding risk",
+      content: changed.content,
+    });
+    expect(store.getEmbeddingIndexStatus("/workspace/semantic", "ollama", "nomic-embed-text"))
+      .toMatchObject({ total: 2, indexed: 1, missing: 1 });
+    expect(store.listNotesMissingEmbeddings("/workspace/semantic", "ollama", "nomic-embed-text", 20)
+      .map(note => note.id)).toContain(workspace.id);
     store.close();
   });
 
