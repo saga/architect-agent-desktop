@@ -351,6 +351,7 @@ export class CopilotDesktopAgent {
  }
  private generation = 0;
  private registeredTools: Array<{ name: string; description: string; schema: any }> = [];
+ private registeredMcpServerNames: string[] = [];
 
  private systemPromptContent(): string {
   return [
@@ -412,6 +413,14 @@ export class CopilotDesktopAgent {
    system,
    rawRequest: { prompt, system, tools: normalizedTools, parameters: { ...parameters } },
    ...(response === undefined ? {} : { rawResponse: response }),
+   ...(response && typeof response === "object" && !Array.isArray(response)
+      ? (() => {
+          const responseObject = response as Record<string, unknown>;
+          const responseData = responseObject.data && typeof responseObject.data === "object" ? responseObject.data as Record<string, unknown> : {};
+          const responseUsage = responseObject.usage ?? responseData.usage;
+          return responseUsage === undefined ? {} : { usage: responseUsage };
+        })()
+      : {}),
    responseMessages,
    warnings: [
     "该快照记录桌面应用提交给 SDK/CLI 的输入，不等同于底层 Provider HTTP 请求。",
@@ -443,6 +452,7 @@ export class CopilotDesktopAgent {
      const tools=await this.handlers();
      this.registeredTools = tools.map(({ name, description, schema }) => ({ name, description, schema }));
      const configuredMcpServers=this.configuredMcpServers("copilot",runtimeEnvironment);
+     this.registeredMcpServerNames = Object.keys(configuredMcpServers).sort();
      const availableTools=new ToolSet().addCustom("*");
      if(Object.keys(configuredMcpServers).length)availableTools.addMcp("*");
      if(generation!==this.generation)throw new Error("Copilot session startup was cancelled.");
@@ -512,6 +522,7 @@ export class CopilotDesktopAgent {
    toolPermission:this.effectivePermission(),
    workspacePath:this.workspacePath,
    sessionMode:"managed-sdk-session",
+   mcpServerNames:this.registeredMcpServerNames,
   });
   this.recordTrace("provider.request",{
    requestId,prompt:effectivePrompt,model:this.settings.copilotModel,
@@ -542,6 +553,7 @@ export class CopilotDesktopAgent {
     toolPermission:this.effectivePermission(),
     workspacePath:this.workspacePath,
     sessionMode:"managed-sdk-session",
+    mcpServerNames:this.registeredMcpServerNames,
    },result,text);
    this.recordTrace("provider.response",{
     requestId,response:result,text,captureLevel:"sdk-response",
@@ -675,10 +687,13 @@ export class CopilotDesktopAgent {
    for(let step=0;step<6;step++){
     const query=sdk.query({prompt:currentPrompt,options:{...queryOptions,abortController}});
     this.codeBuddyQuery=query;
-    let answer="";let sawThinkingDelta=false;
+    let answer="";let sawThinkingDelta=false;let resultEvent:unknown;
     const requestId=randomUUID();
     const snapshot=this.contextSnapshot("codebuddy",currentPrompt,systemPrompt,handlers,{
      model:selectedModel,effort,contextWindow:this.settings.contextWindow,cwd,settingSources,permission,
+     mcpServerNames:Object.keys(configuredMcpServers).sort(),
+     builtinTools:allowedBuiltinTools,
+     disallowedBuiltinTools,
      includePartialMessages:true,maxTurns:12,
     });
     this.recordTrace("provider.request",{
@@ -692,6 +707,7 @@ export class CopilotDesktopAgent {
       event?:{type?:string;content_block?:{type?:string;thinking?:string};delta?:{type?:string;thinking?:string}};
      };
      this.recordTrace("provider.codebuddy.event",item,m.type==="result"?(m.subtype==="success"?"completed":"failed"):undefined);
+     if(m.type==="result")resultEvent=item;
      if(m.type==="stream_event"){
       const event=m.event;
       if(event?.type==="content_block_start"&&event.content_block?.type==="thinking"&&event.content_block.thinking){sawThinkingDelta=true;this.publish({type:"thinking",text:event.content_block.thinking,streaming:true});}
@@ -708,7 +724,7 @@ export class CopilotDesktopAgent {
     const responseSnapshot=this.contextSnapshot("codebuddy",currentPrompt,systemPrompt,handlers,{
      model:selectedModel,effort,contextWindow:this.settings.contextWindow,cwd,settingSources,permission,
      includePartialMessages:true,maxTurns:12,
-    },answer,answer);
+    },resultEvent ?? answer,answer);
     this.recordTrace("provider.response",{
      requestId,step,response:answer,text:answer,captureLevel:"sdk-stream-aggregate-with-tool-loop",
      providerPayloadComplete:false,snapshot:responseSnapshot,
