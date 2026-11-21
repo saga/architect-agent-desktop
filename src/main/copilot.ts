@@ -98,7 +98,7 @@ export interface BrowserAgentTools {
  injectCss(css:string):Promise<string>;
  cdp(method:string,params?:unknown):Promise<string>;
 }
-export interface CopilotEvent { type:"status"|"delta"|"thinking"|"message"|"error"|"done"|"tool"|"a2ui"|"a2ui-v1"; status?:"starting"|"ready"|"unauthenticated"; text?:string; streaming?:boolean; toolId?:string; toolName?:string; toolDetail?:string; toolState?:"running"|"done"|"error"; }
+export interface CopilotEvent { type:"status"|"delta"|"thinking"|"message"|"error"|"done"|"tool"|"a2ui"|"a2ui-v1"|"interaction"; interactionId?:string; timestamp?:number; status?:"starting"|"ready"|"unauthenticated"; text?:string; streaming?:boolean; toolId?:string; toolName?:string; toolDetail?:string; toolState?:"running"|"done"|"error"; }
 export const AGENT_TOOL_IDS = new Set([
   "browser_get_current_page", "browser_snapshot", "browser_screenshot", "browser_console",
   "browser_list_tabs", "browser_navigate", "browser_open_tab", "browser_switch_tab",
@@ -303,6 +303,7 @@ export class CopilotDesktopAgent {
  constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:(skills?:string[])=>string=()=>"",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string,payloadComplete?:boolean)=>void=()=>{},initialTaskContext:{systemPrompt:string;toolPermission:AgentToolPermission;allowAllTools:boolean;skills:string[];tools:string[]}|null=null,private getMcpServers:()=>McpServerConfig[]=()=>[],private searchTranscriptMessages:(workspacePath:string|null,query:string,limit:number)=>Array<Record<string,unknown>>=()=>[],private loadMemorySources:(workspacePath:string|null,cursor:MemoryDreamCursor,limit:number)=>MemorySourceEvidence[]=()=>[]){this.settings=settings;this.workspacePath=workspacePath;this.taskContext=initialTaskContext?{...initialTaskContext,allowAllTools:initialTaskContext.allowAllTools===true,skills:[...initialTaskContext.skills],tools:[...initialTaskContext.tools]}:null;}
  setApprovedFiles(paths: string[]): void { this.approvedFiles = new Set(paths.filter(value => typeof value === "string").slice(0, 20)); }
  setMemoryContext(sessionId: string | null, traceId: string | null): void { this.memorySessionId = sessionId; this.memoryTraceId = traceId; }
+ publishInteraction(interactionId:string,text:string,timestamp:number):void { this.publish({type:"interaction",interactionId,text,timestamp}); }
  getMemorySnapshot(scope: string | null) {
   return {
    cursor: this.memory.getDreamCursor(scope),
@@ -971,6 +972,6 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
  async send(prompt:string,history?:AgentChatMessage[],attachments:string[]=[]):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.publish({type:"status",status:"starting"});try{await this.ensureA2UI();const attachmentContext=await this.prepareAttachments(attachments);const effectivePrompt=attachmentContext?prompt+"\n\n"+attachmentContext:prompt;if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(effectivePrompt,history);else await this.sendCopilot(effectivePrompt,history);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;}}
  async cancel():Promise<void>{for(const controller of this.codeRuntimeAbortControllers)controller.abort();if(this.settings.provider==="codebuddy"){this.codeBuddyAbortController?.abort();if(this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();}else if(this.active&&this.session)await this.session.abort();}
  isBusy():boolean{return this.active;}
- async resetConversation():Promise<void>{if(this.a2ui)this.a2ui.reset(this.a2uiSessionScope());if(this.active)throw new Error("Wait for the current Agent request to finish before switching Tasks.");await this.stopCopilotSession();}
+ async resetConversation():Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before switching Tasks.");if(this.a2ui)this.a2ui.reset(this.a2uiSessionScope());await this.stopCopilotSession();}
  async stop():Promise<void>{if(this.active){try{await this.cancel();}catch{/* the request is being torn down */}}for(const controller of this.codeRuntimeAbortControllers)controller.abort();await this.codeRuntime.dispose();await this.stopCopilotSession();}
 }
