@@ -611,7 +611,15 @@ export class CopilotDesktopAgent {
  }
  private async sendCodeBuddy(prompt:string,history?:AgentChatMessage[]){
   const sdk=await import("@tencent-ai/agent-sdk");
-  const handlers=await this.handlers();
+  const allHandlers=await this.handlers();
+  const permission=this.effectivePermission();
+  const expertTools=this.taskContext?.tools??[];
+  const expertAllowsTool=(toolName:string)=>this.taskContext===null || this.taskContext.allowAllTools || expertTools.includes(toolName);
+  const handlers=allHandlers.filter(tool =>
+   (permission==="allow-all"
+     || (permission!=="none" && tool.name.startsWith("browser_"))
+     || (permission==="assisted" && tool.name.startsWith("workspace_")))
+     && expertAllowsTool(tool.name));
    const tools=handlers.map(({name,description,schema,handler})=>sdk.tool(name,description,schema.shape,async(input:any)=>{
     const toolCallId=randomUUID();
     this.recordTrace("tool.call",{name,input,toolCallId,source:"codebuddy-sdk"},"running");
