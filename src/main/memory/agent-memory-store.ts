@@ -544,7 +544,12 @@ export class AgentMemoryStore {
     const selected=combined.slice(0,safeLimit).map(item=>item.row);
     const touch=this.database.prepare("UPDATE memory_notes SET last_accessed_at=?,access_count=access_count+1 WHERE id=? AND scope_key=?");
     for(const row of selected)touch.run({},now,String(row.id),String(row.scope_key));
-    return selected.map(row=>this.toNote({...row,last_accessed_at:now,access_count:Number(row.access_count??0)+1}));
+    return selected.map(row=>{
+      const note=this.toNote({...row,last_accessed_at:now,access_count:Number(row.access_count??0)+1});
+      // Workspace agents can consume shared Personal Note text, but never its
+      // private transcript identifiers or the full source conversation.
+      return scope!==null&&String(row.scope_key)===personalKey?{...note,sourceRefs:[]}:note;
+    });
   }
 
   list(scope: string | null, limit = 30): AgentMemoryNote[] {
@@ -1497,7 +1502,7 @@ export class AgentMemoryStore {
       Number(b.validation==="validated")-Number(a.validation==="validated")||
       Number(a.validation==="disputed")-Number(b.validation==="disputed")||
       b.lastAccessedAt-a.lastAccessedAt||b.updatedAt-a.updatedAt);
-    const appendNotes=(heading:string,items:AgentMemoryNote[],cap:number)=>{
+    const appendNotes=(heading:string,items:AgentMemoryNote[],cap:number,includeSourceRefs=true)=>{
       if(!items.length||used>=budget-100)return;
       const title="## "+heading;
       if(used+title.length+1>budget-80)return;
@@ -1507,7 +1512,7 @@ export class AgentMemoryStore {
         const marker=note.validation==="validated"?"validated":note.validation==="disputed"?"disputed":"unverified";
         const excerpt=note.content.replace(/\s+/g," ").slice(0,note.pinned?260:180);
         const line="- ["+marker+(note.pinned?", pinned":"")+", "+note.claimType+", v"+note.version+", importance "+note.importance.toFixed(2)+"] "+
-          note.title+" (id: "+note.id+"): "+excerpt+(note.sourceRefs.length?" {sources: "+note.sourceRefs.slice(-3).join(", ")+"}":"");
+          note.title+" (id: "+note.id+"): "+excerpt+(includeSourceRefs&&note.sourceRefs.length?" {sources: "+note.sourceRefs.slice(-3).join(", ")+"}":"");
         if(used+line.length+1>cap){omitted++;continue;}
         lines.push(line);used+=line.length+1;
       }
@@ -1518,7 +1523,7 @@ export class AgentMemoryStore {
     };
     if(scope!==null){
       const personalCap=headerLength+Math.floor(remaining*0.32);
-      appendNotes("Personal Memory · shared across Workspaces",personalNotes,personalCap);
+      appendNotes("Personal Memory · shared across Workspaces",personalNotes,personalCap,false);
     }else{
       appendNotes("Personal Memory",this.list(null,100),budget-Math.floor(remaining*0.20));
     }
