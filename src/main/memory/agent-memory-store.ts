@@ -6,6 +6,12 @@ import path from "node:path";
 export type MemoryValidation = "unverified" | "validated" | "disputed";
 export type MemoryClaimType = "user_preference" | "user_intent" | "decision" | "project_fact" | "workflow_pattern" | "external_fact" | "unknown";
 export type MemoryEvidenceClass = "direct_user" | "tool_observation" | "assistant_generated" | "user_interaction" | "error_report";
+export interface AgentMemoryExternalVerification {
+  status: "single_domain_sources_recorded" | "multi_domain_sources_recorded";
+  sources: Array<{ sourceRef: string; url: string; domain: string; publisher: string; publishedAt: string | null }>;
+  recordedAt: number;
+  note: string;
+}
 export interface MemoryValidationEvidence {
   claimType: MemoryClaimType;
   sourceCount: number;
@@ -518,11 +524,9 @@ export class AgentMemoryStore {
         ? "At least two separate sessions contain both direct user evidence and a tool observation."
         : "Project facts and recurring workflows require at least two separate sessions, including a direct user statement and a tool observation.";
     } else if (claimType === "external_fact") {
-      policy = "two_sessions_plus_user_and_tool";
-      eligible = sessions.size >= 2 && directUserSources >= 1 && toolObservations >= 1;
-      reason = eligible
-        ? "At least two separate sessions contain a direct user statement and a tool observation; external facts still need source-level verification when used for consequential decisions."
-        : "External facts require at least two separate sessions, including a direct user statement and a tool observation. A model-generated answer alone is not verification.";
+      policy = "human_confirmed_multi_domain_source_review";
+      eligible = false;
+      reason = "External facts cannot be validated by Agent evidence alone. Record at least two distinct HTTPS source domains from tool-observed evidence, then open and check each source and explicitly confirm the review in Memory Manager.";
     } else {
       policy = "claim_type_required";
       reason = "Select a specific claim type before marking a Note as validated. Unknown claims remain unverified.";
@@ -564,6 +568,100 @@ export class AgentMemoryStore {
     const row=this.getNoteRow(id,scopeKey) as Record<string,unknown>;
     this.saveVersion(scopeKey,"note",id,version,row,null);
     return this.toNote(row);
+  }
+
+  recordExternalSources(scope:string|null,input:{
+    noteId:string;baseVersion:number;
+    sources:Array<{sourceRef:string;url:string;publisher:string;publishedAt?:string|null}>;
+    note:string;
+  }):AgentMemoryNote{
+    if(scope===null)throw new Error("外部事实来源只能记录在 Workspace Memory，不能写入 Personal Memory。");
+    if(!Array.isArray(input.sources)||input.sources.length<1||input.sources.length>4)
+      throw new Error("外部事实来源必须为 1 至 4 条。");
+    const scopeKey=normalizeScope(scope),before=this.getNoteRow(input.noteId,scopeKey);
+    if(!before||before.status!=="active"||before.claim_type!=="external_fact")
+      throw new Error("只能为当前 Workspace 中活动的 external_fact Note 记录来源。");
+    if(Number(before.version)!==input.baseVersion)
+      throw new Error("Memory Note 版本已变化，请刷新后重新记录来源。");
+    const existing=parseJson<AgentMemoryExternalVerification|null>(before.external_verification_json,null);
+    const sources=[...(existing?.sources??[])];
+    const seenRefs=new Set(sources.map(source=>source.sourceRef));
+    const seenUrls=new Set(sources.map(source=>source.url.toLowerCase()));
+    for(const item of input.sources){
+      const sourceRef=item.sourceRef.trim().slice(0,120);
+      const source=this.getSourceById(sourceRef,scope);
+      if(!source||source.kind!=="tool")
+        throw new Error("外部事实来源必须引用当前 Workspace 已保存的 tool 证据："+sourceRef);
+      let parsed:URL;
+      try{parsed=new URL(item.url);}catch{throw new Error("外部事实来源 URL 无效。");}
+      const hostname=parsed.hostname.toLowerCase().replace(/^www\./,"");
+      const isIp=/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)||hostname.includes(":");
+      if(parsed.protocol!=="https:"||parsed.username||parsed.password||parsed.hash||isIp||
+        hostname==="localhost"||hostname.endsWith(".local")||!hostname.includes("."))
+        throw new Error("外部事实来源必须是公开 HTTPS 域名，不能是本机地址、IP 或内网主机。");
+      const sourceContent=source.content.toLowerCase();
+      if(!sourceContent.includes(parsed.hostname.toLowerCase())&&!sourceContent.includes(parsed.toString().toLowerCase()))
+        throw new Error("来源 URL 的域名没有出现在对应的工具证据中，不能仅凭模型提供的链接登记来源。");
+      const publisher=redactSecrets(item.publisher.trim(),160);
+      if(!publisher)throw new Error("来源发布机构或网站名称不能为空。");
+      const publishedAt=typeof item.publishedAt==="string"&&item.publishedAt.trim()
+        ? item.publishedAt.trim().slice(0,40):null;
+      if(seenRefs.has(sourceRef)||seenUrls.has(parsed.toString().toLowerCase()))
+        throw new Error("来源证据或 URL 重复，请先检查现有来源列表。");
+      sources.push({sourceRef,url:parsed.toString(),domain:hostname,publisher,publishedAt});
+      seenRefs.add(sourceRef);seenUrls.add(parsed.toString().toLowerCase());
+    }
+    if(sources.length>20)throw new Error("单条 Note 最多保存 20 个外部来源。");
+    const domains=new Set(sources.map(source=>source.domain));
+    const verification:AgentMemoryExternalVerification={
+      status:domains.size>=2?"multi_domain_sources_recorded":"single_domain_sources_recorded",
+      sources,recordedAt:Date.now(),note:redactSecrets(input.note.trim(),500),
+    };
+    const version=Number(before.version)+1,now=Date.now();
+    const refs=[...new Set([...parseJson<string[]>(before.source_refs_json,[]),...input.sources.map(source=>source.sourceRef)])].slice(-100);
+    this.database.prepare(
+      "UPDATE memory_notes SET external_verification_json=?,source_refs_json=?,validation='unverified',validation_evidence_json=NULL,last_verified_at=NULL,updated_at=?,version=? WHERE id=? AND scope_key=?"
+    ).run({},JSON.stringify(verification),JSON.stringify(refs),now,version,input.noteId,scopeKey);
+    const after=this.getNoteRow(input.noteId,scopeKey) as Record<string,unknown>;
+    this.saveVersion(scopeKey,"note",input.noteId,version,after,null);
+    return this.toNote(after);
+  }
+
+  confirmExternalVerification(scope:string|null,noteId:string,baseVersion:number):AgentMemoryNote{
+    if(scope===null)throw new Error("外部事实确认只能在 Workspace Memory 中进行。");
+    const scopeKey=normalizeScope(scope),before=this.getNoteRow(noteId,scopeKey);
+    if(!before||before.status!=="active"||before.claim_type!=="external_fact")
+      throw new Error("只能确认当前 Workspace 中活动的 external_fact Note。");
+    if(Number(before.version)!==baseVersion)
+      throw new Error("Memory Note 版本已变化，请刷新后重新核验来源。");
+    const external=parseJson<AgentMemoryExternalVerification|null>(before.external_verification_json,null);
+    const domains=new Set((external?.sources??[]).map(source=>source.domain));
+    if(!external||external.status!=="multi_domain_sources_recorded"||domains.size<2)
+      throw new Error("至少记录两个不同 HTTPS 域名的工具来源后，才可以确认人工核验。");
+    for(const source of external.sources){
+      const stored=this.getSourceById(source.sourceRef,scope);
+      if(!stored||stored.kind!=="tool")
+        throw new Error("来源工具证据已不可用，不能确认外部事实。");
+      const host=new URL(source.url).hostname.toLowerCase();
+      if(!stored.content.toLowerCase().includes(host))
+        throw new Error("来源 URL 与原始工具证据不一致，不能确认外部事实。");
+    }
+    const sourceRefs=[...new Set([...parseJson<string[]>(before.source_refs_json,[]),...external.sources.map(source=>source.sourceRef)])];
+    const internal=this.buildValidationEvidence(scope,"project_fact",sourceRefs);
+    if(internal.independentSessions<2||internal.directUserSources<1||internal.toolObservations<1)
+      throw new Error("除不同来源域名外，还需要至少两个独立 Session，且包含用户陈述与工具观察。");
+    const now=Date.now(),version=Number(before.version)+1;
+    const evidence:MemoryValidationEvidence={
+      ...internal,claimType:"external_fact",eligible:true,
+      policy:"human_confirmed_multi_domain_source_review",
+      reason:"用户明确确认已逐一打开并核对所列来源。该记录是人工核验声明，不代表系统自动证明网页内容真实。",
+    };
+    this.database.prepare(
+      "UPDATE memory_notes SET validation='validated',confidence=0.9,last_verified_at=?,source_refs_json=?,validation_evidence_json=?,updated_at=?,version=? WHERE id=? AND scope_key=?"
+    ).run({},now,JSON.stringify(sourceRefs),JSON.stringify(evidence),now,version,noteId,scopeKey);
+    const after=this.getNoteRow(noteId,scopeKey) as Record<string,unknown>;
+    this.saveVersion(scopeKey,"note",noteId,version,after,null);
+    return this.toNote(after);
   }
 
   archive(id:string,scope:string|null=null):void{
@@ -893,6 +991,7 @@ export class AgentMemoryStore {
       content_hash:createHash("sha256").update(content).digest("hex"),last_dreamed_at:now,
       quality_score:same?(before?.quality_score??null):null,
       last_quality_reviewed_at:same?(before?.last_quality_reviewed_at??null):null,
+      external_verification_json:same?(before?.external_verification_json??null):null,
     };
     this.replaceNoteSnapshot(id,snapshot);
     this.recordEntityChange(runId,sequence,"note",id,before,this.getNoteRow(id,scopeKey),"upsert_note",reason);
