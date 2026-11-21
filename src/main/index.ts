@@ -436,6 +436,7 @@ function buildAgentWorkspaceSnapshot(): AgentWorkspaceSnapshot {
   }
   return {
     tasks: [...visibleTasks].sort((a, b) => b.updatedAt - a.updatedAt),
+    scheduleRunTasks: [...agentTasks.filter(task => scheduleRunTaskIds.has(task.id))].sort((a, b) => b.updatedAt - a.updatedAt),
     activeTaskId: activeAgentTaskId,
     workspaces: [...grouped.values()].sort((a, b) => b.updatedAt - a.updatedAt),
     experts: [...agentExperts],
