@@ -2532,6 +2532,7 @@ function registerIpcHandlers(): void {
     if (taskId === activeAgentTaskId && (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy())) throw new Error("Agent 正在运行，不能清理当前 Task 的会话。");
     const previousItemCount = loadAgentSession(taskId).length;
     agentTraceStore.clearSessionItems(task.sessionId);
+    copilotAgent.resetA2UIForTask(task.sessionId);
     rmSync(currentAgentSessionPath(task.sessionId), { force: true });
     if (task.sessionId === initialSessionId && !task.workspacePath) rmSync(LEGACY_AGENT_SESSION_PATH, { force: true });
     recordTaskTrace(task, "session.cleared", { previousItemCount });
