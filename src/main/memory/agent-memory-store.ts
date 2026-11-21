@@ -402,6 +402,11 @@ export class AgentMemoryStore {
     const cursorAfter:MemoryDreamCursor={createdAt:maxSourceCreatedAt,sessionId:sources[sources.length-1]!.sessionId,messageId:sources[sources.length-1]!.messageId};
     this.database.exec("BEGIN IMMEDIATE");
     try{
+      const pending=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='prepared' LIMIT 1").get({},key) as {id?:string}|undefined;
+      if(pending?.id) throw new Error("当前 Workspace 已存在待处理 Dreaming Run，请先 commit 或 abandon："+pending.id);
+      if(canonicalJson(this.getDreamCursor(scope))!==canonicalJson(cursor)) {
+        throw new Error("Transcript cursor changed while evidence was being prepared; retry with a fresh evidence batch.");
+      }
       this.database.prepare(
         "INSERT INTO memory_dream_runs(id,scope_key,status,summary,source_count,created_at,started_at,completed_at,max_source_created_at,cursor_before_created_at,cursor_before_session_id,cursor_before_message_id,cursor_after_session_id,cursor_after_message_id,evidence_manifest_json,rollback_reason,operation_count) "+
         "VALUES(?,?,'prepared','',?,?,?,NULL,?,?,?,?,?,?,?,NULL,0)"
@@ -643,6 +648,12 @@ export class AgentMemoryStore {
     const operations=this.database.prepare("SELECT * FROM memory_dream_operations WHERE run_id=? ORDER BY sequence DESC").all({}, runId) as Array<Record<string,unknown>>;
     this.database.exec("BEGIN IMMEDIATE");
     try{
+      const lockedRun=this.database.prepare("SELECT status FROM memory_dream_runs WHERE id=? AND scope_key=?").get({},runId,scopeKey) as {status?:string}|undefined;
+      if(lockedRun?.status!=="completed") throw new Error("Dreaming Run status changed before rollback.");
+      const lockedPrepared=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='prepared' LIMIT 1").get({},scopeKey) as {id?:string}|undefined;
+      if(lockedPrepared?.id) throw new Error("当前 Workspace 存在待提交的 Dreaming Run；请先 abandon 或 commit，再回滚上一批。");
+      const lockedLatest=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='completed' ORDER BY completed_at DESC LIMIT 1").get({},scopeKey) as {id?:string}|undefined;
+      if(lockedLatest?.id!==runId) throw new Error("只能回滚当前 Workspace 最新一次 completed Dreaming Run。");
       for(const operation of operations){
         const type=String(operation.entity_type),id=String(operation.entity_id);
         const before=parseJson<Record<string,unknown>|null>(operation.before_json,null);
