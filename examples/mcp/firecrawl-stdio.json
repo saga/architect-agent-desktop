@@ -1,0 +1,13 @@
+{
+  "id": "firecrawl",
+  "transport": "stdio",
+  "enabled": true,
+  "description": "Firecrawl 官方 MCP。无需 API Key 可 keyless 使用受限的 search / scrape / parse；配置 FIRECRAWL_API_KEY 可启用完整功能。",
+  "command": "npx",
+  "args": [
+    "-y",
+    "firecrawl-mcp"
+  ],
+  "env": {},
+  "timeout": 60000
+}
