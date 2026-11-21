@@ -274,6 +274,7 @@ interface A2UITurn {
 }
 interface A2UIServiceContract {
   reset(sessionId: string): void;
+  registerSurfaces(sessionId: string, surfaceIds: string[]): void;
   promptSnippet(sessionId: string): string;
   createTurn(sessionId: string): A2UITurn;
   validateRendererMessage(message: unknown, sessionId: string): Promise<{ handled: boolean; replies: unknown[] }>;
@@ -305,6 +306,7 @@ export class CopilotDesktopAgent {
  setMemoryContext(sessionId: string | null, traceId: string | null): void { this.memorySessionId = sessionId; this.memoryTraceId = traceId; }
  publishInteraction(interactionId:string,text:string,timestamp:number):void { this.publish({type:"interaction",interactionId,text,timestamp}); }
  resetA2UIForTask(sessionId:string):void { this.a2ui?.reset(sessionId); }
+ async registerA2UISurfaces(sessionId:string,surfaceIds:string[]):Promise<void> { const a2ui=await this.ensureA2UI(); a2ui.registerSurfaces(sessionId,surfaceIds); }
  getMemorySnapshot(scope: string | null) {
   return {
    cursor: this.memory.getDreamCursor(scope),
