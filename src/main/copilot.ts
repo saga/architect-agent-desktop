@@ -341,6 +341,11 @@ export class CopilotDesktopAgent {
   const index=this.memory.getEmbeddingIndexStatus(scope,"ollama",config.model);
   return {enabled:config.provider==="ollama",provider:config.provider,baseUrl:config.baseUrl,model:config.model,...index};
  }
+ async checkMemoryEmbedding(configInput:Partial<LocalEmbeddingConfig>) {
+  const config=normalizeLocalEmbeddingConfig(configInput);
+  if(config.provider!=="ollama")throw new Error("请先选择本机 Ollama Embedding Provider。");
+  return this.localEmbedding.check(config);
+ }
  private async indexMemoryNoteEmbedding(noteId:string,scope:string|null) {
   const config=this.memoryEmbeddingConfig();
   if(config.provider==="disabled")return {enabled:false,indexed:0,remaining:0,message:"本地语义检索未启用。"};
