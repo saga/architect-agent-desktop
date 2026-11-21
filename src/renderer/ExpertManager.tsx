@@ -16,7 +16,7 @@ const EMPTY_EXPERT: Omit<AgentExpert, "createdAt" | "updatedAt"> = {
   name: "",
   description: "",
   systemPrompt: "",
-  toolPermission: "allow-all",
+  toolPermission: "none",
   allowAllTools: false,
   skills: [],
   tools: [],
@@ -131,9 +131,9 @@ export default function ExpertManager({ onChanged }: ExpertManagerProps) {
   return <section className="pure-management-page">
     <header className="pure-page-heading">
       <div>
-        <div className="pure-page-eyebrow"><TeamOutlined /> AGENT PERSONAS</div>
-        <h1>Expert</h1>
-        <p>定义专业角色、系统指令、权限上限，以及可使用的 Skills 和 Tools。</p>
+        <div className="pure-page-eyebrow"><TeamOutlined /> AGENT WORK MODES</div>
+        <h1>Expert / 工作模式</h1>
+        <p>把任务方法、参考 Skills、工具白名单和权限上限绑定到一个 Task。它是可复用的工作配置，不只是角色人设。</p>
       </div>
       <Button type="primary" icon={<PlusOutlined />} onClick={startCreate}>New Expert</Button>
     </header>
@@ -159,8 +159,8 @@ export default function ExpertManager({ onChanged }: ExpertManagerProps) {
         {(creating || selectedId) ? <>
           <div className="pure-expert-fields">
             <label>名称<Input value={draft.name} maxLength={80} onChange={event => update("name", event.target.value)} placeholder="例如：投资研究分析师" /></label>
-            <label>简介<Input value={draft.description} maxLength={500} onChange={event => update("description", event.target.value)} placeholder="简要说明擅长领域" /></label>
-            <label>System Prompt<Input.TextArea value={draft.systemPrompt} maxLength={12000} rows={8} showCount onChange={event => update("systemPrompt", event.target.value)} placeholder="定义角色、专业方法、输出要求和工作约束。" /></label>
+            <label>适用任务<Input value={draft.description} maxLength={500} onChange={event => update("description", event.target.value)} placeholder="例如：分析公司年报、维护 TypeScript 项目" /></label>
+            <label>工作方法与输出约束<Input.TextArea value={draft.systemPrompt} maxLength={12000} rows={8} showCount onChange={event => update("systemPrompt", event.target.value)} placeholder="写清执行步骤、业务规则、可信来源、输出结构和检查标准；不要只写“你是一名资深专家”。" /><span className="pure-form-help">单纯添加专家头衔通常不会可靠提升模型能力。优先写入模型原本不知道的业务方法、流程、约束与验收标准。</span></label>
             <label>权限上限
               <Radio.Group value={draft.toolPermission} onChange={event => update("toolPermission", event.target.value as AgentToolPermission)}>
                 <Radio value="none">No tools</Radio>
@@ -168,11 +168,14 @@ export default function ExpertManager({ onChanged }: ExpertManagerProps) {
                 <Radio value="assisted">Assisted</Radio>
                 <Radio value="allow-all">Allow all</Radio>
               </Radio.Group>
-              <span className="pure-form-help">这是该 Expert 的权限上限，不能突破全局 Agent 权限。全局默认是 No tools。</span>
+              <span className="pure-form-help">这是该工作模式的权限上限，不能突破全局 Agent 权限。默认 No tools；如需全部工具，再单独开启下方开关。</span>
             </label>
             <label className="pure-expert-tool-access">
               <span>Allow all tools</span>
-              <Switch checked={draft.allowAllTools} onChange={value => update("allowAllTools", value)} />
+              <Switch checked={draft.allowAllTools} onChange={value => {
+                update("allowAllTools", value);
+                if (value && draft.toolPermission === "none") update("toolPermission", "allow-all");
+              }} />
               <span className="pure-form-help">开启后允许当前全局权限范围内的全部工具；关闭后只允许下方明确勾选的工具。默认不允许任何工具。</span>
             </label>
             <label>可用 Tools
