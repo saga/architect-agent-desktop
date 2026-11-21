@@ -134,6 +134,11 @@ export interface WorkspaceDocument { version: 2; root: import("./workspace-docum
 
 export interface PluginSummary { manifestVersion: 1; id: string; name: string; version: string; description?: string; skills: string[]; tools: string[]; workflows: string[]; views: string[]; enabled: boolean; }
 
+export type McpServerConfig =
+  | { id: string; transport: "stdio"; enabled: boolean; description?: string; command: string; args: string[]; env: Record<string, string>; cwd?: string; timeout?: number }
+  | { id: string; transport: "http"; enabled: boolean; description?: string; url: string; headers: Record<string, string>; timeout?: number };
+export interface AgentSkillSummary { id: string; name: string; description: string; enabled: boolean; }
+
 export interface AgentTraceQuery { sessionId?: string; traceId?: string; type?: string; limit?: number; }
 
 export interface BrowserApi {
@@ -185,6 +190,14 @@ export interface BrowserApi {
   pluginSetEnabled(id: string, enabled: boolean): Promise<PluginSummary[]>;
   pluginRemove(id: string): Promise<PluginSummary[]>;
   pluginExport(id: string): Promise<string | null>;
+  agentMcpList(): Promise<McpServerConfig[]>;
+  agentMcpSave(server: McpServerConfig): Promise<McpServerConfig[]>;
+  agentMcpSetEnabled(id: string, enabled: boolean): Promise<McpServerConfig[]>;
+  agentMcpRemove(id: string): Promise<McpServerConfig[]>;
+  agentSkillList(): Promise<AgentSkillSummary[]>;
+  agentSkillImport(): Promise<AgentSkillSummary | null>;
+  agentSkillSetEnabled(id: string, enabled: boolean): Promise<AgentSkillSummary[]>;
+  agentSkillRemove(id: string): Promise<AgentSkillSummary[]>;
   agentGetSettings(): Promise<AgentSettings>;
   agentInspectModels(provider: AgentProvider): Promise<AgentModelInfo[]>;
   onAgentSettingsUpdated(listener: (settings: AgentSettings) => void): () => void;
