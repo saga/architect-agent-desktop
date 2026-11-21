@@ -1668,6 +1668,9 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
         if (!hasTranscriptAssessment || !hasQualityAssessment || !hasExpiryCleanup) {
           failure = "自动 Dreaming 未完成全部维护步骤。请检查本次 Trace 中的 memory_dreaming_prepare/get_run、memory_quality_review_prepare 和 memory_prune_expired 工具结果。";
         }
+        if (completedTools.has("memory_dreaming_abandon") || completedTools.has("memory_dreaming_rollback")) {
+          failure = "自动 Dreaming 中有 Run 被主动放弃或回滚；请检查冲突原因和 Run 审计记录。";
+        }
         const afterRun = copilotAgent.getMemorySnapshot(schedule.scope);
         const pendingRun = afterRun.dreamRuns.find(run => String(run.status) === "prepared");
         if (pendingRun) failure = "自动 Dreaming 留下了未提交 Run：" + String(pendingRun.id) + "。该 Run 已保留，可在 Memory 管理界面继续处理。";
