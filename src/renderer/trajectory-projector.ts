@@ -135,13 +135,13 @@ export function projectAgentTrajectory(events: readonly AgentTraceEventLike[]): 
     let turnStatus: TrajectoryStatus = "running";
     let turnCompletedAt: string | undefined;
     const first = ordered[0]!;
-    const turn = {
+    const turn: MutableTurn = {
       id: traceId,
       traceId,
       startedAt: first.timestamp,
       status: turnStatus,
       rows,
-    } satisfies MutableTurn;
+    };
 
     const pushToolPending = (key: string, row: TrajectoryRow) => {
       pendingTools.set(key, [...(pendingTools.get(key) ?? []), row]);
