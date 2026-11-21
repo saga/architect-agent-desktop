@@ -58,6 +58,20 @@ describe("LocalEmbeddingService", () => {
     expect(Math.sqrt(result.vector.reduce((sum, value) => sum + value * value, 0))).toBeCloseTo(1);
   });
 
+  it("rejects vectors returned from a different model space", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      model: "another-embedding-model",
+      embeddings: [[1, 0, 0, 0, 0, 0, 0, 0]],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const service = new LocalEmbeddingService();
+    await expect(service.embed({
+      provider: "ollama",
+      baseUrl: "http://127.0.0.1:11434",
+      model: "nomic-embed-text",
+    }, "do not mix vector spaces")).rejects.toThrow(/模型与请求模型不一致/);
+  });
+
   it("rejects malformed, zero and non-finite vectors", async () => {
     const invalid = [0, 0, 0, 0, 0, 0, 0, 0];
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
