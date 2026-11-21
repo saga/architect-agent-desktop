@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 export type MemoryValidation = "unverified" | "validated" | "disputed";
@@ -112,8 +112,11 @@ export class AgentMemoryStore {
   private readonly database: DatabaseSync;
 
   constructor(databasePath: string) {
-    mkdirSync(path.dirname(databasePath), { recursive: true });
+    const directory = path.dirname(databasePath);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    try { chmodSync(directory, 0o700); } catch { /* Platform permissions may differ. */ }
     this.database = new DatabaseSync(databasePath);
+    try { chmodSync(databasePath, 0o600); } catch { /* Platform permissions may differ. */ }
     this.database.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
     this.createSchema();
     this.migrateSchema();
