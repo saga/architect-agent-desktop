@@ -1137,14 +1137,6 @@ function installApplicationMenu(): void {
     {
       label: "浏览",
       submenu: [
-        { label: "后退", accelerator: "Alt+Left", enabled: false, click: () => {
-          const tab = activeTabId ? tabs.get(activeTabId) : undefined;
-          if (tab?.view.webContents.canGoBack()) tab.view.webContents.goBack();
-        } },
-        { label: "前进", accelerator: "Alt+Right", enabled: false, click: () => {
-          const tab = activeTabId ? tabs.get(activeTabId) : undefined;
-          if (tab?.view.webContents.canGoForward()) tab.view.webContents.goForward();
-        } },
         { label: "重新加载", accelerator: "CmdOrCtrl+R", click: () => {
           const tab = activeTabId ? tabs.get(activeTabId) : undefined;
           tab?.view.webContents.reload();
@@ -1156,7 +1148,6 @@ function installApplicationMenu(): void {
     {
       label: "视图",
       submenu: [
-        { label: "显示 / 隐藏 Agent 面板", accelerator: "CmdOrCtrl+Shift+A", click: () => mainWindow?.webContents.send("agent:toggle-panel") },
         { type: "separator" },
         { role: "togglefullscreen" },
       ],
