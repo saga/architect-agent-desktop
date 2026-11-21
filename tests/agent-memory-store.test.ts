@@ -136,7 +136,7 @@ describe("AgentMemoryStore", () => {
       sourceRefs: [assistant.sourceId, user.sourceId],
     });
     expect(() => store.setValidation(fact.id, "validated", 0.9, [assistant.sourceId, user.sourceId], "/workspace/validation-policy"))
-      .toThrow(/至少两个独立会话.*direct_user 与 tool_observation/);
+      .toThrow(/at least two separate sessions.*direct user statement and a tool observation/);
 
     const preference = store.saveNote({
       scope: "/workspace/validation-policy",
