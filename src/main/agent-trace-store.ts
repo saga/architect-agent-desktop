@@ -113,6 +113,28 @@ export class AgentTraceStore {
         PRIMARY KEY (session_id, id)
       );
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, created_at, id);
+      CREATE TABLE IF NOT EXISTS session_message_revisions (
+        revision INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        changed_at TEXT NOT NULL,
+        change_type TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_message_revisions_session_revision
+        ON session_message_revisions(session_id, revision);
+    `);
+    // Seed an immutable baseline for transcripts written before revision tracking existed.
+    this.database.exec(`
+      INSERT INTO session_message_revisions(session_id,message_id,kind,content,created_at,changed_at,change_type)
+      SELECT m.session_id,m.id,m.kind,m.content,m.created_at,m.updated_at,'baseline'
+      FROM session_messages m
+      WHERE NOT EXISTS (
+        SELECT 1 FROM session_message_revisions r
+        WHERE r.session_id=m.session_id AND r.message_id=m.id
+      );
     `);
     try {
       this.database.exec(`
@@ -243,36 +265,31 @@ export class AgentTraceStore {
     `).all(workspacePath, like, safeLimit) as Array<Record<string, unknown>>;
   }
 
-  listMemorySources(workspacePath: string | null, cursor: { createdAt: number; sessionId: string; messageId: string }, limit = 160): Array<{
-    sessionId: string; messageId: string; kind: string; content: string; createdAt: number;
+  listMemorySources(workspacePath: string | null, cursor: { createdAt: number; sessionId: string; messageId: string; transcriptRevision?: number }, limit = 160): Array<{
+    sessionId: string; messageId: string; kind: string; content: string; createdAt: number; revision: number; changeType: string;
   }> {
     if (!this.database) throw new Error("Agent trace store is closed.");
     const safeLimit = Math.max(1, Math.min(160, Math.floor(limit)));
     const rows = this.database.prepare(`
-      SELECT m.session_id AS sessionId, m.id AS messageId, m.kind,
-        substr(m.content, 1, 8000) AS content, m.created_at AS createdAt
-      FROM session_messages m
-      JOIN sessions s ON s.id=m.session_id
+      SELECT r.session_id AS sessionId, r.message_id AS messageId, r.kind,
+        substr(r.content, 1, 8000) AS content, r.created_at AS createdAt,
+        r.revision AS revision, r.change_type AS changeType
+      FROM session_message_revisions r
+      JOIN sessions s ON s.id=r.session_id
       WHERE s.workspace_path IS ?
-        AND (
-          m.created_at > ?
-          OR (m.created_at = ? AND (
-            m.session_id > ?
-            OR (m.session_id = ? AND m.id > ?)
-          ))
-        )
-        AND length(trim(m.content)) > 0
-        AND m.kind IN ('user','assistant','error','tool','interaction')
-      ORDER BY m.created_at ASC, m.session_id ASC, m.id ASC
+        AND r.revision > ?
+        AND length(trim(r.content)) > 0
+        AND r.kind IN ('user','assistant','error','tool','interaction')
+      ORDER BY r.revision ASC
       LIMIT ?
-    `).all(
-      workspacePath, Math.max(0, Math.floor(cursor.createdAt)),
-      Math.max(0, Math.floor(cursor.createdAt)), cursor.sessionId, cursor.sessionId,
-      cursor.messageId, safeLimit,
-    ) as Array<{ sessionId: string; messageId: string; kind: string; content: string; createdAt: number }>;
+    `).all(workspacePath, Math.max(0, Math.floor(cursor.transcriptRevision ?? 0)), safeLimit) as Array<{
+      sessionId: string; messageId: string; kind: string; content: string;
+      createdAt: number; revision: number; changeType: string;
+    }>;
     return rows.map(row => ({
       sessionId: String(row.sessionId), messageId: String(row.messageId),
       kind: String(row.kind), content: String(row.content), createdAt: Number(row.createdAt),
+      revision: Number(row.revision), changeType: String(row.changeType),
     }));
   }
 
@@ -287,6 +304,10 @@ export class AgentTraceStore {
         VALUES (?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET workspace_path=excluded.workspace_path, updated_at=excluded.updated_at
       `).run(sessionId, workspacePath, timestamp, timestamp);
+      const readPrevious = this.database.prepare(`
+        SELECT kind,content,tool_name AS toolName,tool_state AS toolState,created_at AS createdAt
+        FROM session_messages WHERE session_id=? AND id=?
+      `);
       const upsert = this.database.prepare(`
         INSERT INTO session_messages (session_id, id, kind, content, tool_name, tool_state, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -297,9 +318,23 @@ export class AgentTraceStore {
           OR tool_name IS NOT excluded.tool_name OR tool_state IS NOT excluded.tool_state
           OR created_at IS NOT excluded.created_at
       `);
+      const appendRevision = this.database.prepare(`
+        INSERT INTO session_message_revisions(session_id,message_id,kind,content,created_at,changed_at,change_type)
+        VALUES(?,?,?,?,?,?,?)
+      `);
       for (const item of items) {
-        upsert.run(sessionId, item.id, item.kind, String(redact(item.content)), item.toolName ?? null,
-          item.toolState ?? null, item.createdAt, timestamp);
+        const safeContent = String(redact(item.content));
+        const toolName = item.toolName ?? null;
+        const toolState = item.toolState ?? null;
+        const previous = readPrevious.get(sessionId,item.id) as {
+          kind:string;content:string;toolName:string|null;toolState:string|null;createdAt:number;
+        }|undefined;
+        const changed = !previous || previous.kind!==item.kind || previous.content!==safeContent ||
+          previous.toolName!==toolName || previous.toolState!==toolState || Number(previous.createdAt)!==item.createdAt;
+        upsert.run(sessionId, item.id, item.kind, safeContent, toolName, toolState, item.createdAt, timestamp);
+        if(changed){
+          appendRevision.run(sessionId,item.id,item.kind,safeContent,item.createdAt,timestamp,previous?"updated":"created");
+        }
       }
       this.database.exec("COMMIT");
     } catch (error) {
