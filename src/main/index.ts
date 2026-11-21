@@ -2233,7 +2233,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("plugin:set-enabled", (event, input: unknown) => {
     assertTrustedSender(event);
-    const parsed = z.object({ id: z.string().min(3).max(100), enabled: z.boolean() }).safeParse(input);
+    const parsed = z.object({ id: z.string().min(1).max(100), enabled: z.boolean() }).safeParse(input);
     if (!parsed.success) throw new Error("无效的插件状态请求。");
     const plugins = setPluginEnabled(parsed.data.id, parsed.data.enabled, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", (parsed.data.enabled ? "enable " : "disable ") + parsed.data.id);
@@ -2241,7 +2241,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("plugin:remove", (event, input: unknown) => {
     assertTrustedSender(event);
-    const parsed = z.string().min(3).max(100).safeParse(input);
+    const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("无效的插件 ID。");
     const plugins = removePlugin(parsed.data, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", "remove " + parsed.data);
