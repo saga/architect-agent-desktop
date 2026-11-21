@@ -16,6 +16,16 @@ function graphId(value: unknown, fallback: string): string | null {
   return id || fallback;
 }
 
+export function getKnowledgeGraphClickedNodeId(event: unknown, validNodeIds: ReadonlySet<string>): string | null {
+  if (!isRecord(event)) return null;
+  const target = event.target;
+  if (!isRecord(target)) return null;
+  const value = target.id;
+  if (typeof value !== "string" || !value.trim() || value.length > 120) return null;
+  const id = value.trim();
+  return validNodeIds.has(id) ? id : null;
+}
+
 export function normalizeKnowledgeGraphData(nodes: unknown, edges?: unknown): KnowledgeGraphData | null {
   const nodeList = Array.isArray(nodes) ? nodes : isRecord(nodes) && Array.isArray(nodes.nodes) ? nodes.nodes : null;
   const edgeList = Array.isArray(edges) ? edges : isRecord(nodes) && Array.isArray(nodes.edges) ? nodes.edges : [];
