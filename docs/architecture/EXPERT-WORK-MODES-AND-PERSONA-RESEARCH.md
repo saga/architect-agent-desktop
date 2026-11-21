@@ -28,7 +28,7 @@ Luz de Araujo 等人在 *Principled Personas: Defining and Measuring the Intende
 
 Xiao 等人的 *When Does Persona Prompting Actually Help? A Retrieval and Metric Analysis of Expert Role Injection in LLMs* 比较四种条件：没有角色提示、通用领域专家提示、Embedding 角色检索，以及 Embedding + LLM 选择。评估覆盖 1,140 个开放问题、38 个专家角色和 6 个领域。
 
-该预印本报告：聚合分数的整体差异较小，但角色提示会系统性提高专业深度，同时降低清晰度；效果取决于问题类型。咨询型问题以及医学、心理学等场景更可能受益；金融、法律、科学和技术的概念解释任务中，不加角色提示的基线更好。该研究目前是 arXiv 预印本，应与已发表的 EMNLP 研究区分看待。
+该预印本报告：聚合分数的整体差异较小，但角色提示会系统性提高专业深度，同时降低清晰度；效果取决于问题类型。咨询型问题以及医学、心理学等场景更可能受益；金融、法律、科学和技术的概念解释任务中，不加角色提示的基线更好。需要注意其局限：问题集是按角色设计的合成基准，回答使用 GPT-4o mini 生成，评分由 Claude Haiku 4.5 自动完成；作者也指出模型覆盖和自动评审均有限。因此它提供的是有启发性的受控实验，不应直接当作所有真实工作任务的结论。该研究目前是 arXiv 预印本，应与已发表的 EMNLP 研究区分看待。
 
 来源：[arXiv:2605.29420](https://arxiv.org/abs/2605.29420)
 
