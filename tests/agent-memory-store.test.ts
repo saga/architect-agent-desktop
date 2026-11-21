@@ -345,8 +345,6 @@ describe("AgentMemoryStore", () => {
       kind: "user",
       content: "The old project rule used USD.",
       createdAt,
-      revision: 40,
-      changeType: "created",
     }]);
     const firstSource = first!.evidence[0]!.sourceId;
     const noteId = store.commitDreaming({
