@@ -78,6 +78,8 @@ DuckDB 数据库文件位于 Electron `userData/agent-analytics`。数据库按 
 
 表由附件导入时自动创建，列名会清洗为安全标识符，并处理清洗后的重名。数值、布尔和日期字段会做有限类型推断；不能确定的字段保留为 VARCHAR。
 
+同名数据集重导入采用单个 DuckDB 事务：先建表、分批写入，所有批次成功后才提交；任意批次失败即回滚，旧表保持完整，不暴露半成品。
+
 ### SQL 边界
 
 Agent 通过两个工具访问数据：
@@ -143,6 +145,8 @@ Anthropic《The components of agent memory》（2026-11-06）提出的核心层�
 | Injected Context | `getInjectedContext()` | 新 Task 注入少量摘要和知识索引，避免完整历史挤占上下文 |
 
 Memory Note 保留 Workspace Scope、标题、正文、标签、创建/更新时间、来源 Session/Trace、访问次数、置顶标记、验证状态和置信度。默认状态为 `unverified`。只有基于原始会话、文件或可靠来源复核后才可标记 `validated`；相互冲突或已过时的内容标记为 `disputed`。
+
+检索使用 SQLite FTS5/BM25 与 LIKE 子串回退的本地词法召回。多词查询允许部分命中，排序优先当前 Workspace、标题精确/包含匹配、置顶和重要度；中文长短语补充有限的二元片段匹配。当前没有 Embedding 模型或向量索引，不提供语义相似度召回。后续要加入语义检索，应先提供可配置的本地 Embedding Provider、模型下载/版本管理、索引重建和删除机制；不能默认把 Personal Memory 或项目内容发送给第三方服务。
 
 ### Personal Memory 与 Workspace Memory 的隔离边界
 
