@@ -2178,7 +2178,19 @@ function registerIpcHandlers(): void {
     return filePaths.slice(0, 20).map((file) => file.slice(0, 1000));
   });
   ipcMain.handle("agent-data:get-directory", (event) => { assertTrustedSender(event); return agentTraceStore.getDirectory(); });
-  ipcMain.handle("agent-trace:list-sessions", (event) => { assertTrustedSender(event); return agentTraceStore.listSessions(); });
+  ipcMain.handle("agent-trace:list-sessions", (event) => {
+    assertTrustedSender(event);
+    return agentTraceStore.listSessions().map(session => {
+      const sessionId = String(session.id ?? "");
+      const task = agentTasks.find(item => item.sessionId === sessionId);
+      const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined;
+      return {
+        ...session,
+        ...(task ? { taskId: task.id, taskTitle: task.title } : {}),
+        ...(expert ? { expertName: expert.name } : {}),
+      };
+    });
+  });
   ipcMain.handle("agent-trace:list-session-items", (event, input: unknown) => {
     assertTrustedSender(event);
     const parsed = z.string().min(1).max(100).safeParse(input);
