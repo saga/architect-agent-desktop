@@ -102,6 +102,23 @@ Task、对话、Expert、定时任务和运行记录均保存在本机。Expert 
 
 Runtime 基础设计、Code Mode 执行链路、Capability API，以及动态代码的安全边界见 [Agent Runtime、Code Mode 与安全沙箱设计](docs/architecture/AGENT-RUNTIME-AND-SANDBOX.md)。当前 Code Mode 的 `execute_code` 只在 Allow all 模式开放，使用独立 Electron UtilityProcess 执行模型生成的 JavaScript。UtilityProcess 不是安全沙箱；生成代码仍可能使用当前用户权限访问 Node.js API 和本机资源。Main Process Tool Broker 只对声明 API 的调用实施权限校验，不能约束生成代码直接调用 Node.js API。Code Mode 仅用于编排当前已授权工具，不应被描述为 OS 级隔离。现有插件仍是声明式资源，不会因导入而执行 JavaScript。
 
+
+## Agent 数据分析、可视化与 Memory Dreaming
+
+Agent 支持从系统文件选择器读取 PDF、Word、Excel、CSV、TSV、JSON 和文本文件。表格数据可导入按 Workspace 隔离的本地 DuckDB，模型只能通过受限的只读 SQL 查询已导入的数据；扫描版 PDF 当前只提示没有可提取文本，暂不执行 OCR。
+
+新会话的结构化 UI 使用 **A2UI 1.0**，由官方 Agent/Core SDK 与本地白名单 Finance Catalog 生成和校验；旧会话仍保留 A2UI v0.9 / Ant Design X Card 渲染。Finance Catalog 提供三类专业组件：
+
+- **FinanceChart**：Ant Design Charts，用于收益、风险、分布、双轴和流程型数据图表。
+- **KnowledgeGraph**：AntV G6，用于只读实体关系、持仓穿透和知识网络。
+- **WorkflowDiagram**：AntV X6，用于流程、审批链路和数据血缘；编辑后的图必须通过安全校验才会回传 Agent。
+
+长期记忆由 Transcript、Memory Notes、主题知识页和有限上下文注入构成。Memory Dreaming 可从当前 Workspace 的对话记录准备一份固定证据集，脱敏后整理成功经验、失败教训、项目约定和长期偏好，并以原子事务提交。每项变更必须引用当前证据并记录理由；更新已有 Note 要通过版本检查。提交失败不会推进游标；待处理 Run 可以放弃，最近一次成功 Run 可在没有后续冲突时回滚。Dreaming 也支持空变更提交，表示本批历史已评估但没有长期知识需要保存。
+
+在「Agent 与插件配置 → Memory & Dreaming」中可以查看 Notes、知识页、关系、证据和变更快照，也可以置顶、归档、放弃待处理 Run 或回滚最近一次整理。Dreaming 工具需要当前 Task 使用的 Expert 开启「长期记忆」工具组，并将工具权限设置为 assisted 或 allow-all；工具仍受当前 Workspace 范围限制。
+
+详细设计、数据边界和当前限制见 [Agent 数据分析、文件理解、A2UI 与长期记忆设计](docs/architecture/AGENT-ANALYTICS-DOCUMENTS-A2UI-MEMORY.md)。当前不包含后台定时 Dreaming、跨 Workspace 全局记忆、向量检索、扫描 PDF OCR 或防篡改审计账本。
+
 ## Plugins
 
 Open **Agent 与插件配置** from the application settings, then import a plugin directory. The repository includes a working example at `examples/plugins/research-assistant`.
