@@ -304,6 +304,7 @@ export class CopilotDesktopAgent {
  setApprovedFiles(paths: string[]): void { this.approvedFiles = new Set(paths.filter(value => typeof value === "string").slice(0, 20)); }
  setMemoryContext(sessionId: string | null, traceId: string | null): void { this.memorySessionId = sessionId; this.memoryTraceId = traceId; }
  publishInteraction(interactionId:string,text:string,timestamp:number):void { this.publish({type:"interaction",interactionId,text,timestamp}); }
+ resetA2UIForTask(sessionId:string):void { this.a2ui?.reset(sessionId); }
  getMemorySnapshot(scope: string | null) {
   return {
    cursor: this.memory.getDreamCursor(scope),
