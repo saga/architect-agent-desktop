@@ -144,6 +144,22 @@ Anthropic《The components of agent memory》（2026-11-06）提出的核心层�
 
 Memory Note 保留 Workspace Scope、标题、正文、标签、创建/更新时间、来源 Session/Trace、访问次数、置顶标记、验证状态和置信度。默认状态为 `unverified`。只有基于原始会话、文件或可靠来源复核后才可标记 `validated`；相互冲突或已过时的内容标记为 `disputed`。
 
+### Personal Memory 与 Workspace Memory 的隔离边界
+
+Memory 分为 Personal 和 Workspace 两层。Personal Memory 只保存用户明确要求跨项目保留的通用偏好、工作方式和用户意图；Workspace Memory 保存项目事实、数据口径、项目流程和工作产物。Workspace Agent 的上下文注入与 memory_search 会同时读取当前 Workspace 和 Personal Memory，并明确区分来源；其他 Workspace 的项目 Note 不会进入当前结果。Personal Task 只读取 Personal scope。
+
+写入边界比读取边界更严格：Workspace Agent 不能把项目内容直接写入 Personal scope。要保存跨项目通用信息，必须切换到 Personal Task；Personal scope 的证据快照也只有在被活动 Personal Note 引用时，才能由 Workspace Agent 的 memory_read_source 读取。系统不自动把项目 Note 提升为 Personal Note，避免项目机密或业务数据跨 Workspace 扩散。
+
+### Note 类型与验证证据策略
+
+每个 Note 都有明确 claimType：user_preference、user_intent、decision、project_fact、workflow_pattern、external_fact 或 unknown。unknown 不能被标记为 validated。验证状态不是 Agent 自报字段，SQLite 存储层会读取 Note 引用的真实 Transcript source kind，并保存一份可审计的 validationEvidence：
+
+- 用户偏好、用户意图和决定：至少有一条 user Transcript 原话。助手总结、工具输出、UI 交互或错误消息不能替代用户表达。
+- 项目事实、工作模式和外部事实：至少两个独立 Session，并同时包含 direct_user 与 tool_observation 来源。重复引用同一 Session 的多条消息不构成独立交叉验证。
+- assistant_generated、error_report 和 user_interaction 不会单独使事实满足验证策略。
+
+该门槛核验的是来源类型和会话独立性，不是对工具来源、外部网页或数据内容进行事实认证。尤其 external_fact 用于投资、合规或其他重要决策之前，仍需要回到原始来源核验。qualityScore 仍是对记忆质量的评估，不能代替事实验证。旧版本中没有验证证据档案的 validated 标记会在新版本读取时按 unverified 展示，直到重新完成证据复核。
+
 ### Dreaming：证据驱动的完整整理事务
 
 Dreaming 不再只是让模型总结历史。它现在有独立状态、证据快照、版本前置条件和原子提交：
