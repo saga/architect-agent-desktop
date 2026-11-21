@@ -1698,7 +1698,7 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
       }
       publishAgentWorkspaceSnapshot();
       if (!succeeded) recordOperation("memory-dreaming", "scheduled Dreaming failed: " + errorText);
-      notifyScheduleRun("Memory Dreaming · " + (schedule.scope ?? "Personal Workspace"), succeeded);
+      if (!skipped || !succeeded) notifyScheduleRun("Memory Dreaming · " + (schedule.scope ?? "Personal Workspace"), succeeded);
     }
     break;
   }
