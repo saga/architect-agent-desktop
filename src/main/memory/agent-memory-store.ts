@@ -841,6 +841,13 @@ export class AgentMemoryStore {
     if(Number(result.changes)!==1)throw new Error("只能 abandon 当前 Workspace 处于 prepared 状态的 Dreaming Run。");
   }
 
+  hasExpiredNotes(scope:string|null,now=Date.now()):boolean{
+    const row=this.database.prepare(
+      "SELECT 1 AS found FROM memory_notes WHERE scope_key=? AND status='active' AND pinned=0 AND expires_at IS NOT NULL AND expires_at<=? LIMIT 1"
+    ).get({},normalizeScope(scope),now) as {found?:number}|undefined;
+    return Boolean(row?.found);
+  }
+
   pruneExpired(scope:string|null,now=Date.now()):{archived:number}{
     const scopeKey=normalizeScope(scope);
     this.database.exec("BEGIN IMMEDIATE");
