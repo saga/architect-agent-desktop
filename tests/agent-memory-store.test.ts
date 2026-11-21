@@ -337,6 +337,36 @@ describe("AgentMemoryStore", () => {
       "regulator.example.gov",
       "industry-association.example.org",
     ]);
+
+    const metadataUpdated = store.saveNote({
+      id: note.id,
+      scope: "/workspace/external-facts",
+      title: note.title,
+      content: note.content,
+      claimType: "external_fact",
+      tags: ["regulation", "reviewed"],
+    });
+    expect(metadataUpdated.validation).toBe("validated");
+    expect(metadataUpdated.validationEvidence?.policy).toBe("human_confirmed_multi_domain_source_review");
+    expect(metadataUpdated.externalVerification?.status).toBe("multi_domain_sources_recorded");
+
+    const disputed = store.setValidation(
+      note.id, "disputed", 0.2,
+      [userSource.sourceId, officialSource.sourceId, independentSource.sourceId],
+      "/workspace/external-facts",
+    );
+    expect(disputed.validation).toBe("disputed");
+    expect(() => store.confirmExternalVerification("/workspace/external-facts", note.id, disputed.version))
+      .toThrow(/争议状态/);
+    expect(() => store.recordExternalSources("/workspace/external-facts", {
+      noteId: note.id, baseVersion: disputed.version,
+      sources: [{
+        sourceRef: officialSource.sourceId,
+        url: "https://regulator.example.gov/notices/2026/42?revised=1",
+        publisher: "National Regulator",
+      }],
+      note: "Trying to bypass an unresolved dispute.",
+    })).toThrow(/仍存在争议/);
     store.abandonDreaming("/workspace/external-facts", run!.id, "test complete");
     store.close();
   });
