@@ -52,6 +52,12 @@ describe("Claude Code Plugin packages", () => {
     }));
     expect(() => validatePluginDirectory(unprefixed)).toThrow("必须以 ./ 开头");
 
+    const missingName = makeClaudePlugin(makeDirectory());
+    writeFileSync(path.join(missingName, ".claude-plugin", "plugin.json"), JSON.stringify({
+      skills: ["./skills"],
+    }));
+    expect(() => validatePluginDirectory(missingName)).toThrow("必须包含 name 字段");
+
     const unsupported = path.join(makeDirectory(), "unsupported-plugin");
     mkdirSync(path.join(unsupported, ".claude-plugin"), { recursive: true });
     writeFileSync(path.join(unsupported, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "unsupported-plugin" }));
