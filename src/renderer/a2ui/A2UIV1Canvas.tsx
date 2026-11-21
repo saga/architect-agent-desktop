@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Empty, Space, Tag, Typography } from "antd";
 import { A2uiSurface } from "@a2ui/react";
+import { injectStyles } from "@a2ui/react/styles";
 import { MessageProcessor } from "@a2ui/web_core";
 import type { SurfaceModel } from "@a2ui/web_core";
 import type { ReactCatalogComponent } from "@a2ui/react";
@@ -41,6 +42,10 @@ export default function A2UIV1Canvas({ taskId, messages, onRendererMessage, titl
     setSurfaces(nextSurfaces);
     void window.browser.agentA2uiRegisterSurfaces(taskId, nextSurfaces.map(surface => surface.id)).catch(() => undefined);
   }, [processor, taskId]);
+
+  useEffect(() => {
+    injectStyles();
+  }, []);
 
   useEffect(() => {
     const created = processor.onSurfaceCreated(refreshSurfaces);
