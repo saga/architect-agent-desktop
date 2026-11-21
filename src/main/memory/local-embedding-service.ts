@@ -65,13 +65,17 @@ export class LocalEmbeddingService {
     let payload: { model?: unknown; embeddings?: unknown };
     try { payload = JSON.parse(responseText) as { model?: unknown; embeddings?: unknown }; }
     catch { throw new Error("Ollama Embedding 返回了无效 JSON。"); }
+    const reportedModel = typeof payload.model === "string" ? payload.model.trim() : "";
+    if (reportedModel && reportedModel !== config.model) {
+      throw new Error("Ollama 返回的模型与请求模型不一致；为避免混合不同向量空间，已拒绝该响应。");
+    }
     const embeddings = payload.embeddings;
     if (!Array.isArray(embeddings) || embeddings.length !== normalizedInputs.length) {
       throw new Error("Ollama Embedding 响应数量与输入数量不一致。");
     }
     return embeddings.map(vector => ({
       provider: "ollama" as const,
-      model: typeof payload.model === "string" && payload.model.trim() ? payload.model : config.model,
+      model: config.model,
       vector: normalizeVector(vector),
     }));
   }
