@@ -167,7 +167,7 @@ export class AgentMemoryStore {
   }
 
   private ensureColumns(table: string, columns: Record<string, string>): void {
-    const existing = new Set((this.database.prepare("PRAGMA table_info(" + table + ")").all() as Array<Record<string, unknown>>).map(row => String(row.name)));
+    const existing = new Set((this.database.prepare("PRAGMA table_info(" + table + ")").all({}) as Array<Record<string, unknown>>).map(row => String(row.name)));
     for (const [name, definition] of Object.entries(columns)) {
       if (!existing.has(name)) this.database.exec("ALTER TABLE " + table + " ADD COLUMN " + name + " " + definition);
     }
@@ -200,7 +200,7 @@ export class AgentMemoryStore {
     const content = input.content.trim().slice(0, 12_000);
     if (!title || !content) throw new Error("Memory note 标题和内容不能为空。");
     const id = input.id?.trim().slice(0, 100) || randomUUID();
-    const conflict = this.database.prepare("SELECT scope_key FROM memory_notes WHERE id=?").get(id) as { scope_key?: string } | undefined;
+    const conflict = this.database.prepare("SELECT scope_key FROM memory_notes WHERE id=?").get({}, id) as { scope_key?: string } | undefined;
     if (conflict && conflict.scope_key !== scopeKey) throw new Error("Memory Note ID 已属于其他 Workspace。");
     const before = this.getNoteRow(id, scopeKey);
     const now = Date.now();
@@ -219,7 +219,7 @@ export class AgentMemoryStore {
       "source_trace_id=excluded.source_trace_id,updated_at=excluded.updated_at,version=excluded.version,importance=excluded.importance," +
       "expires_at=excluded.expires_at,source_refs_json=excluded.source_refs_json,last_verified_at=excluded.last_verified_at," +
       "superseded_by_id=NULL,content_hash=excluded.content_hash"
-    ).run(
+    ).run({}, 
       id,scopeKey,title,content,JSON.stringify(tags),validation,unchanged?Number(before?.confidence??0.5):0.5,
       input.pinned===undefined?Number(before?.pinned??0):input.pinned?1:0,
       input.sourceSessionId??source?.sessionId??before?.source_session_id??null,input.sourceTraceId??before?.source_trace_id??null,
@@ -251,18 +251,18 @@ export class AgentMemoryStore {
         "SELECT n.* FROM memory_notes n JOIN memory_notes_fts f ON f.id=n.id "+
         "WHERE n.scope_key=? AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) AND memory_notes_fts MATCH ? "+
         "ORDER BY n.pinned DESC,n.importance DESC,CASE n.validation WHEN 'validated' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END,bm25(memory_notes_fts),n.updated_at DESC LIMIT ?"
-      ).all(key,Date.now(),fts,safeLimit) as Record<string,unknown>[];
+      ).all({}, key,Date.now(),fts,safeLimit) as Record<string,unknown>[];
     }catch{rows=[];}
     if(!rows.length){
       const like="%"+term.replace(/[%_]/g,"")+"%";
       rows=this.database.prepare(
         "SELECT * FROM memory_notes WHERE scope_key=? AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
         "AND (title LIKE ? OR content LIKE ? OR tags_json LIKE ?) ORDER BY pinned DESC,importance DESC,updated_at DESC LIMIT ?"
-      ).all(key,Date.now(),like,like,like,safeLimit) as Record<string,unknown>[];
+      ).all({}, key,Date.now(),like,like,like,safeLimit) as Record<string,unknown>[];
     }
     const now=Date.now();
     const touch=this.database.prepare("UPDATE memory_notes SET last_accessed_at=?,access_count=access_count+1 WHERE id=?");
-    for(const row of rows)touch.run(now,String(row.id));
+    for(const row of rows)touch.run({}, now,String(row.id));
     return rows.map(row=>this.toNote({...row,last_accessed_at:now,access_count:Number(row.access_count??0)+1}));
   }
 
@@ -270,16 +270,16 @@ export class AgentMemoryStore {
     const rows=this.database.prepare(
       "SELECT * FROM memory_notes WHERE scope_key=? AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
       "ORDER BY pinned DESC,importance DESC,CASE validation WHEN 'validated' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END,updated_at DESC LIMIT ?"
-    ).all(normalizeScope(scope),Date.now(),Math.max(1,Math.min(Math.floor(limit),100))) as Record<string,unknown>[];
+    ).all({}, normalizeScope(scope),Date.now(),Math.max(1,Math.min(Math.floor(limit),100))) as Record<string,unknown>[];
     return rows.map(row=>this.toNote(row));
   }
 
   setPinned(id:string,pinned:boolean):AgentMemoryNote{
-    const existing=this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND status='active'").get(id) as Record<string,unknown>|undefined;
+    const existing=this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND status='active'").get({}, id) as Record<string,unknown>|undefined;
     if(!existing)throw new Error("Memory note 不存在或已归档。");
     const version=Number(existing.version)+1;
-    this.database.prepare("UPDATE memory_notes SET pinned=?,updated_at=?,version=? WHERE id=?").run(pinned?1:0,Date.now(),version,id);
-    const row=this.database.prepare("SELECT * FROM memory_notes WHERE id=?").get(id) as Record<string,unknown>;
+    this.database.prepare("UPDATE memory_notes SET pinned=?,updated_at=?,version=? WHERE id=?").run({}, pinned?1:0,Date.now(),version,id);
+    const row=this.database.prepare("SELECT * FROM memory_notes WHERE id=?").get({}, id) as Record<string,unknown>;
     this.saveVersion(String(row.scope_key),"note",id,version,row,null);
     return this.toNote(row);
   }
@@ -288,24 +288,24 @@ export class AgentMemoryStore {
     if(!isValidation(validation))throw new Error("Invalid Memory validation state.");
     if(!sourceRefs.length)throw new Error("修改 Memory 验证状态必须引用至少一条证据。");
     for(const ref of sourceRefs)if(!this.getSourceById(ref))throw new Error("Memory 验证证据不存在："+ref);
-    const existing=this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND status='active'").get(id) as Record<string,unknown>|undefined;
+    const existing=this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND status='active'").get({}, id) as Record<string,unknown>|undefined;
     if(!existing)throw new Error("Memory note 不存在或已归档。");
     const version=Number(existing.version)+1,now=Date.now();
     const refs=[...new Set([...parseJson<string[]>(existing.source_refs_json,[]),...sourceRefs])].slice(-100);
     this.database.prepare("UPDATE memory_notes SET validation=?,confidence=?,last_verified_at=?,source_refs_json=?,updated_at=?,version=? WHERE id=?")
-      .run(validation,clamp(confidence??0.5,0,1),validation==="validated"?now:existing.last_verified_at??null,JSON.stringify(refs),now,version,id);
-    const row=this.database.prepare("SELECT * FROM memory_notes WHERE id=?").get(id) as Record<string,unknown>;
+      .run({}, validation,clamp(confidence??0.5,0,1),validation==="validated"?now:existing.last_verified_at??null,JSON.stringify(refs),now,version,id);
+    const row=this.database.prepare("SELECT * FROM memory_notes WHERE id=?").get({}, id) as Record<string,unknown>;
     this.saveVersion(String(row.scope_key),"note",id,version,row,null);
     return this.toNote(row);
   }
 
   archive(id:string):void{
-    const existing=this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND status='active'").get(id) as Record<string,unknown>|undefined;
+    const existing=this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND status='active'").get({}, id) as Record<string,unknown>|undefined;
     if(!existing)throw new Error("Memory note 不存在或已归档。");
     if(Number(existing.pinned))throw new Error("置顶 Memory 必须先取消置顶才能归档。");
     const version=Number(existing.version)+1;
-    this.database.prepare("UPDATE memory_notes SET status='archived',pinned=0,updated_at=?,version=? WHERE id=?").run(Date.now(),version,id);
-    const row=this.database.prepare("SELECT * FROM memory_notes WHERE id=?").get(id) as Record<string,unknown>;
+    this.database.prepare("UPDATE memory_notes SET status='archived',pinned=0,updated_at=?,version=? WHERE id=?").run({}, Date.now(),version,id);
+    const row=this.database.prepare("SELECT * FROM memory_notes WHERE id=?").get({}, id) as Record<string,unknown>;
     this.saveVersion(String(row.scope_key),"note",id,version,row,null);
   }
 
@@ -314,7 +314,7 @@ export class AgentMemoryStore {
     const slug=input.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,80);
     const title=input.title.trim().slice(0,160),content=input.content.trim().slice(0,24000),ids=safeIds(input.sourceNoteIds,100);
     if(!slug||!title||!content||!ids.length)throw new Error("Knowledge page 必须包含 slug、标题、正文和来源 Note。");
-    const valid=this.database.prepare("SELECT COUNT(*) AS count FROM memory_notes WHERE scope_key=? AND status='active' AND id IN ("+ids.map(()=>"?").join(",")+")").get(scopeKey,...ids) as {count?:number};
+    const valid=this.database.prepare("SELECT COUNT(*) AS count FROM memory_notes WHERE scope_key=? AND status='active' AND id IN ("+ids.map(()=>"?").join(",")+")").get({}, scopeKey,...ids) as {count?:number};
     if(Number(valid.count??0)!==ids.length)throw new Error("知识页引用了当前 Workspace 之外、不存在或已归档的 Note。");
     const id=createHash("sha256").update(scopeKey+":"+slug).digest("hex").slice(0,32);
     const before=this.getRepresentationRow(id,scopeKey);
@@ -324,7 +324,7 @@ export class AgentMemoryStore {
       "INSERT INTO memory_representations(id,scope_key,slug,title,content,source_note_ids_json,updated_at,version,status,source_refs_json) "+
       "VALUES(?,?,?,?,?,?,?,?,'active',?) ON CONFLICT(scope_key,slug) DO UPDATE SET title=excluded.title,content=excluded.content,"+
       "source_note_ids_json=excluded.source_note_ids_json,updated_at=excluded.updated_at,version=excluded.version,status='active',source_refs_json=excluded.source_refs_json"
-    ).run(id,scopeKey,slug,title,content,JSON.stringify(ids),now,version,JSON.stringify([...new Set(refs)].slice(-100)));
+    ).run({}, id,scopeKey,slug,title,content,JSON.stringify(ids),now,version,JSON.stringify([...new Set(refs)].slice(-100)));
     const after=this.getRepresentationRow(id,scopeKey);
     this.saveVersion(scopeKey,"representation",id,version,after,null);
     return this.toRepresentation(after as Record<string,unknown>);
@@ -332,13 +332,13 @@ export class AgentMemoryStore {
 
   getRepresentations(scope:string|null,limit=12):AgentMemoryRepresentation[]{
     const rows=this.database.prepare("SELECT * FROM memory_representations WHERE scope_key=? AND status='active' ORDER BY updated_at DESC LIMIT ?")
-      .all(normalizeScope(scope),Math.max(1,Math.min(Math.floor(limit),30))) as Record<string,unknown>[];
+      .all({}, normalizeScope(scope),Math.max(1,Math.min(Math.floor(limit),30))) as Record<string,unknown>[];
     return rows.map(row=>this.toRepresentation(row));
   }
 
   getDreamCursor(scope:string|null):MemoryDreamCursor{
     const row=this.database.prepare("SELECT max_source_created_at,last_source_session_id,last_source_message_id FROM memory_dream_cursors WHERE scope_key=?")
-      .get(normalizeScope(scope)) as {max_source_created_at?:number;last_source_session_id?:string;last_source_message_id?:string}|undefined;
+      .get({}, normalizeScope(scope)) as {max_source_created_at?:number;last_source_session_id?:string;last_source_message_id?:string}|undefined;
     return {
       createdAt:Number(row?.max_source_created_at??0),
       sessionId:String(row?.last_source_session_id??""),
@@ -349,7 +349,7 @@ export class AgentMemoryStore {
   prepareDreaming(scope:string|null,sourceInput:MemorySourceEvidence[]):MemoryDreamRun|null{
     const key=normalizeScope(scope);
     if(sourceInput.length>MAX_DREAM_SOURCES)throw new Error("每次 Dreaming 最多处理 160 条 transcript 消息。");
-    const pending=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='prepared' LIMIT 1").get(key) as {id?:string}|undefined;
+    const pending=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='prepared' LIMIT 1").get({}, key) as {id?:string}|undefined;
     if(pending?.id)throw new Error("当前 Workspace 已存在待处理 Dreaming Run，请先 commit 或 abandon："+pending.id);
     const cursor=this.getDreamCursor(scope),runId=randomUUID(),deduped=new Map<string,StoredMemorySource>();
     let totalChars=0;
@@ -379,18 +379,18 @@ export class AgentMemoryStore {
       this.database.prepare(
         "INSERT INTO memory_dream_runs(id,scope_key,status,summary,source_count,created_at,started_at,completed_at,max_source_created_at,cursor_after_session_id,cursor_after_message_id,evidence_manifest_json,rollback_reason,operation_count) "+
         "VALUES(?,?,'prepared','',?,?,?,NULL,?,?,?,?,NULL,0)"
-      ).run(id,key,sources.length,now,now,maxSourceCreatedAt,cursorAfter.sessionId,cursorAfter.messageId,JSON.stringify(sources.map(source=>source.sourceId)));
+      ).run({}, id,key,sources.length,now,now,maxSourceCreatedAt,cursorAfter.sessionId,cursorAfter.messageId,JSON.stringify(sources.map(source=>source.sourceId)));
       const insert=this.database.prepare("INSERT INTO memory_dream_sources(source_id,run_id,session_id,message_id,kind,content,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?)");
-      for(const source of sources)insert.run(source.sourceId,id,source.sessionId,source.messageId,source.kind,source.content,source.contentHash,source.createdAt);
+      for(const source of sources)insert.run({}, source.sourceId,id,source.sessionId,source.messageId,source.kind,source.content,source.contentHash,source.createdAt);
       this.database.exec("COMMIT");
     }catch(error){this.database.exec("ROLLBACK");throw error;}
     return this.getDreamRun(id,scope);
   }
 
   getDreamRun(id:string,scope:string|null):MemoryDreamRun|null{
-    const row=this.database.prepare("SELECT * FROM memory_dream_runs WHERE id=? AND scope_key=?").get(id,normalizeScope(scope)) as Record<string,unknown>|undefined;
+    const row=this.database.prepare("SELECT * FROM memory_dream_runs WHERE id=? AND scope_key=?").get({}, id,normalizeScope(scope)) as Record<string,unknown>|undefined;
     if(!row)return null;
-    const sources=this.database.prepare("SELECT * FROM memory_dream_sources WHERE run_id=? ORDER BY created_at").all(id) as Record<string,unknown>[];
+    const sources=this.database.prepare("SELECT * FROM memory_dream_sources WHERE run_id=? ORDER BY created_at").all({}, id) as Record<string,unknown>[];
     return {
       id:String(row.id),status:row.status as MemoryDreamStatus,summary:String(row.summary??""),sourceCount:Number(row.source_count??0),
       maxSourceCreatedAt:Number(row.max_source_created_at??0),cursorAfter:{createdAt:Number(row.max_source_created_at??0),sessionId:String(row.cursor_after_session_id??""),messageId:String(row.cursor_after_message_id??"")},createdAt:Number(row.created_at),startedAt:Number(row.started_at??row.created_at),
@@ -402,7 +402,7 @@ export class AgentMemoryStore {
     return this.database.prepare(
       "SELECT id,status,summary,source_count,max_source_created_at,created_at,started_at,completed_at,operation_count,rollback_reason "+
       "FROM memory_dream_runs WHERE scope_key=? ORDER BY created_at DESC LIMIT ?"
-    ).all(normalizeScope(scope),Math.max(1,Math.min(Math.floor(limit),30))) as Array<Record<string,unknown>>;
+    ).all({}, normalizeScope(scope),Math.max(1,Math.min(Math.floor(limit),30))) as Array<Record<string,unknown>>;
   }
 
   commitDreaming(input:{scope?:string|null;runId:string;summary:string;operations:MemoryDreamOperation[]}):{
@@ -417,7 +417,7 @@ export class AgentMemoryStore {
     const createdNoteIds:string[]=[],updatedNoteIds:string[]=[],publishedKnowledgeIds:string[]=[];
     this.database.exec("BEGIN IMMEDIATE");
     try{
-      const current=this.database.prepare("SELECT status FROM memory_dream_runs WHERE id=? AND scope_key=?").get(input.runId,scopeKey) as {status?:string}|undefined;
+      const current=this.database.prepare("SELECT status FROM memory_dream_runs WHERE id=? AND scope_key=?").get({}, input.runId,scopeKey) as {status?:string}|undefined;
       if(current?.status!=="prepared")throw new Error("Dreaming Run 已被其他流程提交或修改。");
       let sequence=0;
       for(const operation of input.operations){
@@ -443,12 +443,12 @@ export class AgentMemoryStore {
         }
       }
       const now=Date.now();
-      const previous=this.database.prepare("SELECT * FROM memory_dream_cursors WHERE scope_key=?").get(scopeKey) as Record<string,unknown>|undefined;
+      const previous=this.database.prepare("SELECT * FROM memory_dream_cursors WHERE scope_key=?").get({}, scopeKey) as Record<string,unknown>|undefined;
       const next={scope_key:scopeKey,max_source_created_at:Math.max(run.maxSourceCreatedAt,Number(previous?.max_source_created_at??0)),last_run_id:input.runId,updated_at:now};
       this.recordDreamOperation(input.runId,sequence+1,"cursor",scopeKey,"advance_cursor",previous??null,next,"Advance the transcript cursor after a successful atomic commit.");
       this.upsertCursor(next);
       this.database.prepare("UPDATE memory_dream_runs SET status='completed',summary=?,completed_at=?,operation_count=? WHERE id=? AND scope_key=? AND status='prepared'")
-        .run(summary,now,sequence+1,input.runId,scopeKey);
+        .run({}, summary,now,sequence+1,input.runId,scopeKey);
       this.database.exec("COMMIT");
       return {runId:input.runId,status:"completed",sourceCount:run.sourceCount,operationCount:sequence,createdNoteIds,updatedNoteIds,publishedKnowledgeIds,maxSourceCreatedAt:run.maxSourceCreatedAt};
     }catch(error){this.database.exec("ROLLBACK");throw error;}
@@ -458,7 +458,7 @@ export class AgentMemoryStore {
     const title=op.title.trim().slice(0,160),content=scrubEvidence(op.content.trim()).slice(0,12_000);
     if(!title||!content)throw new Error("upsert_note 必须包含标题和正文。");
     const id=op.id?.trim().slice(0,100)||randomUUID(),before=this.getNoteRow(id,scopeKey);
-    const conflict=this.database.prepare("SELECT scope_key FROM memory_notes WHERE id=?").get(id) as {scope_key?:string}|undefined;
+    const conflict=this.database.prepare("SELECT scope_key FROM memory_notes WHERE id=?").get({}, id) as {scope_key?:string}|undefined;
     if(conflict&&conflict.scope_key!==scopeKey)throw new Error("Memory Note ID 属于其他 Workspace。");
     if(before&&op.baseVersion!==Number(before.version))throw new Error("Memory Note 版本已变化，请重新检索后再整理："+id);
     if(!before&&op.baseVersion!==undefined)throw new Error("新建 Memory Note 不应提供 baseVersion。");
@@ -525,7 +525,7 @@ export class AgentMemoryStore {
   private dreamPublishKnowledge(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"publish_knowledge"}>,refs:string[],reason:string):string{
     const ids=safeIds(op.sourceNoteIds,100);
     if(!ids.length)throw new Error("知识页必须引用至少一条来源 Note。");
-    const noteRows=this.database.prepare("SELECT * FROM memory_notes WHERE scope_key=? AND status='active' AND id IN ("+ids.map(()=>"?").join(",")+")").all(scopeKey,...ids) as Array<Record<string,unknown>>;
+    const noteRows=this.database.prepare("SELECT * FROM memory_notes WHERE scope_key=? AND status='active' AND id IN ("+ids.map(()=>"?").join(",")+")").all({}, scopeKey,...ids) as Array<Record<string,unknown>>;
     if(noteRows.length!==ids.length)throw new Error("知识页只能引用当前 Workspace 的活动 Note。");
     const slug=op.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,80);
     const title=op.title.trim().slice(0,160),content=op.content.trim().slice(0,24000);
@@ -545,13 +545,23 @@ export class AgentMemoryStore {
     const source=this.getNoteRow(sourceId,scopeKey),target=this.getNoteRow(targetId,scopeKey);
     if(!source||!target||source.status!=="active"||target.status!=="active")throw new Error("Memory relationship 必须连接同一 Workspace 的活动 Note。");
     const id=createHash("sha256").update([scopeKey,sourceId,targetId,relationship].join(":")).digest("hex").slice(0,32);
-    const before=this.database.prepare("SELECT * FROM memory_relationships WHERE id=?").get(id) as Record<string,unknown>|undefined;
+    const before=this.database.prepare("SELECT * FROM memory_relationships WHERE id=?").get({}, id) as Record<string,unknown>|undefined;
     const now=Date.now();
     this.database.prepare(
       "INSERT INTO memory_relationships(id,scope_key,source_note_id,target_note_id,relationship,details,source_refs_json,created_at) VALUES(?,?,?,?,?,?,?,?) "+
       "ON CONFLICT(id) DO UPDATE SET details=excluded.details,source_refs_json=excluded.source_refs_json"
-    ).run(id,scopeKey,sourceId,targetId,relationship,reason,JSON.stringify(refs),now);
-    this.recordEntityChange(runId,sequence,"relationship",id,before??null,this.database.prepare("SELECT * FROM memory_relationships WHERE id=?").get(id) as Record<string,unknown>,"link_notes",reason);
+    ).run({}, id,scopeKey,sourceId,targetId,relationship,reason,JSON.stringify(refs),now);
+    this.recordEntityChange(runId,sequence,"relationship",id,before??null,this.database.prepare("SELECT * FROM memory_relationships WHERE id=?").get({}, id) as Record<string,unknown>,"link_notes",reason);
+  }
+
+  private recordDreamOperation(
+    runId:string,sequence:number,entityType:string,entityId:string,operation:string,
+    before:Record<string,unknown>|null,after:Record<string,unknown>|null,reason:string,
+  ):void {
+    this.database.prepare(
+      "INSERT INTO memory_dream_operations(id,run_id,sequence,entity_type,entity_id,operation,before_json,after_json,reason,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)"
+    ).run({},randomUUID(),runId,sequence,entityType,entityId,operation,
+      before?JSON.stringify(before):null,after?JSON.stringify(after):null,reason,Date.now());
   }
 
   private recordEntityChange(runId:string,sequence:number,entityType:string,entityId:string,before:Record<string,unknown>|null|undefined,after:Record<string,unknown>|null|undefined,operation:string,reason:string):void{
@@ -559,16 +569,16 @@ export class AgentMemoryStore {
     if(before)this.saveVersion(scopeKey,entityType,entityId,Number(before.version??1),before,runId);
     if(after)this.saveVersion(scopeKey,entityType,entityId,Number(after.version??1),after,runId);
     this.database.prepare("INSERT INTO memory_dream_operations(id,run_id,sequence,entity_type,entity_id,operation,before_json,after_json,reason,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
-      .run(randomUUID(),runId,sequence,entityType,entityId,operation,before?JSON.stringify(before):null,after?JSON.stringify(after):null,reason,Date.now());
+      .run({}, randomUUID(),runId,sequence,entityType,entityId,operation,before?JSON.stringify(before):null,after?JSON.stringify(after):null,reason,Date.now());
   }
 
   rollbackDreaming(scope:string|null,runId:string,reason:string):{runId:string;rolledBackOperations:number}{
     const scopeKey=normalizeScope(scope);
-    const run=this.database.prepare("SELECT * FROM memory_dream_runs WHERE id=? AND scope_key=?").get(runId,scopeKey) as Record<string,unknown>|undefined;
+    const run=this.database.prepare("SELECT * FROM memory_dream_runs WHERE id=? AND scope_key=?").get({}, runId,scopeKey) as Record<string,unknown>|undefined;
     if(!run||run.status!=="completed")throw new Error("只有 completed Dreaming Run 可以回滚。");
-    const latest=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='completed' ORDER BY completed_at DESC LIMIT 1").get(scopeKey) as {id?:string}|undefined;
+    const latest=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='completed' ORDER BY completed_at DESC LIMIT 1").get({}, scopeKey) as {id?:string}|undefined;
     if(latest?.id!==runId)throw new Error("只能回滚当前 Workspace 最新一次 completed Dreaming Run。");
-    const operations=this.database.prepare("SELECT * FROM memory_dream_operations WHERE run_id=? ORDER BY sequence DESC").all(runId) as Array<Record<string,unknown>>;
+    const operations=this.database.prepare("SELECT * FROM memory_dream_operations WHERE run_id=? ORDER BY sequence DESC").all({}, runId) as Array<Record<string,unknown>>;
     this.database.exec("BEGIN IMMEDIATE");
     try{
       for(const operation of operations){
@@ -576,13 +586,13 @@ export class AgentMemoryStore {
         const before=parseJson<Record<string,unknown>|null>(operation.before_json,null);
         const after=parseJson<Record<string,unknown>|null>(operation.after_json,null);
         if(type==="cursor"){
-          const current=this.database.prepare("SELECT * FROM memory_dream_cursors WHERE scope_key=?").get(id) as Record<string,unknown>|undefined;
+          const current=this.database.prepare("SELECT * FROM memory_dream_cursors WHERE scope_key=?").get({}, id) as Record<string,unknown>|undefined;
           if(canonicalJson(current??null)!==canonicalJson(after))throw new Error("Memory Dreaming cursor 已改变，停止回滚。");
-          if(before)this.upsertCursor(before);else this.database.prepare("DELETE FROM memory_dream_cursors WHERE scope_key=?").run(id);
+          if(before)this.upsertCursor(before);else this.database.prepare("DELETE FROM memory_dream_cursors WHERE scope_key=?").run({}, id);
           continue;
         }
         const current=type==="note"?this.getNoteRow(id,scopeKey):type==="representation"?this.getRepresentationRow(id,scopeKey):type==="relationship"?
-          this.database.prepare("SELECT * FROM memory_relationships WHERE id=? AND scope_key=?").get(id,scopeKey) as Record<string,unknown>|undefined:undefined;
+          this.database.prepare("SELECT * FROM memory_relationships WHERE id=? AND scope_key=?").get({}, id,scopeKey) as Record<string,unknown>|undefined:undefined;
         if(canonicalJson(current??null)!==canonicalJson(after))throw new Error("记忆实体 "+id+" 在 Dreaming 后已被修改，停止回滚以避免覆盖新变更。");
         if(type==="note")this.replaceNoteSnapshot(id,before);
         else if(type==="representation")this.replaceRepresentationSnapshot(id,before);
@@ -590,7 +600,7 @@ export class AgentMemoryStore {
         else throw new Error("未知 Dreaming 操作类型："+type);
       }
       this.database.prepare("UPDATE memory_dream_runs SET status='rolled_back',rollback_reason=?,completed_at=? WHERE id=? AND scope_key=?")
-        .run(reason.trim().slice(0,500),Date.now(),runId,scopeKey);
+        .run({}, reason.trim().slice(0,500),Date.now(),runId,scopeKey);
       this.database.exec("COMMIT");
       return {runId,rolledBackOperations:operations.length};
     }catch(error){this.database.exec("ROLLBACK");throw error;}
@@ -598,60 +608,61 @@ export class AgentMemoryStore {
 
   abandonDreaming(scope:string|null,runId:string,reason:string):void{
     const result=this.database.prepare("UPDATE memory_dream_runs SET status='abandoned',summary=?,completed_at=? WHERE id=? AND scope_key=? AND status='prepared'")
-      .run(reason.slice(0,1000),Date.now(),runId,normalizeScope(scope));
+      .run({}, reason.slice(0,1000),Date.now(),runId,normalizeScope(scope));
     if(Number(result.changes)!==1)throw new Error("只能 abandon 当前 Workspace 处于 prepared 状态的 Dreaming Run。");
   }
 
   pruneExpired(scope:string|null,now=Date.now()):{archived:number}{
     const result=this.database.prepare("UPDATE memory_notes SET status='archived',pinned=0,updated_at=?,version=version+1 "+
       "WHERE scope_key=? AND status='active' AND pinned=0 AND expires_at IS NOT NULL AND expires_at<=?")
-      .run(now,normalizeScope(scope),now);
+      .run({}, now,normalizeScope(scope),now);
     return {archived:Number(result.changes)};
   }
 
   getSourceById(sourceId:string):StoredMemorySource|null{
-    const row=this.database.prepare("SELECT * FROM memory_dream_sources WHERE source_id=? ORDER BY created_at DESC LIMIT 1").get(sourceId) as Record<string,unknown>|undefined;
+    const row=this.database.prepare("SELECT * FROM memory_dream_sources WHERE source_id=? ORDER BY created_at DESC LIMIT 1").get({}, sourceId) as Record<string,unknown>|undefined;
     return row?this.toSource(row):null;
   }
 
   private getNoteRow(id:string,scopeKey:string):Record<string,unknown>|null{
-    return (this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND scope_key=?").get(id,scopeKey) as Record<string,unknown>|undefined)??null;
+    return (this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND scope_key=?").get({}, id,scopeKey) as Record<string,unknown>|undefined)??null;
   }
   private getRepresentationRow(id:string,scopeKey:string):Record<string,unknown>|null{
-    return (this.database.prepare("SELECT * FROM memory_representations WHERE id=? AND scope_key=?").get(id,scopeKey) as Record<string,unknown>|undefined)??null;
+    return (this.database.prepare("SELECT * FROM memory_representations WHERE id=? AND scope_key=?").get({}, id,scopeKey) as Record<string,unknown>|undefined)??null;
   }
   private replaceNoteSnapshot(id:string,row:Record<string,unknown>|null):void{
-    this.database.prepare("DELETE FROM memory_notes WHERE id=?").run(id);
+    this.database.prepare("DELETE FROM memory_notes WHERE id=?").run({}, id);
     if(!row)return;
     this.database.prepare("INSERT INTO memory_notes(id,scope_key,title,content,tags_json,validation,confidence,pinned,status,source_session_id,source_trace_id,"+
       "created_at,updated_at,last_accessed_at,access_count,version,importance,expires_at,source_refs_json,last_verified_at,superseded_by_id,content_hash,last_dreamed_at) "+
-      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run(
+      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run({}, ...([
       row.id,row.scope_key,row.title,row.content,row.tags_json,row.validation,row.confidence,row.pinned,row.status,row.source_session_id,row.source_trace_id,
       row.created_at,row.updated_at,row.last_accessed_at,row.access_count,row.version,row.importance,row.expires_at,row.source_refs_json,row.last_verified_at,
-      row.superseded_by_id,row.content_hash,row.last_dreamed_at);
+      row.superseded_by_id,row.content_hash,row.last_dreamed_at
+      ] as never[]));
   }
   private replaceRepresentationSnapshot(id:string,row:Record<string,unknown>|null):void{
-    this.database.prepare("DELETE FROM memory_representations WHERE id=?").run(id);
+    this.database.prepare("DELETE FROM memory_representations WHERE id=?").run({}, id);
     if(!row)return;
     this.database.prepare("INSERT INTO memory_representations(id,scope_key,slug,title,content,source_note_ids_json,updated_at,version,status,source_refs_json) "+
-      "VALUES(?,?,?,?,?,?,?,?,?,?)").run(row.id,row.scope_key,row.slug,row.title,row.content,row.source_note_ids_json,row.updated_at,row.version,row.status,row.source_refs_json);
+      "VALUES(?,?,?,?,?,?,?,?,?,?)").run({}, row.id,row.scope_key,row.slug,row.title,row.content,row.source_note_ids_json,row.updated_at,row.version,row.status,row.source_refs_json);
   }
   private replaceRelationshipSnapshot(id:string,row:Record<string,unknown>|null):void{
-    this.database.prepare("DELETE FROM memory_relationships WHERE id=?").run(id);
+    this.database.prepare("DELETE FROM memory_relationships WHERE id=?").run({}, id);
     if(!row)return;
     this.database.prepare("INSERT INTO memory_relationships(id,scope_key,source_note_id,target_note_id,relationship,details,source_refs_json,created_at) "+
-      "VALUES(?,?,?,?,?,?,?,?)").run(row.id,row.scope_key,row.source_note_id,row.target_note_id,row.relationship,row.details,row.source_refs_json,row.created_at);
+      "VALUES(?,?,?,?,?,?,?,?)").run({}, row.id,row.scope_key,row.source_note_id,row.target_note_id,row.relationship,row.details,row.source_refs_json,row.created_at);
   }
   private upsertCursor(row:Record<string,unknown>):void{
     this.database.prepare("INSERT INTO memory_dream_cursors(scope_key,max_source_created_at,last_source_session_id,last_source_message_id,last_run_id,updated_at) VALUES(?,?,?,?,?,?) "+
       "ON CONFLICT(scope_key) DO UPDATE SET max_source_created_at=excluded.max_source_created_at,last_source_session_id=excluded.last_source_session_id,last_source_message_id=excluded.last_source_message_id,last_run_id=excluded.last_run_id,updated_at=excluded.updated_at")
-      .run(row.scope_key,row.max_source_created_at,row.last_source_session_id??"",row.last_source_message_id??"",row.last_run_id,row.updated_at);
+      .run({}, row.scope_key,row.max_source_created_at,row.last_source_session_id??"",row.last_source_message_id??"",row.last_run_id,row.updated_at);
   }
   private saveVersion(scopeKey:string,entityType:string,entityId:string,version:number,snapshot:Record<string,unknown>|null,runId:string|null):void{
     if(!snapshot)return;
     const id=createHash("sha256").update([scopeKey,entityType,entityId,version,runId??"manual"].join(":")).digest("hex").slice(0,32);
     this.database.prepare("INSERT OR IGNORE INTO memory_versions(id,scope_key,entity_type,entity_id,version,snapshot_json,run_id,created_at) VALUES(?,?,?,?,?,?,?,?)")
-      .run(id,scopeKey,entityType,entityId,version,JSON.stringify(snapshot),runId,Date.now());
+      .run({}, id,scopeKey,entityType,entityId,version,JSON.stringify(snapshot),runId,Date.now());
   }
   private toSource(row:Record<string,unknown>):StoredMemorySource{
     return {sourceId:String(row.source_id),sessionId:String(row.session_id),messageId:String(row.message_id),kind:String(row.kind),
