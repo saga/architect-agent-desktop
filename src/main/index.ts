@@ -6,6 +6,7 @@ import {
   desktopCapturer,
   ipcMain,
   Menu,
+  Notification,
   type MenuItemConstructorOptions,
   screen,
   session,
@@ -22,7 +23,7 @@ import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
 import { isTrustedAppUrl } from "./app-url-policy";
 import { readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspaceSnapshot, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
+import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentScheduleRun, AgentWorkspaceSnapshot, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
 import { writeJsonAtomic } from "./json-store";
@@ -35,7 +36,7 @@ import { findPanel, setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
 import type { WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject, McpServerConfig } from "../shared/types";
 import { parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel } from "../shared/workspace-document";
-import { parseAgentTasks, parseAgentExperts, parseAgentSchedules, parseAgentWorkspacePreferences, nextScheduleRunAt } from "./agent-workspace-store";
+import { parseAgentTasks, parseAgentExperts, parseAgentSchedules, parseAgentScheduleRuns, parseAgentWorkspacePreferences, nextScheduleRunAt } from "./agent-workspace-store";
 import { listWorkspaceFiles, readWorkspaceFile } from "./workspace-files";
 
 const APP_ID = "com.saga.architectagentdesktop";
@@ -80,6 +81,7 @@ const AGENT_SESSION_ROOT = path.join(app.getPath("userData"), "agent-sessions");
 const AGENT_TASKS_PATH = path.join(app.getPath("userData"), "agent-tasks.json");
 const AGENT_EXPERTS_PATH = path.join(app.getPath("userData"), "agent-experts.json");
 const AGENT_SCHEDULES_PATH = path.join(app.getPath("userData"), "agent-schedules.json");
+const AGENT_SCHEDULE_RUNS_PATH = path.join(app.getPath("userData"), "agent-schedule-runs.json");
 const AGENT_WORKSPACE_PREFERENCES_PATH = path.join(app.getPath("userData"), "agent-workspace-preferences.json");
 const ACTIVE_AGENT_TASK_PATH = path.join(app.getPath("userData"), "active-agent-task.json");
 const LEGACY_AGENT_SESSION_ITEMS = 200;
@@ -220,6 +222,18 @@ if (!agentExperts.length) {
   writeJsonAtomic(AGENT_EXPERTS_PATH, agentExperts);
 }
 let agentSchedules = parseAgentSchedules(loadJsonValue(AGENT_SCHEDULES_PATH));
+let agentScheduleRuns = parseAgentScheduleRuns(loadJsonValue(AGENT_SCHEDULE_RUNS_PATH));
+let recoveredScheduleRuns = false;
+for (const run of agentScheduleRuns) {
+  if (run.status === "running") {
+    run.status = "error";
+    run.finishedAt = Date.now();
+    run.durationMs = Math.max(0, run.finishedAt - run.startedAt);
+    run.error = "应用在上次执行期间退出，任务未能完成。";
+    recoveredScheduleRuns = true;
+  }
+}
+if (recoveredScheduleRuns) writeJsonAtomic(AGENT_SCHEDULE_RUNS_PATH, agentScheduleRuns);
 let agentWorkspacePreferences = parseAgentWorkspacePreferences(loadJsonValue(AGENT_WORKSPACE_PREFERENCES_PATH));
 const savedActiveTask = loadJsonValue(ACTIVE_AGENT_TASK_PATH) as { taskId?: unknown } | null;
 activeAgentTaskId = typeof savedActiveTask?.taskId === "string" && agentTasks.some(task => task.id === savedActiveTask.taskId) ? savedActiveTask.taskId : (agentTasks.find(task => task.sessionId === initialSessionId)?.id ?? agentTasks[0].id);
@@ -394,6 +408,7 @@ function persistAgentTasks(): void {
 }
 function persistAgentExperts(): void { writeJsonAtomic(AGENT_EXPERTS_PATH, agentExperts); }
 function persistAgentSchedules(): void { writeJsonAtomic(AGENT_SCHEDULES_PATH, agentSchedules); }
+function persistAgentScheduleRuns(): void { writeJsonAtomic(AGENT_SCHEDULE_RUNS_PATH, agentScheduleRuns); }
 function safeWorkspaceProject(rootInput: string | null): WorkspaceProject {
   if (!rootInput) return { path: null, name: null };
   const root = realpathSync(rootInput);
@@ -402,7 +417,9 @@ function safeWorkspaceProject(rootInput: string | null): WorkspaceProject {
 }
 function buildAgentWorkspaceSnapshot(): AgentWorkspaceSnapshot {
   const grouped = new Map<string, AgentWorkspaceSnapshot["workspaces"][number]>();
-  for (const task of agentTasks) {
+  const scheduleRunTaskIds = new Set(agentScheduleRuns.map(run => run.taskId).filter((id): id is string => Boolean(id)));
+  const visibleTasks = agentTasks.filter(task => !scheduleRunTaskIds.has(task.id));
+  for (const task of visibleTasks) {
     const key = task.workspacePath ?? "";
     const current = grouped.get(key);
     if (current) {
@@ -418,11 +435,12 @@ function buildAgentWorkspaceSnapshot(): AgentWorkspaceSnapshot {
     }
   }
   return {
-    tasks: [...agentTasks].sort((a, b) => b.updatedAt - a.updatedAt),
+    tasks: [...visibleTasks].sort((a, b) => b.updatedAt - a.updatedAt),
     activeTaskId: activeAgentTaskId,
     workspaces: [...grouped.values()].sort((a, b) => b.updatedAt - a.updatedAt),
     experts: [...agentExperts],
     schedules: [...agentSchedules],
+    scheduleRuns: [...agentScheduleRuns],
     preferences: { ...agentWorkspacePreferences },
   };
 }
@@ -1464,47 +1482,99 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 
 let scheduleRunnerActive = false;
 let schedulerTimer: NodeJS.Timeout | null = null;
-async function processDueAgentSchedules(): Promise<void> {
-  if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) return;
+
+function notifyScheduleRun(title: string, succeeded: boolean, detail: string): void {
+  try {
+    if (!Notification.isSupported()) return;
+    const notification = new Notification({
+      title: succeeded ? "定时任务已完成" : "定时任务执行失败",
+      body: detail ? title + " · " + detail.slice(0, 180) : title,
+    });
+    notification.on("click", () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    });
+    notification.show();
+  } catch (error) {
+    recordOperation("schedule", "notification failed: " + (error instanceof Error ? error.message : String(error)));
+  }
+}
+
+async function processDueAgentSchedules(manualScheduleId?: string): Promise<void> {
+  const manual = Boolean(manualScheduleId);
+  if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    if (manual) throw new Error("Agent 正在运行，请完成当前请求后再立即运行定时任务。");
+    return;
+  }
+  if (manual && !agentSchedules.some(item => item.id === manualScheduleId)) throw new Error("定时任务不存在。");
+
   scheduleRunnerActive = true;
   try {
-    const due = agentSchedules.filter(item => item.enabled && Date.parse(item.runAt) <= Date.now()).sort((a, b) => Date.parse(a.runAt) - Date.parse(b.runAt));
+    const due = manual
+      ? agentSchedules.filter(item => item.id === manualScheduleId)
+      : agentSchedules.filter(item => item.enabled && Date.parse(item.runAt) <= Date.now()).sort((a, b) => Date.parse(a.runAt) - Date.parse(b.runAt));
+
     for (const candidate of due) {
-      const schedule = agentSchedules.find(item =>
-        item.id === candidate.id && item.enabled && item.runAt === candidate.runAt
-        && item.updatedAt === candidate.updatedAt && item.prompt === candidate.prompt
-      );
-      if (!schedule) continue;
+      const currentDefinition = agentSchedules.find(item => item.id === candidate.id);
+      if (!currentDefinition) continue;
+      if (!manual && (!currentDefinition.enabled || Date.parse(currentDefinition.runAt) > Date.now()
+        || currentDefinition.updatedAt !== candidate.updatedAt || currentDefinition.runAt !== candidate.runAt)) continue;
       if (copilotAgent.isBusy()) break;
+
+      const schedule: AgentSchedule = {
+        ...currentDefinition,
+        weekdays: currentDefinition.weekdays ? [...currentDefinition.weekdays] : undefined,
+        monthDays: currentDefinition.monthDays ? [...currentDefinition.monthDays] : undefined,
+      };
       const previousTaskId = activeAgentTaskId;
       const runStartedAt = Date.now();
+      const runId = randomUUID();
+      const runRecord: AgentScheduleRun = {
+        id: runId,
+        scheduleId: schedule.id,
+        scheduleTitle: schedule.title,
+        trigger: manual ? "manual" : "scheduled",
+        scheduledAt: manual ? new Date(runStartedAt).toISOString() : schedule.runAt,
+        taskId: null,
+        startedAt: runStartedAt,
+        status: "running",
+      };
+      agentScheduleRuns = [runRecord, ...agentScheduleRuns].slice(0, 500);
+      persistAgentScheduleRuns();
+      publishAgentWorkspaceSnapshot();
+
       let runTask: AgentTask | null = null;
-      let succeeded = false;
       let failure = "";
       try {
         runTask = createAgentTaskRecord({
-          title: ("Schedule · " + schedule.title + " · " + new Date(runStartedAt).toLocaleString()).slice(0, 120),
+          title: ("定时任务 · " + schedule.title + " · " + new Date(runStartedAt).toLocaleString()).slice(0, 120),
           workspacePath: schedule.workspacePath,
           expertId: schedule.expertId,
         });
+        runRecord.taskId = runTask.id;
+        persistAgentScheduleRuns();
         await activateAgentTask(runTask.id, false, true);
-        activeAgentTraceId = randomUUID();
+        activeAgentTraceId = runId;
         scheduledCapture = { taskId: runTask.id, answer: "" };
-        recordAgentTrace("schedule.started", { scheduleId: schedule.id, title: schedule.title, prompt: schedule.prompt }, "running");
+        recordAgentTrace("schedule.started", {
+          scheduleId: schedule.id, scheduleRunId: runId, trigger: runRecord.trigger,
+          title: schedule.title, prompt: schedule.prompt,
+        }, "running");
         await copilotAgent.send(schedule.prompt, []);
-        succeeded = true;
       } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
-        recordAgentTrace("schedule.failed", { scheduleId: schedule.id, error: failure }, "failed");
+        recordAgentTrace("schedule.failed", { scheduleId: schedule.id, scheduleRunId: runId, error: failure }, "failed");
       } finally {
         const captured = scheduledCapture;
         scheduledCapture = null;
+        const errorText = captured?.error || failure;
         if (runTask) {
           const messages: AgentSessionItem[] = [
             { id: randomUUID(), kind: "user", content: schedule.prompt, createdAt: runStartedAt },
           ];
           if (captured?.answer.trim()) messages.push({ id: randomUUID(), kind: "assistant", content: captured.answer.trim(), createdAt: Date.now() });
-          const errorText = captured?.error || failure;
           if (errorText) messages.push({ id: randomUUID(), kind: "error", content: errorText, createdAt: Date.now() });
           agentTraceStore.saveSessionItems(runTask.sessionId, runTask.workspacePath, messages);
           writeJsonAtomic(currentAgentSessionPath(runTask.sessionId), { version: 1, updatedAt: Date.now(), items: messages });
@@ -1512,30 +1582,64 @@ async function processDueAgentSchedules(): Promise<void> {
           runTask.updatedAt = Date.now();
           persistAgentTasks();
         }
+
+        const finishedAt = Date.now();
+        const succeeded = !errorText;
+        const savedRun = agentScheduleRuns.find(item => item.id === runId);
+        if (savedRun) {
+          savedRun.taskId = runTask?.id ?? null;
+          savedRun.status = succeeded ? "success" : "error";
+          savedRun.finishedAt = finishedAt;
+          savedRun.durationMs = Math.max(0, finishedAt - runStartedAt);
+          savedRun.resultPreview = captured?.answer.trim().slice(0, 1200) || undefined;
+          savedRun.error = errorText ? errorText.slice(0, 2000) : undefined;
+          persistAgentScheduleRuns();
+        }
+
         const current = agentSchedules.find(item => item.id === schedule.id);
         if (current) {
-          current.lastRunAt = Date.now();
+          current.lastRunAt = finishedAt;
           current.lastRunStatus = succeeded ? "success" : "error";
-          current.lastError = failure ? failure.slice(0, 2000) : undefined;
-          if (current.repeat === "none") current.enabled = false;
-          else {
-            const next = nextScheduleRunAt(current.runAt, current.repeat, Date.now());
-            if (next) current.runAt = next;
-            else current.enabled = false;
+          current.lastRunId = runId;
+          current.lastError = errorText ? errorText.slice(0, 2000) : undefined;
+
+          // A pause or edit made while a run is active affects the next trigger,
+          // but never cancels or overwrites the configuration used by this run.
+          const definitionUnchanged = current.updatedAt === schedule.updatedAt;
+          if (!manual && definitionUnchanged) {
+            if (current.repeat === "none") current.enabled = false;
+            else {
+              const next = nextScheduleRunAt(current.runAt, current.repeat, finishedAt, {
+                intervalMinutes: current.intervalMinutes,
+                weekdays: current.weekdays,
+                monthDays: current.monthDays,
+                endsAt: current.endsAt,
+              });
+              if (next) current.runAt = next;
+              else current.enabled = false;
+            }
           }
-          current.updatedAt = Date.now();
+          current.updatedAt = finishedAt;
           persistAgentSchedules();
         }
+
+        recordAgentTrace("schedule.completed", {
+          scheduleId: schedule.id, scheduleRunId: runId, trigger: runRecord.trigger,
+          status: succeeded ? "success" : "error", durationMs: finishedAt - runStartedAt,
+        }, succeeded ? "completed" : "failed");
         activeAgentTraceId = null;
         if (agentTasks.some(item => item.id === previousTaskId)) {
           try { await activateAgentTask(previousTaskId, false, true); }
           catch (error) { recordOperation("schedule", "failed to restore Task: " + (error instanceof Error ? error.message : String(error))); }
         }
         publishAgentWorkspaceSnapshot();
+        notifyScheduleRun(schedule.title, succeeded, errorText || (captured?.answer.trim().slice(0, 180) ?? ""));
       }
+      if (manual) break;
     }
   } finally {
     scheduleRunnerActive = false;
+    publishAgentWorkspaceSnapshot();
   }
 }
 
@@ -1671,7 +1775,6 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-schedule:save", (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后修改 Schedule。");
     const parsed = z.object({
       id: z.string().min(1).max(100),
       title: z.string().trim().min(1).max(120),
@@ -1679,15 +1782,42 @@ function registerIpcHandlers(): void {
       workspacePath: z.string().max(4096).nullable(),
       expertId: z.string().max(100).nullable(),
       runAt: z.string().datetime({ offset: true }),
-      repeat: z.enum(["none", "daily", "weekly"]),
+      repeat: z.enum(["none", "interval", "daily", "weekly", "biweekly", "monthly", "yearly"]),
+      intervalMinutes: z.number().int().min(1).max(525600).optional(),
+      weekdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+      monthDays: z.array(z.number().int().min(1).max(31)).max(31).optional(),
+      endsAt: z.string().datetime({ offset: true }).nullable().optional(),
       enabled: z.boolean(),
     }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Schedule definition.");
     if (parsed.data.workspacePath && !agentTasks.some(task => task.workspacePath === parsed.data.workspacePath)) throw new Error("Schedule 必须关联已登记的 Workspace。");
     if (parsed.data.expertId && !agentExperts.some(expert => expert.id === parsed.data.expertId)) throw new Error("Schedule 引用了不存在的 Expert。");
+    if (parsed.data.endsAt && Date.parse(parsed.data.endsAt) < Date.parse(parsed.data.runAt)) throw new Error("任务有效期不能早于首次执行时间。");
     const previous = agentSchedules.find(item => item.id === parsed.data.id);
+    let runAt = parsed.data.runAt;
+    if (previous && !previous.enabled && parsed.data.enabled && Date.parse(runAt) <= Date.now() && parsed.data.repeat !== "none") {
+      const next = nextScheduleRunAt(runAt, parsed.data.repeat, Date.now(), {
+        intervalMinutes: parsed.data.intervalMinutes,
+        weekdays: parsed.data.weekdays,
+        monthDays: parsed.data.monthDays,
+        endsAt: parsed.data.endsAt,
+      });
+      if (next) runAt = next;
+      else throw new Error("这个任务已超过有效期，请修改执行时间或有效期后再启用。");
+    }
     const timestamp = Date.now();
-    const schedule: AgentSchedule = { ...parsed.data, createdAt: previous?.createdAt ?? timestamp, updatedAt: timestamp };
+    const schedule: AgentSchedule = {
+      ...parsed.data,
+      runAt,
+      weekdays: parsed.data.weekdays ? [...new Set(parsed.data.weekdays)].sort((a, b) => a - b) : undefined,
+      monthDays: parsed.data.monthDays ? [...new Set(parsed.data.monthDays)].sort((a, b) => a - b) : undefined,
+      createdAt: previous?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+      lastRunAt: previous?.lastRunAt,
+      lastRunStatus: previous?.lastRunStatus,
+      lastRunId: previous?.lastRunId,
+      lastError: previous?.lastError,
+    };
     agentSchedules = [...agentSchedules.filter(item => item.id !== schedule.id), schedule].sort((a, b) => Date.parse(a.runAt) - Date.parse(b.runAt));
     persistAgentSchedules();
     publishAgentWorkspaceSnapshot();
@@ -1695,13 +1825,18 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-schedule:delete", (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后删除 Schedule。");
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Schedule ID.");
     agentSchedules = agentSchedules.filter(item => item.id !== parsed.data);
     persistAgentSchedules();
     publishAgentWorkspaceSnapshot();
     return agentSchedules;
+  });
+  ipcMain.handle("agent-schedule:run-now", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.string().min(1).max(100).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Schedule ID.");
+    await processDueAgentSchedules(parsed.data);
   });
   ipcMain.handle("agent-workspace:list-files", (event, input: unknown) => {
     assertTrustedSender(event);
