@@ -726,7 +726,7 @@ export class AgentMemoryStore {
           const result=this.dreamUpsertNote(scopeKey,input.runId,sequence,operation,refs,reason);
           (result.created?createdNoteIds:updatedNoteIds).push(result.id);
         }else if(operation.op==="review_note"){
-          this.dreamReviewNote(scopeKey,input.runId,sequence,operation,refs,reason,run.purpose==="quality_review");updatedNoteIds.push(operation.id);
+          this.dreamReviewNote(scopeKey,input.scope??null,input.runId,sequence,operation,refs,reason,run.purpose==="quality_review");updatedNoteIds.push(operation.id);
         }else if(operation.op==="archive_note"){
           this.dreamArchiveNote(scopeKey,input.runId,sequence,operation,refs,reason);updatedNoteIds.push(operation.id);
         }else if(operation.op==="supersede_note"){
@@ -763,10 +763,12 @@ export class AgentMemoryStore {
     if(conflict&&conflict.scope_key!==scopeKey)throw new Error("Memory Note ID 属于其他 Workspace。");
     if(before&&op.baseVersion!==Number(before.version))throw new Error("Memory Note 版本已变化，请重新检索后再整理："+id);
     if(!before&&op.baseVersion!==undefined)throw new Error("新建 Memory Note 不应提供 baseVersion。");
-    const now=Date.now(),oldVersion=Number(before?.version??0),same=Boolean(before&&before.title===title&&before.content===content);
+    const claimType=isClaimType(op.claimType)?op.claimType:(isClaimType(before?.claim_type)?before.claim_type as MemoryClaimType:"unknown");
+    const now=Date.now(),oldVersion=Number(before?.version??0),same=Boolean(before&&before.title===title&&before.content===content&&before.claim_type===claimType);
     const firstSource=this.getSourceById(refs[0]!);
     const snapshot={
       id,scope_key:scopeKey,title,content,tags_json:JSON.stringify(safeTags(op.tags??parseJson(before?.tags_json,[]))),
+      claim_type:claimType,validation_evidence_json:same?(before?.validation_evidence_json??null):null,
       validation:same&&isValidation(before?.validation)?before.validation:"unverified",
       confidence:same?Number(before?.confidence??0.5):0.5,
       pinned:op.pinned===undefined?Number(before?.pinned??0):op.pinned?1:0,status:"active",
@@ -785,16 +787,22 @@ export class AgentMemoryStore {
     return {id,created:!before};
   }
 
-  private dreamReviewNote(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"review_note"}>,refs:string[],reason:string,isQualityReview:boolean):void{
+  private dreamReviewNote(scopeKey:string,scope:string|null,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"review_note"}>,refs:string[],reason:string,isQualityReview:boolean):void{
     const before=this.getNoteRow(op.id,scopeKey);
     if(!before||before.status!=="active")throw new Error("只能复核当前 Workspace 的活动 Note："+op.id);
     if(Number(before.version)!==op.baseVersion)throw new Error("Memory Note 版本已变化，请重新检索后再复核："+op.id);
     if(!isValidation(op.validation))throw new Error("Invalid validation state.");
-    const now=Date.now(),after={
+    const now=Date.now();
+    const sourceRefs=[...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100);
+    const claimType=isClaimType(before.claim_type)?before.claim_type as MemoryClaimType:"unknown";
+    const validationEvidence=op.validation==="validated"?this.requireValidationEvidence(scope,claimType,sourceRefs):
+      parseJson<MemoryValidationEvidence|null>(before.validation_evidence_json,null);
+    const after={
       ...before,validation:op.validation,confidence:clamp(op.confidence,0,1),
+      validation_evidence_json:validationEvidence?JSON.stringify(validationEvidence):null,
       quality_score:isQualityReview&&op.qualityScore!==undefined?clamp(op.qualityScore,0,1):(before.quality_score??null),
       last_quality_reviewed_at:isQualityReview?now:(before.last_quality_reviewed_at??null),
-      source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100)),
+      source_refs_json:JSON.stringify(sourceRefs),
       last_verified_at:op.validation==="validated"?now:before.last_verified_at??null,last_dreamed_at:now,updated_at:now,version:Number(before.version)+1,
     };
     this.replaceNoteSnapshot(op.id,after);
@@ -1059,11 +1067,11 @@ export class AgentMemoryStore {
     this.database.prepare("DELETE FROM memory_notes WHERE id=?").run({}, id);
     if(!row)return;
     this.database.prepare("INSERT INTO memory_notes(id,scope_key,title,content,tags_json,validation,confidence,pinned,status,source_session_id,source_trace_id,"+
-      "created_at,updated_at,last_accessed_at,access_count,version,importance,expires_at,source_refs_json,last_verified_at,superseded_by_id,content_hash,last_dreamed_at,quality_score,last_quality_reviewed_at) "+
-      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run({}, ...([
+      "created_at,updated_at,last_accessed_at,access_count,version,importance,expires_at,source_refs_json,last_verified_at,superseded_by_id,content_hash,last_dreamed_at,quality_score,last_quality_reviewed_at,claim_type,validation_evidence_json) "+
+      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").run({}, ...([
       row.id,row.scope_key,row.title,row.content,row.tags_json,row.validation,row.confidence,row.pinned,row.status,row.source_session_id,row.source_trace_id,
       row.created_at,row.updated_at,row.last_accessed_at,row.access_count,row.version,row.importance,row.expires_at,row.source_refs_json,row.last_verified_at,
-      row.superseded_by_id,row.content_hash,row.last_dreamed_at,row.quality_score??null,row.last_quality_reviewed_at??null
+      row.superseded_by_id,row.content_hash,row.last_dreamed_at,row.quality_score??null,row.last_quality_reviewed_at??null,row.claim_type??"unknown",row.validation_evidence_json??null
       ] as never[]));
   }
   private replaceRepresentationSnapshot(id:string,row:Record<string,unknown>|null):void{
@@ -1090,8 +1098,9 @@ export class AgentMemoryStore {
       .run({}, id,scopeKey,entityType,entityId,version,JSON.stringify(snapshot),runId,Date.now());
   }
   private toSource(row:Record<string,unknown>):StoredMemorySource{
-    return {sourceId:String(row.source_id),sessionId:String(row.session_id),messageId:String(row.message_id),kind:String(row.kind),
-      content:String(row.content),contentHash:String(row.content_hash),createdAt:Number(row.created_at),
+    const kind=String(row.kind);
+    return {sourceId:String(row.source_id),sessionId:String(row.session_id),messageId:String(row.message_id),kind,
+      evidenceClass:evidenceClassForKind(kind),content:String(row.content),contentHash:String(row.content_hash),createdAt:Number(row.created_at),
       ...(row.source_revision==null?{}:{revision:Number(row.source_revision)})};
   }
   private toNote(row:Record<string,unknown>):AgentMemoryNote{
@@ -1107,6 +1116,8 @@ export class AgentMemoryStore {
       supersededById:typeof row.superseded_by_id==="string"?row.superseded_by_id:null,
       qualityScore:row.quality_score==null?null:Number(row.quality_score),
       lastQualityReviewedAt:row.last_quality_reviewed_at==null?null:Number(row.last_quality_reviewed_at),
+      claimType:isClaimType(row.claim_type)?row.claim_type:"unknown",
+      validationEvidence:parseJson<MemoryValidationEvidence|null>(row.validation_evidence_json,null),
     };
   }
   private toRepresentation(row:Record<string,unknown>):AgentMemoryRepresentation{
