@@ -16,7 +16,7 @@ interface DuckDbHandle {
     run(sql: string, parameters?: Record<string, unknown>): Promise<unknown>;
     runAndReadAll(sql: string): Promise<{
       columnNames(): string[];
-      columnTypes(): string[];
+      columnTypes(): unknown[];
       getRowObjectsJson(): Array<Record<string, unknown>>;
     }>;
     closeSync?(): void;
@@ -75,7 +75,7 @@ export class DuckDbAnalyticsService {
           autoinstall_known_extensions: "false",
         });
         const connection = await instance.connect();
-        return { instance, connection } as DuckDbHandle;
+        return { instance, connection } as unknown as DuckDbHandle;
       })();
       this.handles.set(key, pending);
       pending.catch(() => this.handles.delete(key));
@@ -138,7 +138,7 @@ export class DuckDbAnalyticsService {
     const rows = result.getRowObjectsJson();
     return {
       columns: result.columnNames(),
-      types: result.columnTypes(),
+      types: result.columnTypes().map(type => String(type)),
       rows: rows.slice(0, MAX_QUERY_ROWS),
       rowCount: Math.min(rows.length, MAX_QUERY_ROWS),
       truncated: rows.length > MAX_QUERY_ROWS,
