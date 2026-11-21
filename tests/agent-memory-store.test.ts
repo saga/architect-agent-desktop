@@ -65,6 +65,22 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("marks evidence previews when a Transcript message exceeds the per-source limit", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const run = store.prepareDreaming("/workspace/truncated-source", [{
+      sessionId: "session-large",
+      messageId: "message-large",
+      kind: "assistant",
+      content: "A long Transcript message. ".repeat(300),
+      createdAt: Date.now(),
+    }]);
+    const evidence = run!.evidence[0]!;
+    expect(evidence.content).toContain("[TRUNCATED:");
+    expect(evidence.content.length).toBeLessThanOrEqual(4000);
+    store.abandonDreaming("/workspace/truncated-source", run!.id, "test complete");
+    store.close();
+  });
+
   it("reads historical source evidence only within its Workspace", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const run = store.prepareDreaming("/workspace/source-read", [{
