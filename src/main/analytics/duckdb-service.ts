@@ -25,7 +25,7 @@ interface DuckDbHandle {
 
 const MAX_QUERY_LENGTH = 12_000;
 const MAX_QUERY_ROWS = 500;
-const FORBIDDEN_SQL = /\b(attach|detach|install|load|copy|export|import|pragma|call|create|alter|drop|delete|update|insert|replace|truncate|vacuum|checkpoint|set|reset|use|read_[a-z0-9_]*|glob|httpfs|sqlite_[a-z0-9_]*|postgres_[a-z0-9_]*|mysql_[a-z0-9_]*|query_table|query|shell|read_text|read_blob|read_csv|read_parquet|read_json|read_ndjson)\b/i;
+const FORBIDDEN_SQL = /\b(read_[a-z0-9_]*|glob|httpfs|sqlite_[a-z0-9_]*|postgres_[a-z0-9_]*|mysql_[a-z0-9_]*|query_table|query|shell|read_text|read_blob)\s*\(/i;
 
 function identifier(value: string): string {
   const cleaned = value.normalize("NFKD").replace(/[^a-zA-Z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "").slice(0, 48);
