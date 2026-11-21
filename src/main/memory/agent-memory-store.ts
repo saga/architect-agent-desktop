@@ -1449,16 +1449,22 @@ export class AgentMemoryStore {
       const domains=new Set(externalVerification.sources.map(source=>sourceRegistrableDomain(source.domain)));
       externalVerification.status=domains.size>=2?"multi_domain_sources_recorded":"single_domain_sources_recorded";
     }
-    const validationEvidence=parseJson<MemoryValidationEvidence|null>(row.validation_evidence_json,null);
+    let validationEvidence=parseJson<MemoryValidationEvidence|null>(row.validation_evidence_json,null);
     const claimType=isClaimType(row.claim_type)?row.claim_type:"unknown";
     let validation:MemoryValidation=isValidation(row.validation)?row.validation:"unverified";
-    if(validation==="validated"&&(!row.validation_evidence_json||(
-      claimType==="external_fact"&&(
-        validationEvidence?.eligible!==true||
-        validationEvidence.policy!=="human_confirmed_multi_domain_source_review"||
-        externalVerification?.status!=="multi_domain_sources_recorded"
-      )
-    )))validation="unverified";
+    const externalValidationEligible=claimType!=="external_fact"||(
+      validationEvidence?.eligible===true&&
+      validationEvidence.policy==="human_confirmed_multi_domain_source_review"&&
+      externalVerification?.status==="multi_domain_sources_recorded"
+    );
+    if(claimType==="external_fact"&&!externalValidationEligible&&validationEvidence){
+      validationEvidence={
+        ...validationEvidence,
+        eligible:false,
+        reason:"当前登记来源不足两个不同注册域名，原人工核验结论已失效；请重新登记独立来源并再次逐一核对。",
+      };
+    }
+    if(validation==="validated"&&(!row.validation_evidence_json||!externalValidationEligible))validation="unverified";
     return {
       id:String(row.id),title:String(row.title),content:String(row.content),tags:parseJson<string[]>(row.tags_json,[]),
       validation,confidence:Number(row.confidence??0.5),pinned:Number(row.pinned??0)===1,
