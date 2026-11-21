@@ -313,9 +313,13 @@ export class AgentMemoryStore {
       }
     }
     const sourceRefs = [...new Set([...parseJson<string[]>(before?.source_refs_json, []), ...requestedSourceRefs])].slice(-100);
-    const evidenceProfile = validation === "validated"
-      ? this.requireValidationEvidence(input.scope ?? null, claimType, sourceRefs)
-      : unchanged ? parseJson<MemoryValidationEvidence | null>(before?.validation_evidence_json, null) : null;
+    const previousEvidence=parseJson<MemoryValidationEvidence|null>(before?.validation_evidence_json,null);
+    const previousExternal=parseJson<AgentMemoryExternalVerification|null>(before?.external_verification_json,null);
+    const preservesHumanExternalReview=validation==="validated"&&unchanged&&claimType==="external_fact"&&
+      previousEvidence?.eligible===true&&previousEvidence.policy==="human_confirmed_multi_domain_source_review"&&
+      previousExternal?.status==="multi_domain_sources_recorded"&&new Set(previousExternal.sources.map(source=>source.domain)).size>=2;
+    const evidenceProfile:MemoryValidationEvidence|null=validation!=="validated"?null:
+      preservesHumanExternalReview?previousEvidence:this.requireValidationEvidence(input.scope??null,claimType,sourceRefs);
     const source = sourceRefs.length ? this.getSourceById(sourceRefs[0]!, input.scope) : null;
     this.database.prepare(
       "INSERT INTO memory_notes(id,scope_key,title,content,tags_json,validation,confidence,pinned,status,source_session_id,source_trace_id," +
@@ -592,6 +596,7 @@ export class AgentMemoryStore {
     const scopeKey=normalizeScope(scope),before=this.getNoteRow(input.noteId,scopeKey);
     if(!before||before.status!=="active"||before.claim_type!=="external_fact")
       throw new Error("只能为当前 Workspace 中活动的 external_fact Note 记录来源。");
+    if(before.validation==="disputed")throw new Error("该外部事实仍存在争议。先通过 Dreaming 更新或解决冲突，再重新登记来源。");
     if(Number(before.version)!==input.baseVersion)
       throw new Error("Memory Note 版本已变化，请刷新后重新记录来源。");
     const existing=parseJson<AgentMemoryExternalVerification|null>(before.external_verification_json,null);
@@ -646,6 +651,7 @@ export class AgentMemoryStore {
     const scopeKey=normalizeScope(scope),before=this.getNoteRow(noteId,scopeKey);
     if(!before||before.status!=="active"||before.claim_type!=="external_fact")
       throw new Error("只能确认当前 Workspace 中活动的 external_fact Note。");
+    if(before.validation==="disputed")throw new Error("该外部事实仍处于争议状态，不能仅凭来源记录解除冲突。");
     if(Number(before.version)!==baseVersion)
       throw new Error("Memory Note 版本已变化，请刷新后重新核验来源。");
     const external=parseJson<AgentMemoryExternalVerification|null>(before.external_verification_json,null);
