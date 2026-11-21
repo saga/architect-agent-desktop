@@ -8,7 +8,7 @@
 
 1. 文档理解：PDF、DOC/DOCX、XLS/XLSX/XLSM，以及 CSV、TSV、JSON、TXT、Markdown。
 2. 结构化分析：将表格导入本地 DuckDB，Agent 使用只读 SQL 做汇总、对比、趋势、风险敞口和异常分析。
-3. 分析展示：A2UI 1.0 作为主协议，官方 Agent/Core SDK 负责生成、校验和状态管理；保留 Ant Design X Card 的 v0.9 Renderer 以恢复旧会话。Finance Catalog 同时集成 Ant Design Charts、G6、X6 和 ECharts。
+3. 分析展示：A2UI 1.0 作为主协议，官方 Agent/Core SDK 负责生成和状态管理；A2UI React Renderer 负责 Surface 生命周期。历史会话继续使用 v0.9 Card Renderer。Finance Catalog 集成 Ant Design Charts、G6 和 X6。
 4. 长期记忆：复用当前会话记录作为 Transcript 层，再增加 Memory Notes、主题知识页和小型上下文注入索引。
 
 ## 整体结构
@@ -213,7 +213,7 @@ Run 状态：
 
 对重要任务，系统提示要求 Agent 主动执行 prepare → evidence review → commit。整理目标不局限于失败记录，还包括成功流程、稳定的用户偏好、项目约定、业务定义、数据口径、重复出现的错误和已解决问题。模型必须区分事实、推测、冲突和时效性信息；证据不足时保持 unverified，矛盾并存时记录 contradicts 或 disputed，不为了减少 Note 数量而删除唯一知识。
 
-当前是 Agent 驱动的任务后整理，不是无条件后台定时调用模型；用户仍可通过 Dreaming 工具检查 Run、放弃待处理 Run 或回滚最近一次提交。准备阶段、提交阶段和撤销阶段都有独立工具，避免将“总结完成”误认为“记忆已落库”。
+当前是 Agent 驱动的任务后整理，Settings → Memory & Dreaming 提供查看 Notes、知识页、关系和 Run 审计的管理界面，并允许手动启动整理、放弃 prepared Run 或回滚最近一次提交。也可以让 Agent 在重要任务结束时执行同样的完整工具链。当前不自动启动后台定时模型调用，避免未经用户配置就产生额外成本或静默修改。
 
 ### Memory 生命周期
 
@@ -235,7 +235,7 @@ Memory Note 除标题、正文和标签外，还带有 Workspace Scope、来源 
 
 Expert 可分别勾选“数据分析”和“长期记忆”工具。没有把“可以读取附件”隐式扩展成“可以任意读取本机文件”，也没有让模型凭 SQL 直接访问任意路径。
 
-A2UI Catalog 和 ECharts option 都有大小、组件和字段约束；所有数据写入和工具调用仍经过主进程 Tool Broker。文件内容、数据库行和模型输出均视为不可信输入。
+A2UI Catalog 和 Finance Chart options 都有组件、数据量和配置约束；G6/X6 图数据有节点、边、形状和序列化大小限制。A2UI ActionMessage 必须引用当前 Task 已创建的 Surface，随后仍作为不可信用户交互进入 Agent，不会直接触发工具调用。所有数据写入和工具调用仍经过主进程 Tool Broker。文件内容、数据库行和模型输出均视为不可信输入。
 
 ## 当前限制与后续演进
 
@@ -244,7 +244,7 @@ A2UI Catalog 和 ECharts option 都有大小、组件和字段约束；所有数
 3. Word 解析提取正文，暂不保留复杂版面与修订痕迹。
 4. 当前附件解析、DuckDB 导入和工具查询有明确大小、行数和返回行数上限。
 5. 新会话使用 A2UI 1.0 的 Agent/Core/React SDK 和本地 Finance Catalog；旧会话保留 x-card v0.9。新组件必须同步扩展 Agent API schema 与 Renderer 实现。
-6. Dreaming 已有 evidence、composite cursor、版本冲突检查、原子事务、审计快照和最新 Run 回滚；整理触发由 Agent 在重要任务中调用工具，不是独立的定时模型服务。
+6. Dreaming 已有 evidence manifest、复合游标、版本冲突检查、原子事务、实体/关系版本快照和最新 Run 回滚；Settings 提供 Memory/Dreaming 管理界面。整理由 Agent 在重要任务中执行或由用户手动触发，不是默认开启的后台定时模型服务。
 7. 尚未实现 PDF OCR、PDF 表格重建、Embedding/向量记忆、跨 Workspace 全局记忆，以及独立的后台定时 Dreaming 服务。
 
 ## 主要实现文件
@@ -262,3 +262,4 @@ A2UI Catalog 和 ECharts option 都有大小、组件和字段约束；所有数
 - `src/renderer/components/FinanceChart.tsx`
 - `src/renderer/components/KnowledgeGraph.tsx`
 - `src/renderer/components/WorkflowDiagram.tsx`
+- `src/renderer/MemoryManager.tsx`
