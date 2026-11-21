@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Typography } from "antd";
 import { Graph, NodeEvent } from "@antv/g6";
-import { normalizeKnowledgeGraphData } from "../graph-validation";
+import { getKnowledgeGraphClickedNodeId, normalizeKnowledgeGraphData } from "../graph-validation";
 
 export interface KnowledgeGraphProps {
   nodes: unknown;
@@ -27,6 +27,7 @@ export default function KnowledgeGraph({
   const callbacks = useRef({ setSelectedNodeId, onNodeSelect });
   callbacks.current = { setSelectedNodeId, onNodeSelect };
   const data = useMemo(() => normalizeKnowledgeGraphData(nodes, edges), [nodes, edges]);
+  const validNodeIds = useMemo(() => new Set(data?.nodes.map(node => node.id) ?? []), [data]);
 
   useEffect(() => {
     const container = host.current;
@@ -61,10 +62,7 @@ export default function KnowledgeGraph({
         behaviors: interactive ? ["drag-canvas", "zoom-canvas", "drag-element", "click-select"] : [],
       });
       const handleNodeClick = (event: unknown) => {
-        const target = (event as { target?: unknown }).target;
-        const nodeId = target && typeof target === "object" && "id" in target
-          ? String((target as { id?: unknown }).id ?? "")
-          : "";
+        const nodeId = getKnowledgeGraphClickedNodeId(event, validNodeIds);
         if (!nodeId) return;
         callbacks.current.setSelectedNodeId?.(nodeId);
         callbacks.current.onNodeSelect?.();
@@ -96,7 +94,7 @@ export default function KnowledgeGraph({
       }
       if (graph.current === instance) graph.current = null;
     };
-  }, [data, height, layout, interactive]);
+  }, [data, height, layout, interactive, validNodeIds]);
 
   useEffect(() => {
     const instance = graph.current;
