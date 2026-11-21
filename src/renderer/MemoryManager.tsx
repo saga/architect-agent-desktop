@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert, Button, Card, Collapse, Descriptions, Divider, Empty, List, Modal, Popconfirm,
-  Select, Space, Spin, Statistic, Table, Tabs, Tag, Typography, message,
+  Select, Space, Spin, Statistic, Switch, Table, Tabs, Tag, Typography, message,
 } from "antd";
 import type {
   AgentMemoryDreamRunDetail, AgentMemoryNoteView, AgentMemorySnapshot, AgentTask,
@@ -76,6 +76,11 @@ export default function MemoryManager() {
   const activeNotes = useMemo(() => snapshot?.notes.filter(note => note.status === "active") ?? [], [snapshot]);
   const validated = useMemo(() => activeNotes.filter(note => note.validation === "validated").length, [activeNotes]);
   const disputed = useMemo(() => activeNotes.filter(note => note.validation === "disputed").length, [activeNotes]);
+  const qualityDue = useMemo(() => {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    return activeNotes.filter(note => note.sourceRefs.length > 0 &&
+      (note.lastQualityReviewedAt === null || note.lastQualityReviewedAt <= cutoff)).length;
+  }, [activeNotes]);
   const preparedRuns = useMemo(() => snapshot?.dreamRuns.filter(run => valueOf(run, "status") === "prepared") ?? [], [snapshot]);
 
   const selectedTask = tasks.find(task => task.id === taskId);
@@ -99,13 +104,14 @@ export default function MemoryManager() {
       const before = await window.browser.agentMemoryGetSnapshot(taskId);
       const beforeStatuses = new Map(before.dreamRuns.map(run => [valueOf(run, "id"), valueOf(run, "status")]));
       await window.browser.copilotSend(
-        "请对当前 Workspace 执行完整的 Memory Dreaming 生命周期。先调用 memory_dreaming_prepare 读取新的 Transcript 证据；若没有新证据就明确报告 up_to_date。检查当前 Memory Notes、知识页和关系，识别长期有效的项目事实、业务定义、明确偏好、成功流程、已解决问题、反复出现的失败与相互矛盾的信息。对重要、高风险或可能变化的已有 Note，读取其 sourceRefs 并调用 memory_read_source 复核原始证据；必要时用 memory_search_history 检查更早 Transcript，不能只凭旧 Note 自身内容验证它。任何含 [TRUNCATED] 标记的证据都只是预览，必须先用 memory_search_history 检查原始 Transcript。只保留可复用且有证据的内容；每条变更必须引用本次 Run 的 sourceId 并给出 reason，更新已有 Note 必须带 baseVersion，更新或归档知识页必须使用当前 baseVersion。证据不足保持 unverified；冲突用 contradicts 关系或 disputed 表示；失效知识页可以 archive_knowledge，但不要为了精简而归档唯一或置顶知识。如果没有任何长期知识需要新增、更新或归档，也要用 operations=[] 提交一个 no-op Run，表示这批 Transcript 已经完成评估，避免下次重复处理。最后读取 Run 审计结果汇报新增、更新、归档、关系和知识页。禁止把本次整理操作本身或模型猜测当作事实。",
+        "请对当前 Workspace 执行完整的 Memory Dreaming 生命周期。先调用 memory_dreaming_prepare 读取新的 Transcript 证据；若没有新证据就明确报告 up_to_date。检查当前 Memory Notes、知识页和关系，识别长期有效的项目事实、业务定义、明确偏好、成功流程、已解决问题、反复出现的失败与相互矛盾的信息。对重要、高风险或可能变化的已有 Note，读取其 sourceRefs 并调用 memory_read_source 复核原始证据；必要时用 memory_search_history 检查更早 Transcript，不能只凭旧 Note 自身内容验证它。任何含 [TRUNCATED] 标记的证据都只是预览，必须先用 memory_search_history 检查原始 Transcript。只保留可复用且有证据的内容；每条变更必须引用本次 Run 的 sourceId 并给出 reason，更新已有 Note 必须带 baseVersion，更新或归档知识页必须使用当前 baseVersion。证据不足保持 unverified；冲突用 contradicts 关系或 disputed 表示；失效知识页可以 archive_knowledge，但不要为了精简而归档唯一或置顶知识。如果没有任何长期知识需要新增、更新或归档，也要用 operations=[] 提交一个 no-op Run，表示这批 Transcript 已经完成评估，避免下次重复处理。最后读取 Run 审计结果汇报新增、更新、归档、关系和知识页。Transcript Run 完成后，再调用 memory_quality_review_prepare 与 memory_quality_review_list，检查到期 Note 的历史来源，使用 review_note 提交 baseVersion、当前质量 Run 的 sourceRefs、confidence 和 qualityScore（0–1）。质量分数考虑来源、清晰度、时效性和交叉印证；证据不足保留 unverified，不因旧验证标记而盲目信任。最后调用 memory_prune_expired。禁止把本次整理操作本身或模型猜测当作事实。",
         [], taskId,
       );
       const after = await window.browser.agentMemoryGetSnapshot(taskId);
       setSnapshot(after);
       const runChanged = after.dreamRuns.find(run => beforeStatuses.get(valueOf(run, "id")) !== valueOf(run, "status"));
-      const cursorMoved = after.cursor.createdAt !== before.cursor.createdAt ||
+      const cursorMoved = after.cursor.transcriptRevision !== before.cursor.transcriptRevision ||
+        after.cursor.createdAt !== before.cursor.createdAt ||
         after.cursor.sessionId !== before.cursor.sessionId ||
         after.cursor.messageId !== before.cursor.messageId;
       if (cursorMoved || runChanged?.status === "completed") {
@@ -127,11 +133,11 @@ export default function MemoryManager() {
     if (!taskId) return;
     setRunning(true);
     try {
-      await window.browser.copilotSend(
-        "请继续当前 Workspace 中已经准备好的 Memory Dreaming Run，不要重新调用 prepare，也不要创建新 Run。目标 Run ID：" + runId + "。先调用 memory_dreaming_get_run 读取完整固定证据集；再检查当前 Notes、知识页和关系，必要时读取该 Run 的历史操作。对重要或可能变化的旧 Note，使用 memory_read_source 读取 sourceRefs 对应的历史证据，必要时搜索更早 Transcript。任何含 [TRUNCATED] 标记的证据都只是预览，必须先用 memory_search_history 检查原始 Transcript。对每项变更引用该 Run 的 sourceId 并说明 reason；更新已有 Note 必须使用当前 baseVersion，更新或归档已有知识页必须使用当前 baseVersion。遇到版本冲突时不要覆盖，保留 Run 为 prepared 并报告冲突。若证据已评估且没有需要变更的长期知识，提交 operations=[]。成功后读取 Run 与审计记录，汇报结果。",
-        [],
-        taskId,
-      );
+      const detail = await window.browser.agentMemoryGetDreamRun(taskId, runId);
+      const prompt = detail.run.purpose === "quality_review"
+        ? "请继续当前 Workspace 已准备好的质量复查 Run，不要重新 prepare。目标 Run ID：" + runId + "。调用 memory_quality_review_list 查看候选 Note；根据固定证据集和 memory_read_source 读取的原始来源，逐条使用 review_note 提交当前 baseVersion、当前 Run 的 sourceRefs、confidence 和 qualityScore（0–1）。不能仅凭旧 validation 状态判断正确；证据不足保留 unverified，冲突标 disputed。遇到版本冲突不覆盖，报告并保留 prepared。全部复核后提交 memory_dreaming_commit，并读取审计结果。"
+        : "请继续当前 Workspace 中已经准备好的 Memory Dreaming Run，不要重新调用 prepare，也不要创建新 Run。目标 Run ID：" + runId + "。先调用 memory_dreaming_get_run 读取完整固定证据集；再检查当前 Notes、知识页和关系。对重要或可能变化的旧 Note，使用 memory_read_source 读取 sourceRefs 对应的历史证据，必要时搜索更早 Transcript。任何含 [TRUNCATED] 标记的证据都只是预览，必须先用 memory_search_history 检查原始 Transcript。对每项变更引用该 Run 的 sourceId 并说明 reason；更新已有 Note 必须使用当前 baseVersion，更新或归档已有知识页必须使用当前 baseVersion。遇到版本冲突时不要覆盖，保留 Run 为 prepared 并报告冲突。若证据已评估且没有需要变更的长期知识，提交 operations=[]。成功后读取 Run 与审计记录，汇报结果。";
+      await window.browser.copilotSend(prompt, [], taskId);
       const after = await window.browser.agentMemoryGetSnapshot(taskId);
       setSnapshot(after);
       const run = after.dreamRuns.find(item => valueOf(item, "id") === runId);
@@ -147,6 +153,35 @@ export default function MemoryManager() {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setRunning(false);
+    }
+  };
+
+  const startQualityReview = async () => {
+    if (!taskId || preparedRuns.length) return;
+    setRunning(true);
+    try {
+      await window.browser.copilotSend(
+        "请只执行当前 Workspace 的长期记忆质量复查，不要读取或推进 Transcript 游标。调用 memory_quality_review_prepare；若 up_to_date 则报告没有到期候选。若创建 prepared Run，调用 memory_quality_review_list，检查每条 Note 的 sourceRefs，并通过 memory_read_source 读取原始证据；必要时用 memory_search_history 查找完整 Transcript。对每条 Note 按来源可靠性、直接性、内容清晰度、当前有效性和交叉印证给出 0–1 的 qualityScore。用 review_note 提交当前 baseVersion、当前 Run 的 sourceRefs、confidence 和 qualityScore；证据不足保持 unverified，存在冲突标 disputed，不能仅凭旧 validation 状态自我验证。提交 memory_dreaming_commit 后读取 Run 审计。质量复查不能推进 Transcript cursor。",
+        [],
+        taskId,
+      );
+      await refresh(taskId);
+      message.success("质量复查流程已执行，请查看 Dreaming Runs 的复查记录。");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const updateDreamSchedule = async (enabled: boolean, intervalMinutes: number) => {
+    if (!taskId) return;
+    try {
+      await window.browser.agentMemorySaveDreamSchedule(taskId, { enabled, intervalMinutes });
+      await refresh(taskId);
+      message.success(enabled ? "已启用 Workspace 自动 Dreaming。" : "已暂停 Workspace 自动 Dreaming。");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -205,6 +240,10 @@ export default function MemoryManager() {
       },
     },
     {
+      title: "类型", key: "purpose", width: 100,
+      render: (_: unknown, row: Record<string, unknown>) => valueOf(row, "purpose") === "quality_review" ? "质量复查" : "Transcript",
+    },
+    {
       title: "整理摘要", dataIndex: "summary", key: "summary",
       render: (_: unknown, row: Record<string, unknown>) => valueOf(row, "summary") || <Text type="secondary">尚未提交</Text>,
     },
@@ -238,6 +277,8 @@ export default function MemoryManager() {
     </div> },
     { title: "重要度", key: "importance", width: 92, render: (_: unknown, note: AgentMemoryNoteView) => Math.round(note.importance * 100) + "%" },
     { title: "版本", key: "version", width: 70, render: (_: unknown, note: AgentMemoryNoteView) => "v" + note.version },
+    { title: "质量分", key: "quality", width: 82, render: (_: unknown, note: AgentMemoryNoteView) => note.qualityScore === null ? "未评估" : Math.round(note.qualityScore * 100) + "%" },
+    { title: "上次复查", key: "reviewed", width: 155, render: (_: unknown, note: AgentMemoryNoteView) => dateOf(note.lastQualityReviewedAt) },
     { title: "来源", key: "sources", width: 80, render: (_: unknown, note: AgentMemoryNoteView) => note.sourceRefs.length },
     { title: "更新", key: "updated", width: 180, render: (_: unknown, note: AgentMemoryNoteView) => dateOf(note.updatedAt) },
     {
@@ -274,6 +315,9 @@ export default function MemoryManager() {
           }))}
         />
         <Button onClick={() => void refresh(taskId)} disabled={!taskId} loading={loading}>刷新</Button>
+        <Button onClick={() => void startQualityReview()} disabled={!taskId || loading || running || !selectedTask || preparedRuns.length>0} loading={running}>
+          复查记忆质量
+        </Button>
         <Button type="primary" onClick={() => void startDreaming()} disabled={!taskId || loading || running || !selectedTask} loading={running}>
           整理当前 Workspace
         </Button>
