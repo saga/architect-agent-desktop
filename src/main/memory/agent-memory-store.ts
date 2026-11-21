@@ -4,6 +4,19 @@ import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 export type MemoryValidation = "unverified" | "validated" | "disputed";
+export type MemoryClaimType = "user_preference" | "user_intent" | "decision" | "project_fact" | "workflow_pattern" | "external_fact" | "unknown";
+export type MemoryEvidenceClass = "direct_user" | "tool_observation" | "assistant_generated" | "user_interaction" | "error_report";
+export interface MemoryValidationEvidence {
+  claimType: MemoryClaimType;
+  sourceCount: number;
+  independentSessions: number;
+  directUserSources: number;
+  toolObservations: number;
+  evidenceClasses: MemoryEvidenceClass[];
+  eligible: boolean;
+  policy: string;
+  reason: string;
+}
 export type MemoryDreamStatus = "prepared" | "completed" | "abandoned" | "rolled_back" | "failed";
 export type MemoryRelationshipType = "supports" | "contradicts" | "refines" | "derived_from" | "related_to" | "supersedes";
 
@@ -15,11 +28,13 @@ export interface MemorySourceEvidence {
   createdAt: number;
   revision?: number;
   changeType?: string;
+  evidenceClass?: MemoryEvidenceClass;
 }
 export interface StoredMemorySource extends MemorySourceEvidence {
   sourceId: string;
   contentHash: string;
   revision?: number;
+  evidenceClass: MemoryEvidenceClass;
 }
 export interface AgentMemoryNote {
   id: string; title: string; content: string; tags: string[];
@@ -29,6 +44,7 @@ export interface AgentMemoryNote {
   createdAt: number; updatedAt: number; lastAccessedAt: number; accessCount: number;
   version: number; expiresAt: number | null; lastVerifiedAt: number | null; supersededById: string | null;
   qualityScore: number | null; lastQualityReviewedAt: number | null;
+  claimType: MemoryClaimType; validationEvidence: MemoryValidationEvidence | null;
 }
 export interface MemoryDreamSchedule {
   enabled: boolean;
@@ -60,7 +76,7 @@ export interface MemoryDreamRun {
   evidence: StoredMemorySource[];
 }
 export type MemoryDreamOperation =
-  | { op: "upsert_note"; id?: string; baseVersion?: number; title: string; content: string; tags?: string[]; importance?: number; pinned?: boolean; expiresAt?: number | null; sourceRefs: string[]; reason: string }
+  | { op: "upsert_note"; id?: string; baseVersion?: number; title: string; content: string; claimType?: MemoryClaimType; tags?: string[]; importance?: number; pinned?: boolean; expiresAt?: number | null; sourceRefs: string[]; reason: string }
   | { op: "review_note"; id: string; baseVersion: number; validation: MemoryValidation; confidence: number; qualityScore?: number; sourceRefs: string[]; reason: string }
   | { op: "archive_note"; id: string; baseVersion: number; sourceRefs: string[]; reason: string }
   | { op: "supersede_note"; id: string; replacementId: string; baseVersion: number; sourceRefs: string[]; reason: string }
@@ -132,6 +148,17 @@ function canonicalJson(value: unknown): string {
 function isValidation(value: unknown): value is MemoryValidation {
   return value === "unverified" || value === "validated" || value === "disputed";
 }
+function isClaimType(value: unknown): value is MemoryClaimType {
+  return value === "user_preference" || value === "user_intent" || value === "decision" ||
+    value === "project_fact" || value === "workflow_pattern" || value === "external_fact" || value === "unknown";
+}
+function evidenceClassForKind(kind: string): MemoryEvidenceClass {
+  if (kind === "user") return "direct_user";
+  if (kind === "tool") return "tool_observation";
+  if (kind === "interaction") return "user_interaction";
+  if (kind === "error") return "error_report";
+  return "assistant_generated";
+}
 
 export class AgentMemoryStore {
   private readonly database: DatabaseSync;
@@ -154,7 +181,7 @@ export class AgentMemoryStore {
       "id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,title TEXT NOT NULL,content TEXT NOT NULL,tags_json TEXT NOT NULL DEFAULT '[]'," +
       "validation TEXT NOT NULL DEFAULT 'unverified',confidence REAL NOT NULL DEFAULT 0.5,pinned INTEGER NOT NULL DEFAULT 0," +
       "status TEXT NOT NULL DEFAULT 'active',source_session_id TEXT,source_trace_id TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL," +
-      "last_accessed_at INTEGER NOT NULL DEFAULT 0,access_count INTEGER NOT NULL DEFAULT 0,quality_score REAL,last_quality_reviewed_at INTEGER);" +
+      "last_accessed_at INTEGER NOT NULL DEFAULT 0,access_count INTEGER NOT NULL DEFAULT 0,quality_score REAL,last_quality_reviewed_at INTEGER,claim_type TEXT NOT NULL DEFAULT 'unknown',validation_evidence_json TEXT);" +
       "CREATE INDEX IF NOT EXISTS idx_memory_scope_status_updated ON memory_notes(scope_key,status,pinned,updated_at DESC);" +
       "CREATE TABLE IF NOT EXISTS memory_representations (" +
       "id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,slug TEXT NOT NULL,title TEXT NOT NULL,content TEXT NOT NULL," +
@@ -190,6 +217,7 @@ export class AgentMemoryStore {
       expires_at: "INTEGER", source_refs_json: "TEXT NOT NULL DEFAULT '[]'", last_verified_at: "INTEGER",
       superseded_by_id: "TEXT", content_hash: "TEXT NOT NULL DEFAULT ''", last_dreamed_at: "INTEGER",
       quality_score: "REAL", last_quality_reviewed_at: "INTEGER",
+      claim_type: "TEXT NOT NULL DEFAULT 'unknown'", validation_evidence_json: "TEXT",
     });
     this.ensureColumns("memory_representations", {
       version: "INTEGER NOT NULL DEFAULT 1", status: "TEXT NOT NULL DEFAULT 'active'",
