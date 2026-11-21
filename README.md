@@ -15,7 +15,7 @@ A cross-platform Electron desktop application. The first milestone is a built-in
 - Per-session permission prompts for media, screen capture, geolocation, notifications and clipboard read.
 - Isolated browser processes: remote pages do not receive Node.js access.
 - Local project workspaces: select a directory from the toolbar, restore it on launch, and keep Agent conversations separate per project. CodeBuddy uses the selected directory as its working directory; Copilot exposes permission-gated workspace file tools.
-- Local declarative plugin directories: import, validate, enable/disable, export and remove. Enabled plugin Skills and Workflow templates are included in Agent instructions; plugins cannot execute arbitrary code.
+- Claude Code Plugins: import, validate, enable/disable, export and remove standard Claude Code Plugin directories. Supported Markdown Skills, Commands and Agents are included in Agent instructions; plugin scripts and hooks are not executed.
 - Agent Data: persist Session snapshots, request lifecycle, provider events and tool call inputs/results in a local SQLite trace store. The data directory defaults to userData/agent-data and can be changed in Agent settings.
 
 This is the browser foundation, not a complete replacement for Chrome, Edge or Firefox. Browser extensions, cross-device sync, password import, bookmark management and advanced privacy controls are not included yet.
@@ -73,7 +73,7 @@ Unsigned builds may trigger the operating system's normal security warnings. Pro
 - **Renderer:** local React UI for the tab strip, navigation toolbar, address bar, project workspace selection and Agent/plugin settings.
 - **Project workspace:** stores the selected local project directory independently from the Layout Engine and maintains a separate Agent transcript for each workspace.
 - **Agent Data:** stores runtime events and Session evidence separately from project files. SQLite trace storage can be queried by Session, Trace and event type; the user can change its local directory.
-- **Plugin host:** stores local plugin directories under the application user-data directory, validates manifests and referenced resources, and exposes only host-known tool/view identifiers. Plugin content is data, never executable code.
+- **Plugin host:** stores Claude Code Plugin directories under the application user-data directory and validates the Claude Code layout and referenced Markdown resources. Plugin content is untrusted instruction data, never executable code.
 
 Remote pages run with nodeIntegration: false, contextIsolation: true and sandbox: true. The renderer is not allowed to send arbitrary IPC messages; only the methods in the preload API are exposed.
 
@@ -122,7 +122,7 @@ Agent 支持从系统文件选择器读取 PDF、Word、Excel、CSV、TSV、JSON
 
 ## Claude Code Plugins
 
-The plugin manager supports importing the **Claude Code Plugin directory format**. When present, its manifest is `.claude-plugin/plugin.json`; the standard also permits omitting the manifest and using the plugin directory name. Markdown components are discovered from `skills/`, `commands/`, and `agents/`. The earlier application-specific `manifest.json` format remains supported for existing local plugins.
+The plugin manager supports only the **Claude Code Plugin directory format**. When present, its manifest is `.claude-plugin/plugin.json`; the Claude Code convention also permits omitting the manifest and using the plugin directory name. Markdown components are discovered from `skills/`, `commands/`, and `agents/`. The repository example at `examples/plugins/research-assistant` uses this format.
 
 Browse [Claude Marketplace](https://claude.com/marketplace/plugins), select plugins marked **Works with: Claude Code**, obtain the plugin source directory, then choose **Agent 与插件配置 → Plugins → 导入 Claude Plugin 目录**. Import the plugin root directory (the one containing `.claude-plugin/`), not the marketplace website or the repository's marketplace catalog folder.
 
