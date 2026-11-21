@@ -197,6 +197,10 @@ export class AgentMemoryStore {
       "CREATE TABLE IF NOT EXISTS memory_dream_operations (" +
       "id TEXT PRIMARY KEY,run_id TEXT NOT NULL,sequence INTEGER NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL," +
       "operation TEXT NOT NULL,before_json TEXT,after_json TEXT,reason TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,UNIQUE(run_id,sequence));" +
+      "CREATE TABLE IF NOT EXISTS memory_note_embeddings (" +
+      "note_id TEXT NOT NULL,scope_key TEXT NOT NULL,provider TEXT NOT NULL,model TEXT NOT NULL,content_hash TEXT NOT NULL," +
+      "dimensions INTEGER NOT NULL,vector_json TEXT NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(note_id,scope_key,provider,model));" +
+      "CREATE INDEX IF NOT EXISTS idx_memory_embeddings_scope_model ON memory_note_embeddings(scope_key,provider,model);" +
       "CREATE TABLE IF NOT EXISTS memory_versions (" +
       "id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,version INTEGER NOT NULL," +
       "snapshot_json TEXT NOT NULL,run_id TEXT,created_at INTEGER NOT NULL);" +
@@ -337,18 +341,59 @@ export class AgentMemoryStore {
     return row && row.status === "active" ? this.toNote(row) : null;
   }
 
-  search(scope: string | null, query: string, limit = 10): AgentMemoryNote[] {
+  upsertEmbedding(input:{noteId:string;scope:string|null;provider:string;model:string;contentHash:string;vector:number[]}):boolean{
+    const scopeKey=normalizeScope(input.scope);
+    const note=this.getNoteRow(input.noteId,scopeKey);
+    if(!note||note.status!=="active"||String(note.content_hash??"")!==input.contentHash)return false;
+    if(!input.provider.trim()||!input.model.trim()||input.vector.length<8||input.vector.length>4096||
+      !input.vector.every(Number.isFinite))throw new Error("Memory embedding metadata or vector is invalid.");
+    const norm=Math.sqrt(input.vector.reduce((sum,value)=>sum+value*value,0));
+    if(!Number.isFinite(norm)||norm<=0)throw new Error("Memory embedding vector must have a non-zero finite norm.");
+    const vector=input.vector.map(value=>value/norm);
+    this.database.prepare(
+      "INSERT INTO memory_note_embeddings(note_id,scope_key,provider,model,content_hash,dimensions,vector_json,updated_at) VALUES(?,?,?,?,?,?,?,?) "+
+      "ON CONFLICT(note_id,scope_key,provider,model) DO UPDATE SET content_hash=excluded.content_hash,dimensions=excluded.dimensions,vector_json=excluded.vector_json,updated_at=excluded.updated_at"
+    ).run({},input.noteId,scopeKey,input.provider,input.model,input.contentHash,vector.length,JSON.stringify(vector),Date.now());
+    return true;
+  }
+
+  listNotesMissingEmbeddings(scope:string|null,provider:string,model:string,limit=200):Array<{id:string;scope:string|null;title:string;content:string;contentHash:string}>{
+    const keys=scope===null?[normalizeScope(null)]:[normalizeScope(scope),normalizeScope(null)];
+    const placeholders=keys.map(()=>"?").join(",");
+    const rows=this.database.prepare(
+      "SELECT n.id,n.scope_key,n.title,n.content,n.content_hash FROM memory_notes n "+
+      "LEFT JOIN memory_note_embeddings e ON e.note_id=n.id AND e.scope_key=n.scope_key AND e.provider=? AND e.model=? AND e.content_hash=n.content_hash "+
+      "WHERE n.scope_key IN ("+placeholders+") AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) AND e.note_id IS NULL "+
+      "ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END,n.pinned DESC,n.importance DESC,n.updated_at DESC LIMIT ?"
+    ).all({},provider,model,...keys,Date.now(),normalizeScope(scope),Math.max(1,Math.min(Math.floor(limit),500))) as Array<Record<string,unknown>>;
+    return rows.map(row=>({id:String(row.id),scope:String(row.scope_key)===normalizeScope(null)?null:scope,title:String(row.title),content:String(row.content),contentHash:String(row.content_hash)}));
+  }
+
+  getEmbeddingIndexStatus(scope:string|null,provider:string,model:string):{indexed:number;missing:number;total:number}{
+    const keys=scope===null?[normalizeScope(null)]:[normalizeScope(scope),normalizeScope(null)];
+    const placeholders=keys.map(()=>"?").join(",");
+    const row=this.database.prepare(
+      "SELECT COUNT(*) AS total,SUM(CASE WHEN e.note_id IS NOT NULL THEN 1 ELSE 0 END) AS indexed "+
+      "FROM memory_notes n LEFT JOIN memory_note_embeddings e ON e.note_id=n.id AND e.scope_key=n.scope_key AND e.provider=? AND e.model=? AND e.content_hash=n.content_hash "+
+      "WHERE n.scope_key IN ("+placeholders+") AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?)"
+    ).get({},provider,model,...keys,Date.now()) as {total?:number;indexed?:number};
+    const total=Number(row.total??0),indexed=Number(row.indexed??0);
+    return {total,indexed,missing:Math.max(0,total-indexed)};
+  }
+
+  search(scope: string | null, query: string, limit = 10, semantic?:{provider:string;model:string;vector:number[]}): AgentMemoryNote[] {
     const workspaceKey=normalizeScope(scope),personalKey=normalizeScope(null);
     const scopeKeys=scope===null?[personalKey]:[workspaceKey,personalKey];
     const safeLimit=Math.max(1,Math.min(Math.floor(limit),30));
+    const candidateLimit=semantic?Math.max(100,safeLimit*8):safeLimit;
     const placeholders=scopeKeys.map(()=>"?").join(",");
     const now=Date.now(),term=query.trim().slice(0,200);
-    let rows:Record<string,unknown>[]=[];
+    let lexicalRows:Record<string,unknown>[]=[];
     if(!term){
-      rows=this.database.prepare(
+      lexicalRows=this.database.prepare(
         "SELECT * FROM memory_notes WHERE scope_key IN ("+placeholders+") AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
         "ORDER BY CASE WHEN scope_key=? THEN 0 ELSE 1 END,pinned DESC,importance DESC,updated_at DESC LIMIT ?"
-      ).all({},...scopeKeys,now,workspaceKey,safeLimit) as Record<string,unknown>[];
+      ).all({},...scopeKeys,now,workspaceKey,candidateLimit) as Record<string,unknown>[];
     }else{
       const cjkSequences=term.match(/[\u3400-\u9fff]+/g)??[];
       const cjkBigrams=cjkSequences.flatMap(sequence=>{
@@ -363,33 +408,70 @@ export class AgentMemoryStore {
       const fts=ftsTokens.map(token=>'"'+token.replace(/"/g,'""')+'"').join(" OR ");
       const likeNeedle="%"+term.replace(/[%_]/g,"")+"%";
       try{
-        rows=this.database.prepare(
+        lexicalRows=this.database.prepare(
           "SELECT n.* FROM memory_notes n JOIN memory_notes_fts f ON f.id=n.id "+
           "WHERE n.scope_key IN ("+placeholders+") AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) AND memory_notes_fts MATCH ? "+
           "ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END,"+
           "CASE WHEN lower(n.title)=? THEN 0 WHEN lower(n.title) LIKE ? THEN 1 WHEN lower(n.content) LIKE ? THEN 2 ELSE 3 END,"+
           "n.pinned DESC,n.importance DESC,CASE WHEN n.validation='validated' AND n.validation_evidence_json IS NOT NULL THEN 0 WHEN n.validation='disputed' THEN 2 ELSE 1 END,"+
           "bm25(memory_notes_fts),n.updated_at DESC LIMIT ?"
-        ).all({},...scopeKeys,now,fts,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,safeLimit) as Record<string,unknown>[];
-      }catch{rows=[];}
-      if(!rows.length){
+        ).all({},...scopeKeys,now,fts,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,candidateLimit) as Record<string,unknown>[];
+      }catch{lexicalRows=[];}
+      if(!lexicalRows.length){
         const fallbackTokens=[term,...lexicalTokens.slice(0,16)];
-        const predicates=fallbackTokens.map(()=>"(title LIKE ? OR content LIKE ? OR tags_json LIKE ?)").join(" OR ");
+        const predicates=fallbackTokens.map(() => "(title LIKE ? OR content LIKE ? OR tags_json LIKE ?)").join(" OR ");
         const parameters=fallbackTokens.flatMap(token=>{
           const like="%"+token.replace(/[%_]/g,"")+"%";
           return [like,like,like];
         });
-        rows=this.database.prepare(
+        lexicalRows=this.database.prepare(
           "SELECT * FROM memory_notes WHERE scope_key IN ("+placeholders+") AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
           "AND ("+predicates+") ORDER BY CASE WHEN scope_key=? THEN 0 ELSE 1 END,"+
           "CASE WHEN lower(title)=? THEN 0 WHEN lower(title) LIKE ? THEN 1 WHEN lower(content) LIKE ? THEN 2 ELSE 3 END,"+
           "pinned DESC,importance DESC,updated_at DESC LIMIT ?"
-        ).all({},...scopeKeys,now,...parameters,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,safeLimit) as Record<string,unknown>[];
+        ).all({},...scopeKeys,now,...parameters,workspaceKey,term.toLocaleLowerCase(),likeNeedle,likeNeedle,candidateLimit) as Record<string,unknown>[];
       }
     }
+
+    const rowsById=new Map<string,Record<string,unknown>>();
+    const lexicalRank=new Map<string,number>();
+    lexicalRows.forEach((row,index)=>{const id=String(row.id);rowsById.set(id,row);lexicalRank.set(id,index);});
+    const semanticScores=new Map<string,number>();
+    if(semantic&&semantic.vector.length>=8&&semantic.vector.every(Number.isFinite)){
+      const vectors=this.database.prepare(
+        "SELECT n.*,e.vector_json,e.dimensions FROM memory_note_embeddings e JOIN memory_notes n ON n.id=e.note_id AND n.scope_key=e.scope_key "+
+        "WHERE e.scope_key IN ("+placeholders+") AND e.provider=? AND e.model=? AND e.content_hash=n.content_hash "+
+        "AND n.status='active' AND (n.expires_at IS NULL OR n.expires_at>?) ORDER BY CASE WHEN n.scope_key=? THEN 0 ELSE 1 END "+
+        "n.pinned DESC,n.importance DESC LIMIT 1000"
+      ).all({},...scopeKeys,semantic.provider,semantic.model,now,workspaceKey) as Array<Record<string,unknown>>;
+      for(const row of vectors){
+        let vector:number[]=[];
+        try{vector=JSON.parse(String(row.vector_json)) as number[];}catch{continue;}
+        if(vector.length!==semantic.vector.length||Number(row.dimensions)!==semantic.vector.length||
+          !vector.every(Number.isFinite))continue;
+        const score=vector.reduce((sum,value,index)=>sum+value*semantic.vector[index]!,0);
+        if(!Number.isFinite(score))continue;
+        const id=String(row.id);
+        semanticScores.set(id,Math.max(-1,Math.min(1,score)));
+        if(!rowsById.has(id))rowsById.set(id,row);
+      }
+    }
+    const combined=[...rowsById.values()].map(row=>{
+      const id=String(row.id),lexical=lexicalRank.get(id),semanticScore=semanticScores.get(id);
+      const lexicalScore=lexical===undefined?0:Math.max(0.55,1-lexical/Math.max(candidateLimit,1)*0.35);
+      const vectorScore=semanticScore===undefined?0:Math.max(0,(semanticScore+1)/2);
+      const score=semantic?Math.max(lexicalScore,vectorScore*0.82):lexicalScore;
+      return {row,score,scopeRank:String(row.scope_key)===workspaceKey?0:1};
+    });
+    combined.sort((a,b)=>a.scopeRank-b.scopeRank||
+      Number(b.row.pinned??0)-Number(a.row.pinned??0)||
+      (b.score+Number(b.row.importance??0)*0.02)-(a.score+Number(a.row.importance??0)*0.02)||
+      Number(b.row.validation==="validated"&&Boolean(b.row.validation_evidence_json))-Number(a.row.validation==="validated"&&Boolean(a.row.validation_evidence_json))||
+      Number(b.row.updated_at??0)-Number(a.row.updated_at??0));
+    const selected=combined.slice(0,safeLimit).map(item=>item.row);
     const touch=this.database.prepare("UPDATE memory_notes SET last_accessed_at=?,access_count=access_count+1 WHERE id=? AND scope_key=?");
-    for(const row of rows)touch.run({},now,String(row.id),String(row.scope_key));
-    return rows.map(row=>this.toNote({...row,last_accessed_at:now,access_count:Number(row.access_count??0)+1}));
+    for(const row of selected)touch.run({},now,String(row.id),String(row.scope_key));
+    return selected.map(row=>this.toNote({...row,last_accessed_at:now,access_count:Number(row.access_count??0)+1}));
   }
 
   list(scope: string | null, limit = 30): AgentMemoryNote[] {
