@@ -213,6 +213,7 @@ export class AgentMemoryStore {
     });
     this.ensureColumns("memory_dream_sources", { source_revision: "INTEGER" });
     this.database.exec("UPDATE memory_dream_runs SET started_at=created_at WHERE started_at=0;");
+    this.database.exec("UPDATE memory_dream_runs SET cursor_after_created_at=max_source_created_at WHERE cursor_after_created_at=0 AND max_source_created_at>0;");
   }
 
   private ensureColumns(table: string, columns: Record<string, string>): void {
