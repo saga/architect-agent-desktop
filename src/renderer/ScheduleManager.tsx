@@ -124,11 +124,6 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
   const [monthDays, setMonthDays] = useState<number[]>([]);
   const [endsOn, setEndsOn] = useState("");
 
-  const scheduleRunTaskIds = useMemo(
-    () => new Set(snapshot.scheduleRuns.map(run => run.taskId).filter((id): id is string => Boolean(id))),
-    [snapshot.scheduleRuns],
-  );
-
   const filteredSchedules = useMemo(() => snapshot.schedules.filter(schedule => {
     if (scheduleFilter === "enabled" && !schedule.enabled) return false;
     if (scheduleFilter === "paused" && schedule.enabled) return false;
@@ -438,10 +433,7 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
         {run.resultPreview && <p className="pure-schedule-run-preview">{run.resultPreview}</p>}
         {run.error && <p className="pure-schedule-error">{run.error}</p>}
         <div className="pure-schedule-run-actions">
-          {run.taskId && <Button size="small" type="link" icon={<HistoryOutlined />} onClick={() => {
-            if (scheduleRunTaskIds.has(run.taskId as string)) onOpenTask(run.taskId as string);
-            else onOpenTask(run.taskId as string);
-          }}>查看完整执行对话</Button>}
+          {run.taskId && <Button size="small" type="link" icon={<HistoryOutlined />} onClick={() => onOpenTask(run.taskId as string)}>查看完整执行对话</Button>}
           {run.status === "running" && <Button size="small" type="text" icon={<ReloadOutlined />} onClick={onChanged}>刷新状态</Button>}
         </div>
       </article>)}
