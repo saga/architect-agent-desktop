@@ -23,17 +23,31 @@ function normaliseGraphData(nodes: unknown, edges: unknown): GraphData | null {
   const nodeList = Array.isArray(nodes) ? nodes : isRecord(nodes) && Array.isArray(nodes.nodes) ? nodes.nodes : null;
   const edgeList = Array.isArray(edges) ? edges : isRecord(nodes) && Array.isArray(nodes.edges) ? nodes.edges : [];
   if (!nodeList || nodeList.length > 5_000 || edgeList.length > 15_000) return null;
-  const normalizedNodes = nodeList.filter(isRecord).map((node, index) => ({
-    ...node,
-    id: String(node.id ?? "node-" + index),
-    data: isRecord(node.data) ? node.data : {},
-  })) as GraphData["nodes"];
-  const normalizedEdges = edgeList.filter(isRecord).map((edge, index) => ({
-    ...edge,
-    id: String(edge.id ?? "edge-" + index),
-    source: String(edge.source ?? ""),
-    target: String(edge.target ?? ""),
-  })).filter(edge => edge.source && edge.target) as GraphData["edges"];
+  let serialized = "";
+  try { serialized = JSON.stringify({ nodeList, edgeList }); } catch { return null; }
+  if (serialized.length > 1_000_000) return null;
+
+  const normalizedNodes: GraphData["nodes"] = nodeList.filter(isRecord).map((node, index) => {
+    const data = isRecord(node.data) ? node.data : {};
+    const rawLabel = typeof node.label === "string" ? node.label : data.label;
+    const label = typeof rawLabel === "string" ? rawLabel.slice(0, 160) : String(node.id ?? "Node " + (index + 1)).slice(0, 160);
+    return {
+      id: String(node.id ?? "node-" + index).slice(0, 120),
+      label,
+      data: { label },
+    };
+  });
+
+  const nodeIds = new Set(normalizedNodes.map(node => node.id));
+  if (nodeIds.size !== normalizedNodes.length) return null;
+
+  const normalizedEdges: GraphData["edges"] = edgeList.filter(isRecord).map((edge, index) => ({
+    id: String(edge.id ?? "edge-" + index).slice(0, 120),
+    source: String(edge.source ?? "").slice(0, 120),
+    target: String(edge.target ?? "").slice(0, 120),
+    ...(typeof edge.label === "string" ? { label: edge.label.slice(0, 120) } : {}),
+  })).filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+
   return { nodes: normalizedNodes, edges: normalizedEdges };
 }
 
@@ -47,6 +61,7 @@ export default function KnowledgeGraph({
 }: KnowledgeGraphProps) {
   const host = useRef<HTMLDivElement>(null);
   const graph = useRef<Graph | null>(null);
+  const previousSelectedNode = useRef<string | null>(null);
   const callbacks = useRef({ setSelectedNodeId, onNodeSelect });
   callbacks.current = { setSelectedNodeId, onNodeSelect };
   const data = normaliseGraphData(nodes, edges);
@@ -103,8 +118,13 @@ export default function KnowledgeGraph({
   }, [data, height, layout, interactive]);
 
   useEffect(() => {
-    if (!selectedNodeId || !graph.current) return;
-    graph.current.setElementState(selectedNodeId, "selected");
+    const instance = graph.current;
+    if (!instance) return;
+    if (previousSelectedNode.current && previousSelectedNode.current !== selectedNodeId) {
+      instance.setElementState(previousSelectedNode.current, []);
+    }
+    if (selectedNodeId) instance.setElementState(selectedNodeId, "selected");
+    previousSelectedNode.current = selectedNodeId ?? null;
   }, [selectedNodeId]);
 
   if (!data) return <Alert type="warning" showIcon message="关系图数据格式无效，或节点/边数量超过限制。" />;
