@@ -223,9 +223,6 @@ function normalizeClaudePluginDirectory(root: string): PluginManifest {
     commands: [...new Set(commands)].slice(0, 50),
     agents: [...new Set(agents)].slice(0, 50),
     inlineCommands,
-    tools: [],
-    workflows: [],
-    views: [],
   });
   return manifest;
 }
