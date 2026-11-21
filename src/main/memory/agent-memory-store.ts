@@ -312,10 +312,12 @@ export class AgentMemoryStore {
         throw new Error("Memory sourceRef 不存在或不属于当前 Workspace：" + ref);
       }
     }
-    const sourceRefs = [...new Set([...parseJson<string[]>(before?.source_refs_json, []), ...requestedSourceRefs])].slice(-100);
+    const previousSourceRefs=parseJson<string[]>(before?.source_refs_json,[]);
+    const sourceRefs = [...new Set([...previousSourceRefs, ...requestedSourceRefs])].slice(-100);
+    const sourceRefsUnchanged=requestedSourceRefs.every(ref=>previousSourceRefs.includes(ref));
     const previousEvidence=parseJson<MemoryValidationEvidence|null>(before?.validation_evidence_json,null);
     const previousExternal=parseJson<AgentMemoryExternalVerification|null>(before?.external_verification_json,null);
-    const preservesHumanExternalReview=validation==="validated"&&unchanged&&claimType==="external_fact"&&
+    const preservesHumanExternalReview=validation==="validated"&&unchanged&&sourceRefsUnchanged&&claimType==="external_fact"&&
       previousEvidence?.eligible===true&&previousEvidence.policy==="human_confirmed_multi_domain_source_review"&&
       previousExternal?.status==="multi_domain_sources_recorded"&&new Set(previousExternal.sources.map(source=>source.domain)).size>=2;
     const evidenceProfile:MemoryValidationEvidence|null=validation!=="validated"?null:
@@ -639,7 +641,7 @@ export class AgentMemoryStore {
     const version=Number(before.version)+1,now=Date.now();
     const refs=[...new Set([...parseJson<string[]>(before.source_refs_json,[]),...input.sources.map(source=>source.sourceRef)])].slice(-100);
     this.database.prepare(
-      "UPDATE memory_notes SET external_verification_json=?,source_refs_json=?,validation='unverified',validation_evidence_json=NULL,last_verified_at=NULL,updated_at=?,version=? WHERE id=? AND scope_key=?"
+      "UPDATE memory_notes SET external_verification_json=?,source_refs_json=?,validation='unverified',confidence=0.5,validation_evidence_json=NULL,last_verified_at=NULL,updated_at=?,version=? WHERE id=? AND scope_key=?"
     ).run({},JSON.stringify(verification),JSON.stringify(refs),now,version,input.noteId,scopeKey);
     const after=this.getNoteRow(input.noteId,scopeKey) as Record<string,unknown>;
     this.saveVersion(scopeKey,"note",input.noteId,version,after,null);
