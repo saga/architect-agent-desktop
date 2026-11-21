@@ -46,9 +46,11 @@ describe("Agent workspace persistence", () => {
       { id: "all", name: "All tools", description: "", systemPrompt: "Use selected tools.", toolPermission: "allow-all", allowAllTools: true, skills: [], tools: [], createdAt: 1, updatedAt: 2 },
     ]);
     expect(experts).toHaveLength(2);
-    expect(experts[0].allowAllTools).toBe(false);
-    expect(experts[0].tools).toEqual([]);
-    expect(experts[1].allowAllTools).toBe(true);
+    const legacy = experts.find(expert => expert.id === "legacy");
+    const allTools = experts.find(expert => expert.id === "all");
+    expect(legacy?.allowAllTools).toBe(false);
+    expect(legacy?.tools).toEqual([]);
+    expect(allTools?.allowAllTools).toBe(true);
   });
 
   it("validates persistent Schedules and drops invalid dates", () => {
