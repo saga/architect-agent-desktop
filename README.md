@@ -5,6 +5,7 @@ A cross-platform Electron desktop application. The first milestone is a built-in
 ## Current scope
 
 - Multi-tab browsing with tab creation, switching and closing.
+- Open the current page in an installed Google Chrome from the toolbar; if Chrome is not detected, fall back to the operating system's default browser. The built-in browser continues to use Electron's bundled Chromium.
 - Address bar with direct navigation and web search.
 - Back, forward, reload and stop controls.
 - Links opened by websites in new windows are opened as new tabs.
@@ -121,7 +122,7 @@ Agent 支持从系统文件选择器读取 PDF、Word、Excel、CSV、TSV、JSON
 
 ## Claude Code Plugins
 
-The plugin manager supports importing the **Claude Code Plugin directory format**. Its manifest is `.claude-plugin/plugin.json`; Markdown components are discovered from `skills/`, `commands/`, and `agents/`. The earlier application-specific `manifest.json` format remains supported for existing local plugins.
+The plugin manager supports importing the **Claude Code Plugin directory format**. When present, its manifest is `.claude-plugin/plugin.json`; the standard also permits omitting the manifest and using the plugin directory name. Markdown components are discovered from `skills/`, `commands/`, and `agents/`. The earlier application-specific `manifest.json` format remains supported for existing local plugins.
 
 Browse [Claude Marketplace](https://claude.com/marketplace/plugins), select plugins marked **Works with: Claude Code**, obtain the plugin source directory, then choose **Agent 与插件配置 → Plugins → 导入 Claude Plugin 目录**. Import the plugin root directory (the one containing `.claude-plugin/`), not the marketplace website or the repository's marketplace catalog folder.
 
