@@ -35,6 +35,7 @@ export default function MemoryManager() {
   const [snapshot, setSnapshot] = useState<AgentMemorySnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [embeddingRunning, setEmbeddingRunning] = useState(false);
   const [selectedRun, setSelectedRun] = useState<AgentMemoryDreamRunDetail | null>(null);
   const [runLoading, setRunLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("notes");
@@ -186,6 +187,21 @@ export default function MemoryManager() {
       message.error(error instanceof Error ? error.message : String(error));
     } finally {
       setRunning(false);
+    }
+  };
+
+  const reindexEmbeddings = async () => {
+    if (!taskId || !snapshot?.embeddingIndex.enabled) return;
+    setEmbeddingRunning(true);
+    try {
+      const result = await window.browser.agentMemoryReindexEmbeddings(taskId, 200);
+      if (result.warning) message.warning("本地向量索引部分完成：" + result.warning);
+      else message.success(result.enabled ? "已建立 " + result.indexed + " 条本地向量，剩余 " + result.remaining + " 条。" : result.message ?? "语义检索未启用。");
+      await refresh(taskId);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setEmbeddingRunning(false);
     }
   };
 
@@ -393,6 +409,26 @@ export default function MemoryManager() {
           <Alert type="warning" showIcon style={{ marginTop: 8 }} message="最近一次自动 Dreaming 未完成" description={snapshot.dreamSchedule.lastError} />}
         <Paragraph type="secondary" style={{ margin: "8px 0 0" }}>
           仅在桌面应用运行时执行。需要全局工具权限和该 Workspace Expert 至少开放 assisted 级别及完整长期记忆工具；调度器不会自动扩大权限。Transcript 增量整理和到期质量复查在同一维护任务中串行完成。
+        </Paragraph>
+      </Card>
+      <Card size="small" style={{ marginTop: 10, marginBottom: 10 }}>
+        <Space wrap align="center">
+          <Text strong>语义检索索引</Text>
+          <Tag color={snapshot.embeddingIndex.enabled ? "success" : "default"}>
+            {snapshot.embeddingIndex.enabled ? "本地 Ollama 已启用" : "未启用"}
+          </Tag>
+          <Text type="secondary">
+            {snapshot.embeddingIndex.enabled
+              ? "向量 " + snapshot.embeddingIndex.indexed + " / " + snapshot.embeddingIndex.total + " · 待建立 " + snapshot.embeddingIndex.missing
+              : "当前使用 FTS5 / 中文短语词法检索"}
+          </Text>
+          <Button size="small" loading={embeddingRunning} disabled={!snapshot.embeddingIndex.enabled || running}
+            onClick={() => void reindexEmbeddings()}>
+            建立 / 补齐本地向量索引
+          </Button>
+        </Space>
+        <Paragraph type="secondary" style={{ margin: "6px 0 0" }}>
+          Embedding 设置位于 Settings → Agent → Memory 语义检索。向量只保存在本地 SQLite；内容发生变化时旧向量自动失效，切换模型后需重新建立索引。
         </Paragraph>
       </Card>
       <div className="memory-manager-stats">
