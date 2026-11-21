@@ -295,7 +295,7 @@ describe("AgentMemoryStore", () => {
     expect(reviewRun?.purpose).toBe("quality_review");
     expect(reviewRun?.evidence.length).toBeGreaterThan(0);
     expect(store.getDreamCursor("/workspace/quality-review")).toEqual(cursorBefore);
-    const mappedCandidates = store.listQualityReviewCandidatesForRun("/workspace/quality-review", reviewRun!.id);
+    const mappedCandidates = store.listQualityReviewCandidatesForRun("/workspace/quality-review", reviewRun!.id, 80, qualityAsOf);
     const mapped = mappedCandidates.find(item => item.id === note);
     expect(mapped).toBeDefined();
     expect(mapped?.qualityReviewSourceRefs).toContain(reviewRun!.evidence[0]!.sourceId);
