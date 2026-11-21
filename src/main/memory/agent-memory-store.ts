@@ -85,6 +85,14 @@ function scrubEvidence(value: string): string {
 function parseJson<T>(value: unknown, fallback: T): T {
   try { return JSON.parse(String(value ?? "")) as T; } catch { return fallback; }
 }
+function rollbackComparable(entityType: string, value: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+  if (!value) return null;
+  if (entityType !== "note") return value;
+  const snapshot = { ...value };
+  delete snapshot.last_accessed_at;
+  delete snapshot.access_count;
+  return snapshot;
+}
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return "[" + value.map(canonicalJson).join(",") + "]";
   if (value && typeof value === "object") {
@@ -634,8 +642,13 @@ export class AgentMemoryStore {
         }
         const current=type==="note"?this.getNoteRow(id,scopeKey):type==="representation"?this.getRepresentationRow(id,scopeKey):type==="relationship"?
           this.database.prepare("SELECT * FROM memory_relationships WHERE id=? AND scope_key=?").get({}, id,scopeKey) as Record<string,unknown>|undefined:undefined;
-        if(canonicalJson(current??null)!==canonicalJson(after))throw new Error("记忆实体 "+id+" 在 Dreaming 后已被修改，停止回滚以避免覆盖新变更。");
-        if(type==="note")this.replaceNoteSnapshot(id,before);
+        if(canonicalJson(rollbackComparable(type,current))!==canonicalJson(rollbackComparable(type,after)))throw new Error("记忆实体 "+id+" 在 Dreaming 后已被修改，停止回滚以避免覆盖新变更。");
+        if(type==="note") {
+          const restore = before && current
+            ? { ...before, last_accessed_at: current.last_accessed_at, access_count: current.access_count }
+            : before;
+          this.replaceNoteSnapshot(id,restore);
+        }
         else if(type==="representation")this.replaceRepresentationSnapshot(id,before);
         else if(type==="relationship")this.replaceRelationshipSnapshot(id,before);
         else throw new Error("未知 Dreaming 操作类型："+type);
