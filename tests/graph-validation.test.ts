@@ -75,6 +75,10 @@ describe("X6 WorkflowDiagram input validation", () => {
     ],
   });
 
+  it("accepts an empty canvas as a valid editable workflow", () => {
+    expect(validateWorkflowGraphJson({ cells: [] })).toEqual({ cells: [] });
+  });
+
   it("accepts valid bounded nodes and connected edges", () => {
     expect(validateWorkflowGraphJson(validGraph())).toEqual(validGraph());
   });
