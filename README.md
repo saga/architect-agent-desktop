@@ -124,7 +124,7 @@ Agent 支持从系统文件选择器读取 PDF、Word、Excel、CSV、TSV、JSON
 
 The plugin manager supports only the **Claude Code Plugin directory format**. When present, its manifest is `.claude-plugin/plugin.json`; the Claude Code convention also permits omitting the manifest and using the plugin directory name. Markdown components are discovered from `skills/`, `commands/`, and `agents/`. The repository example at `examples/plugins/research-assistant` uses this format.
 
-Browse [Claude Marketplace](https://claude.com/marketplace/plugins), select plugins marked **Works with: Claude Code**, obtain the plugin source directory, then choose **Agent 与插件配置 → Plugins → 导入 Claude Plugin 目录**. Import the plugin root directory (the one containing `.claude-plugin/`), not the marketplace website or the repository's marketplace catalog folder.
+Browse [Claude Marketplace](https://claude.com/marketplace/plugins), select plugins marked **Works with: Claude Code**, obtain the plugin source directory, then choose **Agent 与插件配置 → Plugins → 导入 Claude Plugin 目录**. Import the plugin root directory containing the Claude Code components (and `.claude-plugin/plugin.json` when the plugin supplies a manifest), not the marketplace website or the repository's marketplace catalog folder.
 
 The current host loads Markdown Skills, Commands, and Agent definitions as Agent instructions. It does not execute Claude Code Hooks, Mod JavaScript, plugin scripts, or automatically start the plugin's `.mcp.json` / LSP servers. Plugins that require those runtime components will only work partially; configure required MCP services separately in **MCP Servers**. Plugin files are treated as untrusted input and are not executed during import.
 
