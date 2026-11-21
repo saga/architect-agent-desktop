@@ -239,6 +239,17 @@ export default function MemoryManager() {
     }
   };
 
+  const confirmExternalVerification = async (note: AgentMemoryNoteView) => {
+    if (!taskId) return;
+    try {
+      await window.browser.agentMemoryConfirmExternalVerification(taskId, note.id, note.version);
+      message.success("已记录人工来源核验声明；Note 已标记为 validated。");
+      await refresh(taskId);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const archiveNote = async (note: AgentMemoryNoteView) => {
     if (!taskId) return;
     try {
@@ -305,6 +316,19 @@ export default function MemoryManager() {
       <Space wrap><Text strong>{note.title}</Text><Tag color={statusColor(note.validation)}>{note.validation}</Tag><Tag>{({ user_preference: "用户偏好", user_intent: "用户意图", decision: "决策", project_fact: "项目事实", workflow_pattern: "工作模式", external_fact: "外部事实", unknown: "未分类" } as Record<string, string>)[note.claimType] ?? "未分类"}</Tag>{note.pinned && <Tag color="gold">Pinned</Tag>}{note.status !== "active" && <Tag>{note.status}</Tag>}</Space>
       <Paragraph ellipsis={{ rows: 2, expandable: true, symbol: "展开" }} style={{ margin: "4px 0 0" }}>{note.content}</Paragraph>
       {note.validationEvidence && <Text type="secondary" style={{ fontSize: 11 }}>验证依据：{note.validationEvidence.independentSessions} 个独立会话 · {note.validationEvidence.directUserSources} 条用户陈述 · {note.validationEvidence.toolObservations} 条工具观察；{note.validationEvidence.reason}</Text>}
+      {note.externalVerification && <div style={{ marginTop: 6 }}>
+        <Space wrap size={4}>
+          <Tag color={note.validation === "validated" ? "success" : note.externalVerification.status === "multi_domain_sources_recorded" ? "processing" : "warning"}>
+            {note.validation === "validated" ? "人工确认已核对来源" : note.externalVerification.status === "multi_domain_sources_recorded" ? "已记录多个来源域名 · 待人工核对" : "仅记录单一来源域名"}
+          </Tag>
+          {note.externalVerification.sources.map(source => <Tag key={source.sourceRef}>
+            <a href={source.url} target="_blank" rel="noreferrer">{source.domain} · {source.publisher}</a>
+          </Tag>)}
+        </Space>
+        <Text type="secondary" style={{ display: "block", fontSize: 11, marginTop: 3 }}>
+          {note.externalVerification.note || "来源仅证明已登记在工具证据中。请逐一打开链接核对原始内容、发布时间和上下文；来源记录本身不是事实验证。"}
+        </Text>
+      </div>}
       <Space wrap size={4}>{note.tags.map(tag => <Tag key={tag}>{tag}</Tag>)}</Space>
     </div> },
     { title: "重要度", key: "importance", width: 92, render: (_: unknown, note: AgentMemoryNoteView) => Math.round(note.importance * 100) + "%" },
@@ -314,9 +338,20 @@ export default function MemoryManager() {
     { title: "来源", key: "sources", width: 80, render: (_: unknown, note: AgentMemoryNoteView) => note.sourceRefs.length },
     { title: "更新", key: "updated", width: 180, render: (_: unknown, note: AgentMemoryNoteView) => dateOf(note.updatedAt) },
     {
-      title: "操作", key: "actions", width: 150,
-      render: (_: unknown, note: AgentMemoryNoteView) => note.status === "active" ? <Space size={4}>
+      title: "操作", key: "actions", width: 230,
+      render: (_: unknown, note: AgentMemoryNoteView) => note.status === "active" ? <Space size={4} wrap>
         <Button type="link" size="small" onClick={() => void togglePinned(note)}>{note.pinned ? "取消置顶" : "置顶"}</Button>
+        {note.claimType === "external_fact" && note.validation !== "validated" &&
+          note.externalVerification?.status === "multi_domain_sources_recorded" &&
+          <Popconfirm
+            title="确认已逐一打开并核对全部来源？"
+            description="点击确认表示你已亲自打开每个不同域名的来源，核对原文、日期和上下文。系统只记录这项人工声明，不会自动证明网页内容真实。"
+            okText="确认我已核对"
+            cancelText="返回"
+            onConfirm={() => void confirmExternalVerification(note)}
+          >
+            <Button type="link" size="small">我已核对来源</Button>
+          </Popconfirm>}
         <Popconfirm
           title="归档这条 Memory Note？"
           description={note.pinned ? "请先取消置顶。归档不会物理删除历史版本。" : "归档后不会再注入上下文，但可在 Notes 列表中查看。"}
