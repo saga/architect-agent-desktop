@@ -66,6 +66,8 @@ export interface AgentMemoryNoteView {
   content: string;
   tags: string[];
   validation: "unverified" | "validated" | "disputed";
+  claimType: "user_preference" | "user_intent" | "decision" | "project_fact" | "workflow_pattern" | "external_fact" | "unknown";
+  validationEvidence: { claimType: string; sourceCount: number; independentSessions: number; directUserSources: number; toolObservations: number; eligible: boolean; policy: string; reason: string } | null;
   confidence: number;
   pinned: boolean;
   importance: number;
