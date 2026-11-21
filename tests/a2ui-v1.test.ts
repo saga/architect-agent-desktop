@@ -66,4 +66,34 @@ describe("A2UI 1.0 Agent message handling", () => {
       },
     }, "task-session-2")).rejects.toThrow(/not created in this Agent Task/);
   });
+
+  it("returns a standard A2UI 1.0 error response for unregistered Agent Functions", async () => {
+    const service = new AgentA2UIService();
+    service.registerSurfaces("task-session-1", ["portfolio-surface"]);
+
+    const result = await service.validateRendererMessage({
+      version: "1.0",
+      callAgentFunction: {
+        surfaceId: "portfolio-surface",
+        functionCallId: "function-call-1",
+        callFunction: {
+          "@call": "not_registered",
+          catalogId: "https://architect-agent-desktop.local/a2ui/catalog/finance/1.0",
+        },
+      },
+    }, "task-session-1");
+
+    expect(result.handled).toBe(true);
+    expect(result.replies).toEqual([{
+      version: "1.0",
+      agentFunctionResponse: {
+        functionCallId: "function-call-1",
+        error: {
+          code: "UNKNOWN_FUNCTION",
+          message: "The Finance Catalog does not register Agent Functions.",
+        },
+      },
+    }]);
+  });
+
 });
