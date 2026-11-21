@@ -24,6 +24,13 @@ function containsUnsafeValue(value: unknown, depth = 0): boolean {
   );
 }
 
+function validEdgeEndpoint(endpoint: unknown, ids: Set<string>): boolean {
+  if (!isRecord(endpoint)) return false;
+  if (typeof endpoint.cell === "string") return ids.has(endpoint.cell);
+  return typeof endpoint.x === "number" && Number.isFinite(endpoint.x) &&
+    typeof endpoint.y === "number" && Number.isFinite(endpoint.y);
+}
+
 function validateGraphJson(input: unknown): Record<string, unknown> | null {
   if (!isRecord(input)) return null;
   let encoded = "";
@@ -40,10 +47,7 @@ function validateGraphJson(input: unknown): Record<string, unknown> | null {
   }
   for (const cell of cells) {
     if (!isRecord(cell) || cell.shape !== "edge") continue;
-    const source = isRecord(cell.source) ? cell.source.cell : undefined;
-    const target = isRecord(cell.target) ? cell.target.cell : undefined;
-    if (typeof source === "string" && !ids.has(source)) return null;
-    if (typeof target === "string" && !ids.has(target)) return null;
+    if (!validEdgeEndpoint(cell.source, ids) || !validEdgeEndpoint(cell.target, ids)) return null;
   }
   return input;
 }
