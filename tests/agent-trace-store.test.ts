@@ -218,6 +218,26 @@ private-material
     store.close();
   });
 
+  it("retains the newest twelve revisions per Transcript message", () => {
+    const store = new AgentTraceStore(temporaryDirectory());
+    for (let revision = 0; revision < 20; revision++) {
+      store.saveSessionItems("session-revision-cap", "/workspace/revision-cap", [{
+        id: "frequently-edited-message",
+        kind: "assistant",
+        content: "Transcript revision " + revision,
+        createdAt: 100,
+      }]);
+    }
+
+    const revisions = store.listMemorySources("/workspace/revision-cap", {
+      createdAt: 0, sessionId: "", messageId: "", transcriptRevision: 0,
+    }, 30);
+    expect(revisions).toHaveLength(12);
+    expect(revisions.at(-1)?.content).toBe("Transcript revision 19");
+    expect(revisions.at(-1)?.revision).toBeGreaterThan(revisions[0]!.revision);
+    store.close();
+  });
+
   it("switches the active data directory without deleting the previous store", () => {
     const first = temporaryDirectory();
     const second = temporaryDirectory();
