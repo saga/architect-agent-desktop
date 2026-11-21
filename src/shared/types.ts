@@ -234,6 +234,7 @@ export interface BrowserApi {
   agentPickFiles(): Promise<string[]>;
   copilotSend(prompt: string, history?: AgentChatMessage[], taskId?: string, attachments?: string[]): Promise<void>;
   agentA2uiMessage(message: unknown, taskId: string): Promise<void>;
+  agentA2uiMessage(message: unknown, taskId: string): Promise<void>;
   copilotCancel(): Promise<void>;
   agentLoadSession(taskId?: string): Promise<AgentSessionItem[]>;
   agentSaveSession(items: AgentSessionItem[], taskId?: string): Promise<void>;
