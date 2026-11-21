@@ -7,6 +7,8 @@ import type { ThoughtChainItemType } from "@ant-design/x";
 import XMarkdown from "@ant-design/x-markdown";
 import { markdownComponents } from "./MarkdownLink";
 import AgentA2UICard from "./components/AgentA2UICard";
+import A2UIV1Canvas from "./a2ui/A2UIV1Canvas";
+import type { RendererToAgentMessage } from "@a2ui/agent";
 import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } from "../shared/types";
 
 type ChatItem = AgentSessionItem & { streaming?: boolean };
@@ -381,6 +383,16 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     onDock(key as "left" | "right" | "top" | "bottom");
   };
 
+  const a2uiV1Messages = useMemo(
+    () => items.filter(item => item.kind === "a2ui-v1").map(item => item.content),
+    [items],
+  );
+  const onA2UIRendererMessage = useCallback((rendererMessage: RendererToAgentMessage) => {
+    if (!taskId) return;
+    void window.browser.agentA2uiMessage(rendererMessage, taskId).catch(error => {
+      message.error(error instanceof Error ? error.message : String(error));
+    });
+  }, [taskId]);
   const renderItems = useMemo(() => {
     const result: Array<{ key: string; role: string; content: string; extraInfo: Record<string, unknown>; loading: boolean }> = [];
     let chain: ChatItem[] = [];
@@ -396,6 +408,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       chain = [];
     };
     for (const item of items) {
+      if (item.kind === "a2ui-v1") continue;
       if (item.kind === "tool") { chain.push(item); continue; }
       flushChain();
       result.push({
@@ -455,6 +468,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     {settings.provider === "codebuddy" && status !== "ready" && items.length === 0 && <Alert type="info" showIcon message="CodeBuddy 使用本机 CLI 登录态" description={<div>在系统终端运行 <code>codebuddy</code>，按 CLI 提示完成登录，并确认账号有可用模型权限。首次请求会实际验证认证和模型可用性。</div>} />}
     <div className="agent-messages">
       <Bubble.List role={bubbleRoles} autoScroll items={renderItems} />
+      <A2UIV1Canvas messages={a2uiV1Messages} onRendererMessage={onA2UIRendererMessage} />
     </div>
     <div className="agent-composer">
       <Sender rootClassName="agent-sender" value={input} onChange={setInput} submitType="enter"
