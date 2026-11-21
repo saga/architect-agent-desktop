@@ -93,6 +93,7 @@ const api: BrowserApi = {
   agentPickFiles: () => ipcRenderer.invoke("agent:pick-files"),
   copilotSend: (prompt, history, taskId, attachments) => ipcRenderer.invoke("copilot:send", { prompt, history, taskId, attachments }),
   agentA2uiMessage: (message, taskId) => ipcRenderer.invoke("agent:a2ui-message", { message, taskId }),
+  agentA2uiRegisterSurfaces: (taskId, surfaceIds) => ipcRenderer.invoke("agent:a2ui-register-surfaces", { taskId, surfaceIds }),
   agentMemoryGetSnapshot: (taskId) => ipcRenderer.invoke("agent:memory-get-snapshot", { taskId }),
   agentMemoryGetDreamRun: (taskId, runId) => ipcRenderer.invoke("agent:memory-get-run", { taskId, runId }),
   agentMemoryAbandonDreaming: (taskId, runId, reason) => ipcRenderer.invoke("agent:memory-abandon", { taskId, runId, reason }),
