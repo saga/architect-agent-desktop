@@ -2534,6 +2534,26 @@ function registerIpcHandlers(): void {
     return result;
   });
 
+  ipcMain.handle("agent:memory-save-dream-schedule", (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+      throw new Error("Agent 正在运行，请在当前任务结束后修改 Dreaming 自动整理设置。");
+    }
+    const parsed = z.object({
+      taskId: z.string().min(1).max(100),
+      enabled: z.boolean(),
+      intervalMinutes: z.number().int().min(60).max(10080),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Memory Dreaming schedule.");
+    const task = taskForId(parsed.data.taskId);
+    const result = copilotAgent.saveMemoryDreamSchedule(task.workspacePath, {
+      enabled: parsed.data.enabled,
+      intervalMinutes: parsed.data.intervalMinutes,
+    });
+    recordTaskTrace(task, "memory.dreaming.schedule.updated", result);
+    return result;
+  });
+
   ipcMain.handle("agent:load-session", (event, input?: unknown) => {
     assertTrustedSender(event);
     const taskId = input === undefined ? activeAgentTaskId : z.string().min(1).max(100).parse(input);
