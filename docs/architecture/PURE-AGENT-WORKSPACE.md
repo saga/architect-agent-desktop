@@ -58,7 +58,7 @@ Expert 是本地可复用的 **任务工作模式（Agent Profile）**，绑定�
 
 Copilot 与 CodeBuddy 都注入 Expert 的工作方法、已选 Plugin Skills 和工具约束。Copilot 自定义工具、MCP 与 Code Mode Broker 按当前全局权限和 Expert 白名单过滤；CodeBuddy 的自定义 MCP Tools 与内置工具也按相同边界限制。工具白名单是实际 Provider 注册前的执行约束，不只是写在 System Prompt 中的约定。
 
-Expert 是否真的提高任务质量，应由同一模型、同一输入、同一工具权限下的对照测试验证。只添加身份或职业头衔，不应被当作能力提升；更值得固化的是模型原本拿不到的业务流程、领域规则、专用 Skills、可靠数据来源和可验证的输出标准。研究背景与当前功能边界见 README 中的研究说明。
+Expert 是否真的提高任务质量，应由同一模型、同一输入、同一工具权限下的对照测试验证。只添加身份或职业头衔，不应被当作能力提升；更值得固化的是模型原本拿不到的业务流程、领域规则、专用 Skills、可靠数据来源和可验证的输出标准。 研究结论、研究边界和具体的 Profile 设计建议见 [Expert 工作模式与角色提示研究](EXPERT-WORK-MODES-AND-PERSONA-RESEARCH.md)。研究背景与当前功能边界见 README 中的研究说明。
 
 Expert 数据保存在 agent-experts.json。旧 Expert 若没有 allowAllTools 字段，迁移时按 false 处理；旧配置的空 Tools 列表不再被解释为允许全部工具。删除 Expert 会将关联 Task 和 Schedule 的 Expert 引用清空，不删除 Task 历史。
 
