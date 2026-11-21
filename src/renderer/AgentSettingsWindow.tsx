@@ -6,7 +6,7 @@ import type { AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission,
 
 const DEFAULT_SETTINGS: AgentSettings = {
   provider: "copilot", copilotModel: "", codebuddyModel: "",
-  thinkingLevel: "medium", toolPermission: "browser-only", systemPrompt: "",
+  thinkingLevel: "medium", toolPermission: "none", systemPrompt: "",
 };
 
 export default function AgentSettingsWindow() {
@@ -148,6 +148,10 @@ export default function AgentSettingsWindow() {
         <Form.Item label="工具权限">
           <Radio.Group className="agent-tool-permission" value={settings.toolPermission}
             onChange={(event) => update("toolPermission", event.target.value as AgentToolPermission)}>
+            <Radio value="none">
+              <span className="tool-permission-title">No tools</span>
+              <span className="tool-permission-desc">默认禁止浏览器、本机文件、命令、MCP 等所有工具；需要时再按需开启。</span>
+            </Radio>
             <Radio value="browser-only">
               <span className="tool-permission-title">仅浏览器工具</span>
               <span className="tool-permission-desc">只能读写当前网页，不能调用本机命令、文件或网络工具。</span>
