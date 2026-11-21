@@ -58,7 +58,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt.",
 };
 
-export interface CopilotEvent { type: "status" | "delta" | "thinking" | "message" | "error" | "done" | "tool" | "a2ui" | "a2ui-v1" | "interaction"; taskId?: string; status?: string; text?: string; streaming?: boolean; toolId?: string; toolName?: string; toolDetail?: string; toolState?: "running" | "done" | "error"; }
+export interface CopilotEvent { type: "status" | "delta" | "thinking" | "message" | "error" | "done" | "tool" | "a2ui" | "a2ui-v1" | "interaction"; taskId?: string; status?: string; text?: string; streaming?: boolean; interactionId?: string; timestamp?: number; toolId?: string; toolName?: string; toolDetail?: string; toolState?: "running" | "done" | "error"; }
 
 export interface AgentMemoryNoteView {
   id: string;
