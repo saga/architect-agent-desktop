@@ -354,7 +354,15 @@ export class AgentTraceStore {
 
   clearSessionItems(sessionId: string): void {
     if (!this.database) throw new Error("Agent trace store is closed.");
-    this.database.prepare("DELETE FROM session_messages WHERE session_id = ?").run(sessionId);
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare("DELETE FROM session_message_revisions WHERE session_id = ?").run(sessionId);
+      this.database.prepare("DELETE FROM session_messages WHERE session_id = ?").run(sessionId);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   listSessions(limit = 100): Array<Record<string, unknown>> {
