@@ -119,6 +119,9 @@ function safeIds(ids: unknown, max = 100): string[] {
   if (!Array.isArray(ids)) return [];
   return [...new Set(ids.filter((value): value is string => typeof value === "string").map(value => value.trim().slice(0, 120)).filter(Boolean))].slice(0, max);
 }
+function memoryNoteEmbeddingHash(title:string,content:string):string{
+  return createHash("sha256").update("Title: "+title+"\n\n"+content).digest("hex");
+}
 function redactSecrets(value: string, maxChars: number): string {
   let result = value.slice(0, maxChars);
   for (const pattern of SECRET_PATTERNS) result = result.replace(pattern, "[REDACTED_SECRET]");
@@ -333,7 +336,7 @@ export class AgentMemoryStore {
       clamp(input.importance ?? Number(before?.importance ?? 0.5), 0, 1),
       input.expiresAt === undefined ? (typeof before?.expires_at === "number" ? before.expires_at : null) : input.expiresAt,
       JSON.stringify(sourceRefs), unchanged && typeof before?.last_verified_at === "number" ? before.last_verified_at : null, null,
-      createHash("sha256").update(content).digest("hex"), typeof before?.last_dreamed_at === "number" ? before.last_dreamed_at : null,
+      memoryNoteEmbeddingHash(title,content), typeof before?.last_dreamed_at === "number" ? before.last_dreamed_at : null,
       unchanged && before?.quality_score != null ? Number(before.quality_score) : null,
       unchanged && typeof before?.last_quality_reviewed_at === "number" ? before.last_quality_reviewed_at : null,
       claimType, evidenceProfile ? JSON.stringify(evidenceProfile) : null,
@@ -992,7 +995,7 @@ export class AgentMemoryStore {
       expires_at:op.expiresAt===undefined?before?.expires_at??null:op.expiresAt,
       source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before?.source_refs_json,[]),...refs])].slice(-100)),
       last_verified_at:same?before?.last_verified_at??null:null,superseded_by_id:null,
-      content_hash:createHash("sha256").update(content).digest("hex"),last_dreamed_at:now,
+      content_hash:memoryNoteEmbeddingHash(title,content),last_dreamed_at:now,
       quality_score:same?(before?.quality_score??null):null,
       last_quality_reviewed_at:same?(before?.last_quality_reviewed_at??null):null,
       external_verification_json:same?(before?.external_verification_json??null):null,
