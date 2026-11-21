@@ -176,7 +176,7 @@ completed / list / rollback
 
 `memory_dreaming_prepare` 从当前 Workspace 已保存的 Session Transcript 读取 cursor 之后的消息。每次最多处理 160 条（默认 80 条）、证据包不超过 320 KB；单条消息最多 4,000 字符，先做常见密钥/Token 模式脱敏，再保存 source hash、session/message ID、消息类型和时间。超过单条上限时，证据正文会带 `[TRUNCATED]` 标记；Dreaming 必须先通过 `memory_search_history` 回查原始 Transcript，不能把预览片段当成完整证据。证据 ID 按 Run 生成，重试不会与已放弃 Run 的主键冲突。
 
-增量证据现在以 Session SQLite 的不可变 `session_message_revisions` 修订序号为主游标。每次新增或修改消息都会记录新的 revision、修改时间和 changeType；同一消息在一个批次内多次修订时只取最新快照。旧数据库首次升级时按旧的 `createdAt + sessionId + messageId` 游标过滤 baseline，避免重新整理已经处理过的历史消息。后续即使修改数周前的消息，也会进入新的证据批次。游标只在 Transcript Run 成功提交时前移，质量复查 Run 不会移动该游标。
+增量证据现在以 Session SQLite 的不可变 `session_message_revisions` 修订序号为主游标。每次新增或修改消息都会记录新的 revision、修改时间和 changeType；同一消息在一个批次内多次修订时只取最新快照。每条消息最多保留最近 12 个修订快照，已被 Dreaming 固化的旧证据则保留在独立的 Memory evidence 表中。旧数据库首次升级时按旧的 `createdAt + sessionId + messageId` 游标过滤 baseline，避免重新整理已经处理过的历史消息。后续即使修改数周前的消息，也会进入新的证据批次。游标只在 Transcript Run 成功提交时前移，质量复查 Run 不会移动该游标。
 
 **变更操作**
 
@@ -256,7 +256,7 @@ A2UI Catalog 和 Finance Chart options 都有组件、数据量和配置约束�
 6. Dreaming 现有 evidence manifest、不可变 Transcript revision、复合兼容游标、版本冲突检查、原子事务、实体/关系版本快照和最新 Run 回滚。旧 Session 数据会在首次打开时建立 baseline 修订记录；旧的已提交 Memory cursor 会继续作为 baseline 过滤依据。
 7. Memory Notes 有独立的质量复查 Run、来源映射、质量分数与最近复查时间；质量复查不推进 Transcript cursor，并支持审计和回滚。质量分数仍由模型根据来源证据判断，并非独立事实校验器。
 8. Workspace 自动 Dreaming 已接入现有主进程 Schedule 循环，默认关闭、按 Workspace 保存周期、仅在桌面应用运行时执行，并受全局与 Expert 工具权限约束；失败会退避重试，残留 prepared Run 不会被报告为成功。
-9. 尚未实现 PDF OCR、PDF 表格重建、Embedding/向量记忆，以及跨 Workspace 的个人长期记忆层。Transcript revision 日志目前没有独立的历史压缩/保留策略，长期高频改写会增加本地 SQLite 文件体积。
+9. 尚未实现 PDF OCR、PDF 表格重建、Embedding/向量记忆，以及跨 Workspace 的个人长期记忆层。Transcript revision 按每条消息保留最近 12 个快照；长期大量新增消息仍会自然增加本地 SQLite 文件体积，尚未实现跨 Workspace 的历史归档工具。
 10. `validated`、confidence 和 qualityScore 仍由模型根据来源证据作判断；当前没有强制来源等级、独立交叉来源门槛或外部事实校验器。
 11. 目前没有独立的 Memory Goal / Policy 配置；可以通过 Expert Prompt 提供领域目标，但还不能为不同 Workspace 设置结构化的记忆采集、保留和验证规则。知识页也没有完整的页面间链接、反向链接和孤儿页面自动检查。
 
