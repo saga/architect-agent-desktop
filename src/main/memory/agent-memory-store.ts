@@ -1401,6 +1401,11 @@ export class AgentMemoryStore {
       ...(row.source_revision==null?{}:{revision:Number(row.source_revision)})};
   }
   private toNote(row:Record<string,unknown>):AgentMemoryNote{
+    const externalVerification=parseJson<AgentMemoryExternalVerification|null>(row.external_verification_json,null);
+    if(externalVerification&&Array.isArray(externalVerification.sources)){
+      const domains=new Set(externalVerification.sources.map(source=>sourceRegistrableDomain(source.domain)));
+      externalVerification.status=domains.size>=2?"multi_domain_sources_recorded":"single_domain_sources_recorded";
+    }
     return {
       id:String(row.id),title:String(row.title),content:String(row.content),tags:parseJson<string[]>(row.tags_json,[]),
       validation:isValidation(row.validation)?(row.validation==="validated"&&!row.validation_evidence_json?"unverified":row.validation):"unverified",confidence:Number(row.confidence??0.5),pinned:Number(row.pinned??0)===1,
@@ -1415,7 +1420,7 @@ export class AgentMemoryStore {
       lastQualityReviewedAt:row.last_quality_reviewed_at==null?null:Number(row.last_quality_reviewed_at),
       claimType:isClaimType(row.claim_type)?row.claim_type:"unknown",
       validationEvidence:parseJson<MemoryValidationEvidence|null>(row.validation_evidence_json,null),
-      externalVerification:parseJson<AgentMemoryExternalVerification|null>(row.external_verification_json,null),
+      externalVerification,
     };
   }
   private toRepresentation(row:Record<string,unknown>):AgentMemoryRepresentation{
