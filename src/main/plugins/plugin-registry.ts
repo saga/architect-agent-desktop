@@ -245,8 +245,11 @@ function normalizeClaudePluginDirectory(root: string): PluginManifest {
 
 function readInternalManifest(root: string): PluginManifest | null {
   const internalPath = path.join(root, INTERNAL_MANIFEST);
+  const claudeManifestPath = path.join(root, ".claude-plugin", "plugin.json");
   const legacyPath = path.join(root, "manifest.json");
-  const manifestPath = existsSync(internalPath) ? internalPath : existsSync(legacyPath) ? legacyPath : null;
+  const manifestPath = existsSync(internalPath) ? internalPath
+    : existsSync(claudeManifestPath) ? null
+      : existsSync(legacyPath) ? legacyPath : null;
   if (!manifestPath) return null;
   const manifestStat = lstatSync(manifestPath);
   if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) throw new Error("插件 manifest 必须是普通文件。");
