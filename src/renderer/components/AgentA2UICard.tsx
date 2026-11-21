@@ -18,6 +18,7 @@ const catalog = {
     FinancialChart: { type: "object", properties: { label: { type: "string" }, height: { type: "number" }, option: { type: "object" } }, required: ["option"] },
     DataTable: { type: "object", properties: { columns: { type: "array" }, data: { type: "array" }, pageSize: { type: "number" } }, required: ["columns", "data"] },
     Divider: { type: "object", properties: { orientation: { enum: ["horizontal", "vertical"] } } },
+    Button: { type: "object", properties: { text: { type: "string" }, label: { type: "string" }, variant: { enum: ["default", "primary"] }, disabled: { type: "boolean" }, action: { type: "object" } }, required: ["action"] },
   },
 } as unknown as Catalog;
 
@@ -57,6 +58,13 @@ function DynamicChart(props: DynamicProps) {
   return <FinancialChart option={props.option} height={Number(props.height) || 360} label={props.label ? String(props.label) : undefined} />;
 }
 
+function ActionButton({ text, label, variant = "default", disabled, action, onAction }: DynamicProps) {
+  return <Button type={variant === "primary" ? "primary" : "default"} disabled={Boolean(disabled)}
+    onClick={() => typeof onAction === "function" && onAction(String(action?.event?.name ?? "agent_action"), {})}>
+    {String(text ?? label ?? "继续")}
+  </Button>;
+}
+
 function DynamicTable({ columns, data, pageSize = 8 }: DynamicProps) {
   if (!Array.isArray(columns) || !Array.isArray(data)) return <Alert type="warning" message="表格数据无效" />;
   const safeColumns = columns.slice(0, 30).filter(column => column && typeof column === "object").map((column, index) => ({
@@ -72,7 +80,7 @@ function DynamicTable({ columns, data, pageSize = 8 }: DynamicProps) {
 
 const components = {
   Column, Row, Card: DynamicCard, Text, Metric, FinancialChart: DynamicChart,
-  DataTable: DynamicTable, Divider: () => <Divider style={{ margin: "6px 0" }} />,
+  DataTable: DynamicTable, Divider: () => <Divider style={{ margin: "6px 0" }} />, Button: ActionButton,
 } as Record<string, (props: DynamicProps) => ReactNode>;
 
 interface AgentA2UICardProps {
