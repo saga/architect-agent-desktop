@@ -611,7 +611,50 @@ export class CopilotDesktopAgent {
  }
  private async sendCodeBuddy(prompt:string,history?:AgentChatMessage[]){
   const sdk=await import("@tencent-ai/agent-sdk");
-  const allHandlers=await this.handlers();
+  const handlers=await this.handlers();
+  const tools=handlers.map(({name,description,schema,handler})=>sdk.tool(name,description,schema.shape,async(input:any)=>{
+   const toolCallId=randomUUID();
+   this.recordTrace("tool.call",{name,input,toolCallId,source:"codebuddy-sdk"},"running");
+   try{
+    const result=await handler(input);
+    this.recordTrace("tool.result",{name,input,toolCallId,result:typeof result==="string"?result:result.text,source:"codebuddy-sdk"},"completed");
+    if(typeof result==="string")return{content:[{type:"text" as const,text:result}]};
+    const content:Array<{type:"text";text:string}|{type:"image";data:string;mimeType:string}>=[{type:"text",text:result.text}];
+    if(result.image)content.push({type:"image",data:result.image.data,mimeType:result.image.mimeType});
+    return{content};
+   }catch(error){
+    this.recordTrace("tool.failed",{name,input,toolCallId,error:error instanceof Error?error.message:String(error),source:"codebuddy-sdk"},"failed");
+    throw error;
+   }
+  }));
+  const server=sdk.createSdkMcpServer({name:"browser",tools});
+  const allowed=handlers.map(({name})=>"mcp__browser__"+name);
+  const builtinToolNames=["Agent","Read","Write","Edit","Bash","PowerShell","Glob","Grep","EnterPlanMode","ExitPlanMode","TaskCreate","TaskGet","TaskUpdate","TaskList","WebFetch","WebSearch","TaskStop","TaskOutput","AskUserQuestion","AskUserForStructuredInput","StructuredOutput","ToolSearch","DeferExecuteTool","SendMessage","SendUserMessage","TeamCreate","TeamDelete","NotebookEdit","LSP","ImageGen","ViewImage","LibraryUpload","VideoGen","AudioTranscribe","Artifact","ArtifactControl","EnterWorktree","LeaveWorktree","CronCreate","CronDelete","CronList","DelegateTool","WeChatReply","WeComReply","PushNotification","ReportFindings","ComputerUse","ListMcpResources","ReadMcpResource","WaitForMcpServers","Workflow","Monitor","REPL","A2AGetAgentCard","A2ASendMessage","A2AGetTask","A2ACancelTask","Skill","SkillManage","Component","Mods"];
+  const selectedModel=this.settings.codebuddyModel.trim();
+  const catalog=readCodeBuddyCatalog();
+  const model=catalog.find(item=>item.id===selectedModel);
+  const inspected=model?normalizeModelInfo("codebuddy",model):undefined;
+  const effort=inspected?.effortOptions?.includes(this.settings.thinkingLevel)?this.settings.thinkingLevel:undefined;
+  let cwd=this.workspacePath??codeBuddyWorkspace(), settingSources:("user"|"project"|"local")[]=[];
+  let runtimeConfigDir:string|undefined;
+  let cleanup:(()=>void)|undefined;
+  if(this.settings.contextWindow!==undefined){
+   const normalized=model?normalizeModelInfo("codebuddy",model):undefined;
+   const option=normalized?.contextWindowOptions?.find(item=>item.value===this.settings.contextWindow);
+   if(!option)throw new Error("当前 CodeBuddy 模型不支持所选 Context Window；请重新 Inspect 模型后选择有效档位。");
+   const temp=mkdtempSync(path.join(tmpdir(),"architect-agent-codebuddy-context-"));
+   const configDir=path.join(temp,".codebuddy");
+   try{
+    mkdirSync(configDir,{recursive:true});
+    const sourceFiles=[path.join(codeBuddyWorkspace(),".codebuddy","models.json"),path.join(homedir(),".codebuddy","models.json")];
+    for(const source of sourceFiles)if(existsSync(source)){writeFileSync(path.join(configDir,"models.json"),readFileSync(source),{mode:0o600});break;}
+    writeFileSync(path.join(configDir,"settings.json"),JSON.stringify({contextWindow:this.settings.contextWindow},null,2)+"\n",{encoding:"utf8",mode:0o600});
+   }catch(error){rmSync(temp,{recursive:true,force:true});throw error;}
+   if(this.workspacePath){runtimeConfigDir=configDir;settingSources=["user"];}else{cwd=temp;settingSources=["project"];}
+   cleanup=()=>rmSync(temp,{recursive:true,force:true});
+  }
+  const permission=this.effectivePermission();
+  const expertTools=this.taskContext?.tools??[];
   const READ_ONLY_BUILTINS=["Read","Glob","Grep","WebFetch","WebSearch","ListMcpResources","ReadMcpResource","ViewImage"];
   const expertBuiltinSelection = this.taskContext !== null && !this.taskContext.allowAllTools
     ? [
@@ -636,16 +679,16 @@ export class CopilotDesktopAgent {
     systemPrompt:{append:[systemPrompt]},
     cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})},settingSources,persistSession:false,maxTurns:12,
     mcpServers:{browser:server,...configuredMcpServers},
-    ...(permission==="allow-all" && !allowedBuiltinTools ? {} : {allowedTools:permission==="none" ? [] : allowed}),
+    ...(permission==="allow-all" && allowedBuiltinTools === null ? {} : {allowedTools:permission==="none" ? [] : allowed}),
     ...(permission==="none"
       ? {permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}
       : permission==="browser-only"
         ? {permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}
-      : permission==="assisted"
-        ? {permissionMode:"default" as const,tools:allowedBuiltinTools??READ_ONLY_BUILTINS,disallowedTools:disallowedBuiltinTools,allowedTools:[...allowed,...(allowedBuiltinTools??READ_ONLY_BUILTINS)]}
-        : allowedBuiltinTools
-          ? {permissionMode:"bypassPermissions" as const,tools:allowedBuiltinTools,disallowedTools:disallowedBuiltinTools,allowedTools:[...allowed,...allowedBuiltinTools]}
-          : {permissionMode:"bypassPermissions" as const}),
+        : permission==="assisted"
+          ? {permissionMode:"default" as const,tools:allowedBuiltinTools??READ_ONLY_BUILTINS,disallowedTools:disallowedBuiltinTools,allowedTools:[...allowed,...(allowedBuiltinTools??READ_ONLY_BUILTINS)]}
+          : allowedBuiltinTools !== null
+            ? {permissionMode:"bypassPermissions" as const,tools:allowedBuiltinTools,disallowedTools:disallowedBuiltinTools,allowedTools:[...allowed,...allowedBuiltinTools]}
+            : {permissionMode:"bypassPermissions" as const}),
   };
   const abortController=new AbortController();
   this.codeBuddyAbortController=abortController;
