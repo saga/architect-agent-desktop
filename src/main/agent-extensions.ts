@@ -1,4 +1,6 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { inflateRawSync } from "node:zlib";
 import path from "node:path";
 import { z } from "zod";
 import type { AgentSkillSummary, McpServerConfig } from "../shared/types";
@@ -126,13 +128,22 @@ function parseSkillMarkdown(markdown: string): { id: string; name: string; descr
   return { id: name, name, description };
 }
 
+function resolveSkillMarkdownPath(root: string): string {
+  const candidates = readdirSync(root, { withFileTypes: true })
+    .filter(entry => entry.isFile() && (entry.name === "SKILL.md" || entry.name === "skill.md"));
+  if (candidates.length === 0) throw new Error("Skill 目录必须包含 SKILL.md 或 skill.md。");
+  if (candidates.length > 1) throw new Error("Skill 目录不能同时包含 SKILL.md 和 skill.md。");
+  const skillFile = path.join(root, candidates[0]!.name);
+  const stat = lstatSync(skillFile);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Skill Markdown 必须是普通文件。");
+  return skillFile;
+}
+
 function readSkill(root: string): Omit<AgentSkillSummary, "enabled"> {
   assertSafeSkillTree(root);
-  const skillFile = path.join(root, "SKILL.md");
-  const stat = lstatSync(skillFile);
-  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Skill 目录必须包含普通文件 SKILL.md。");
+  const skillFile = resolveSkillMarkdownPath(root);
   const markdown = readFileSync(skillFile, "utf8");
-  if (markdown.length > MAX_SKILL_FILE_BYTES) throw new Error("SKILL.md 超过大小限制。");
+  if (Buffer.byteLength(markdown, "utf8") > MAX_SKILL_FILE_BYTES) throw new Error("Skill Markdown 超过 2 MB。");
   return parseSkillMarkdown(markdown);
 }
 
@@ -203,13 +214,152 @@ export function removeAgentSkill(id: string, root: string, registryFile: string)
   return listAgentSkills(root, registryFile);
 }
 
+
+
+const MAX_SKILL_ARCHIVE_BYTES = 20 * 1024 * 1024;
+const MAX_SKILL_ARCHIVE_ENTRIES = 256;
+
+function crc32(data: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of data) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+interface ZipSkillEntry { name: string; data: Buffer; directory: boolean; }
+
+function readSkillZipEntries(archive: Buffer): ZipSkillEntry[] {
+  if (archive.length < 22 || archive.length > MAX_SKILL_ARCHIVE_BYTES) throw new Error("Skill ZIP 文件大小无效（最大 20 MB）。");
+  const minimum = Math.max(0, archive.length - 22 - 65_535);
+  let endOffset = -1;
+  for (let offset = archive.length - 22; offset >= minimum; offset--) {
+    if (archive.readUInt32LE(offset) === 0x06054b50) { endOffset = offset; break; }
+  }
+  if (endOffset < 0) throw new Error("不是有效的 ZIP 文件（缺少中央目录结束标记）。");
+  const diskNumber = archive.readUInt16LE(endOffset + 4);
+  const centralDisk = archive.readUInt16LE(endOffset + 6);
+  const entriesOnDisk = archive.readUInt16LE(endOffset + 8);
+  const entryCount = archive.readUInt16LE(endOffset + 10);
+  const centralSize = archive.readUInt32LE(endOffset + 12);
+  const centralOffset = archive.readUInt32LE(endOffset + 16);
+  const commentLength = archive.readUInt16LE(endOffset + 20);
+  if (diskNumber !== 0 || centralDisk !== 0 || entriesOnDisk !== entryCount) throw new Error("不支持跨多个磁盘的 ZIP 文件。");
+  if (entryCount === 0xffff || centralSize === 0xffffffff || centralOffset === 0xffffffff) throw new Error("暂不支持 ZIP64 格式，请使用普通 ZIP 文件。");
+  if (entryCount < 1 || entryCount > MAX_SKILL_ARCHIVE_ENTRIES) throw new Error("Skill ZIP 文件数量超出限制。");
+  if (endOffset + 22 + commentLength > archive.length || centralOffset + centralSize > endOffset) throw new Error("ZIP 中央目录位置无效。");
+
+  const entries: ZipSkillEntry[] = [];
+  const seen = new Set<string>();
+  let cursor = centralOffset;
+  let totalUncompressed = 0;
+  for (let index = 0; index < entryCount; index++) {
+    if (cursor + 46 > archive.length || archive.readUInt32LE(cursor) !== 0x02014b50) throw new Error("ZIP 中央目录条目损坏。");
+    const flags = archive.readUInt16LE(cursor + 8);
+    const method = archive.readUInt16LE(cursor + 10);
+    const checksum = archive.readUInt32LE(cursor + 16);
+    const compressedSize = archive.readUInt32LE(cursor + 20);
+    const uncompressedSize = archive.readUInt32LE(cursor + 24);
+    const nameLength = archive.readUInt16LE(cursor + 28);
+    const extraLength = archive.readUInt16LE(cursor + 30);
+    const entryCommentLength = archive.readUInt16LE(cursor + 32);
+    const startDisk = archive.readUInt16LE(cursor + 34);
+    const externalAttributes = archive.readUInt32LE(cursor + 38);
+    const localOffset = archive.readUInt32LE(cursor + 42);
+    const end = cursor + 46 + nameLength + extraLength + entryCommentLength;
+    if (end > archive.length || startDisk !== 0) throw new Error("ZIP 条目边界无效。");
+    if ((flags & 0x0001) !== 0 || (flags & 0x0040) !== 0) throw new Error("不支持加密的 Skill ZIP。");
+    if (method !== 0 && method !== 8) throw new Error("Skill ZIP 仅支持 STORE 和 DEFLATE 压缩方式。");
+    if (compressedSize > MAX_SKILL_ARCHIVE_BYTES || uncompressedSize > MAX_SKILL_PACKAGE_BYTES) throw new Error("Skill ZIP 条目超过大小限制。");
+    totalUncompressed += uncompressedSize;
+    if (totalUncompressed > MAX_SKILL_PACKAGE_BYTES) throw new Error("Skill ZIP 解压后总大小不能超过 20 MB。");
+
+    const nameBytes = archive.subarray(cursor + 46, cursor + 46 + nameLength);
+    const decodedName = new TextDecoder("utf-8", { fatal: true }).decode(nameBytes);
+    const name = decodedName.replace(/\\/g, "/");
+    if (!name || name.includes("\0") || name.startsWith("/") || /^[a-zA-Z]:/.test(name)) throw new Error("Skill ZIP 包含无效路径。");
+    const parts = name.split("/").filter((part, partIndex, all) => !(partIndex === all.length - 1 && part === ""));
+    if (parts.length === 0 || parts.some(part => part === "." || part === ".." || part === "")) throw new Error("Skill ZIP 包含路径穿越条目。");
+    if (seen.has(name)) throw new Error("Skill ZIP 包含重复文件：" + name);
+    seen.add(name);
+    if (parts[0] === "__MACOSX" || parts.some(part => part.startsWith("._"))) {
+      cursor = end;
+      continue;
+    }
+
+    const mode = externalAttributes >>> 16;
+    const fileType = mode & 0o170000;
+    const directory = name.endsWith("/") || fileType === 0o040000;
+    if (fileType === 0o120000 || (fileType !== 0 && fileType !== 0o040000 && fileType !== 0o100000)) {
+      throw new Error("Skill ZIP 不能包含符号链接或特殊文件：" + name);
+    }
+    if (directory) {
+      entries.push({ name: parts.join("/") + "/", data: Buffer.alloc(0), directory: true });
+    } else {
+      if (localOffset + 30 > archive.length || archive.readUInt32LE(localOffset) !== 0x04034b50) throw new Error("ZIP 本地文件头无效：" + name);
+      const localNameLength = archive.readUInt16LE(localOffset + 26);
+      const localExtraLength = archive.readUInt16LE(localOffset + 28);
+      const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
+      const dataEnd = dataOffset + compressedSize;
+      if (dataEnd > archive.length) throw new Error("ZIP 文件数据被截断：" + name);
+      const compressed = archive.subarray(dataOffset, dataEnd);
+      let data: Buffer;
+      try {
+        data = method === 0
+          ? Buffer.from(compressed)
+          : inflateRawSync(compressed, { maxOutputLength: MAX_SKILL_FILE_BYTES });
+      } catch { throw new Error("无法解压 Skill ZIP 文件：" + name); }
+      if (data.length !== uncompressedSize || crc32(data) !== checksum) throw new Error("Skill ZIP 文件校验失败：" + name);
+      if (data.length > MAX_SKILL_FILE_BYTES) throw new Error("Skill 文件超过 2 MB：" + name);
+      entries.push({ name: parts.join("/"), data, directory: false });
+    }
+    cursor = end;
+  }
+  if (cursor !== centralOffset + centralSize) throw new Error("ZIP 中央目录长度不匹配。");
+  return entries;
+}
+
+export function importAgentSkillArchive(archiveFile: string, root: string, registryFile: string): AgentSkillSummary {
+  const archive = readFileSync(archiveFile);
+  const entries = readSkillZipEntries(archive);
+  const roots = new Set(entries.map(entry => entry.name.split("/")[0]).filter(Boolean));
+  if (roots.size !== 1) throw new Error("Claude Desktop Skill ZIP 必须只包含一个顶层 Skill 文件夹。");
+  const folderName = [...roots][0]!;
+  const files = entries.filter(entry => !entry.directory);
+  if (!files.length || files.some(entry => !entry.name.startsWith(folderName + "/"))) {
+    throw new Error("Skill ZIP 必须将 Skill 文件放在一个独立文件夹中，不能直接放在 ZIP 根目录。");
+  }
+
+  mkdirSync(root, { recursive: true });
+  const staging = mkdtempSync(path.join(root, ".skill-zip-" + randomUUID() + "-"));
+  try {
+    for (const entry of entries) {
+      if (entry.directory) continue;
+      const relative = entry.name.slice(folderName.length + 1);
+      if (!relative || relative.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Skill ZIP 内部路径无效。");
+      const destination = path.resolve(staging, folderName, relative);
+      const boundary = path.resolve(staging) + path.sep;
+      if (!destination.startsWith(boundary)) throw new Error("Skill ZIP 包含路径穿越条目。");
+      mkdirSync(path.dirname(destination), { recursive: true });
+      writeFileSync(destination, entry.data, { flag: "wx", mode: 0o600 });
+    }
+    const extracted = path.join(staging, folderName);
+    const skill = readSkill(extracted);
+    if (folderName !== skill.id) throw new Error("ZIP 顶层文件夹名称必须与 SKILL.md 的 name 相同（" + skill.id + "）。");
+    return importAgentSkill(extracted, root, registryFile);
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
+}
+
 export function readEnabledAgentSkillInstructions(root: string, registryFile: string): string {
   let remaining = MAX_SKILL_CONTEXT_BYTES;
   const chunks: string[] = [];
   for (const skill of listAgentSkills(root, registryFile).filter(item => item.enabled)) {
     if (remaining <= 0) break;
     try {
-      const markdown = readFileSync(path.join(root, skill.id, "SKILL.md"), "utf8");
+      const markdown = readFileSync(resolveSkillMarkdownPath(path.join(root, skill.id)), "utf8");
       const content = markdown.replace(/^---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/, "").trim();
       if (!content) continue;
       const chunk = "### " + skill.name + "\n" + content.slice(0, Math.min(20_000, remaining));
