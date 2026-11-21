@@ -17,7 +17,6 @@ function makeClaudePlugin(root: string, name = "research-toolkit"): string {
   mkdirSync(path.join(directory, "skills", "research"), { recursive: true });
   writeFileSync(path.join(directory, ".claude-plugin", "plugin.json"), JSON.stringify({
     name,
-    displayName: "Research Toolkit",
     version: "1.0.0",
     description: "Research tools for Claude Code",
   }));
