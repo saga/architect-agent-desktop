@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button, Empty, Input, Tabs, Tooltip, message } from "antd";
 import { ArrowLeftOutlined, ArrowRightOutlined, FileOutlined, FolderOpenOutlined, GlobalOutlined, ReloadOutlined } from "@ant-design/icons";
 import XMarkdown from "@ant-design/x-markdown";
 import { markdownComponents } from "./MarkdownLink";
 import AgentA2UICard from "./components/AgentA2UICard";
 import A2UIV1Canvas from "./a2ui/A2UIV1Canvas";
-import type { RendererToAgentMessage } from "@a2ui/agent";
+import type { RendererToAgentMessage } from "./a2ui/A2UIV1Canvas";
 import type { AgentSessionItem, AgentWorkspaceRightTab, AgentWorkspaceSnapshot, BrowserState } from "../shared/types";
 
 interface PureAgentRightPanelProps {
