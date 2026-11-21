@@ -2410,16 +2410,6 @@ function registerIpcHandlers(): void {
     const task = taskForId(parsed.data.taskId);
     await copilotAgent.registerA2UISurfaces(task.sessionId, parsed.data.surfaceIds);
   });
-  ipcMain.handle("agent:a2ui-register-surfaces", async (event, input: unknown) => {
-    assertTrustedSender(event);
-    const parsed = z.object({
-      taskId: z.string().min(1).max(100),
-      surfaceIds: z.array(z.string().min(1).max(120)).max(100),
-    }).safeParse(input);
-    if (!parsed.success) throw new Error("Invalid A2UI Surface registration.");
-    const task = taskForId(parsed.data.taskId);
-    await copilotAgent.registerA2UISurfaces(task.sessionId, parsed.data.surfaceIds);
-  });
   ipcMain.handle("agent:a2ui-message", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后提交新的 Agent 请求。");
