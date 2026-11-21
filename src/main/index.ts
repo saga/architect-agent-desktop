@@ -1148,7 +1148,6 @@ function installApplicationMenu(): void {
     {
       label: "视图",
       submenu: [
-        { type: "separator" },
         { role: "togglefullscreen" },
       ],
     },
