@@ -287,13 +287,18 @@ describe("AgentMemoryStore", () => {
       }],
     }).createdNoteIds[0]!;
     const cursorBefore = store.getDreamCursor("/workspace/quality-review");
-    const candidates = store.listQualityReviewCandidates("/workspace/quality-review", 10, Date.now());
+    const qualityAsOf = Date.now() + 45 * 24 * 60 * 60 * 1000;
+    const candidates = store.listQualityReviewCandidates("/workspace/quality-review", 10, qualityAsOf);
     expect(candidates.map(item => item.id)).toContain(note);
 
-    const reviewRun = store.prepareQualityReview("/workspace/quality-review", 10, Date.now());
+    const reviewRun = store.prepareQualityReview("/workspace/quality-review", 10, qualityAsOf);
     expect(reviewRun?.purpose).toBe("quality_review");
     expect(reviewRun?.evidence.length).toBeGreaterThan(0);
     expect(store.getDreamCursor("/workspace/quality-review")).toEqual(cursorBefore);
+    const mappedCandidates = store.listQualityReviewCandidatesForRun("/workspace/quality-review", reviewRun!.id);
+    const mapped = mappedCandidates.find(item => item.id === note);
+    expect(mapped).toBeDefined();
+    expect(mapped?.qualityReviewSourceRefs).toContain(reviewRun!.evidence[0]!.sourceId);
     const currentNote = store.getNote(note, "/workspace/quality-review")!;
     const result = store.commitDreaming({
       scope: "/workspace/quality-review",
