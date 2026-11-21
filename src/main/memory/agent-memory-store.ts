@@ -459,7 +459,7 @@ export class AgentMemoryStore {
     const combined=[...rowsById.values()].map(row=>{
       const id=String(row.id),lexical=lexicalRank.get(id),semanticScore=semanticScores.get(id);
       const lexicalScore=lexical===undefined?0:Math.max(0.55,1-lexical/Math.max(candidateLimit,1)*0.35);
-      const vectorScore=semanticScore===undefined?0:Math.max(0,(semanticScore+1)/2);
+      const vectorScore=semanticScore===undefined?0:Math.max(0,Math.min(1,(semanticScore-0.15)/0.85));
       const score=semantic?Math.max(lexicalScore,vectorScore*0.82):lexicalScore;
       return {row,score,scopeRank:String(row.scope_key)===workspaceKey?0:1};
     });
