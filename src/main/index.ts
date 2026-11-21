@@ -2425,7 +2425,7 @@ function registerIpcHandlers(): void {
       const traceId = randomUUID();
       activeAgentTraceId = traceId;
       copilotAgent.setMemoryContext(task.sessionId, traceId);
-      recordTaskTrace(task, "a2ui.renderer.action", { message: parsed.data.message }, "received");
+      recordTaskTrace(task, "a2ui.renderer.action", { message: parsed.data.message });
       await copilotAgent.handleA2UIRendererMessage(parsed.data.message, history);
       task.updatedAt = Date.now();
       persistAgentTasks();
