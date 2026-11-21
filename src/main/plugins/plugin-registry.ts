@@ -91,7 +91,7 @@ function assertSafeTree(root: string): number {
 function resolvePluginEntry(root: string, relativePath: string): string {
   const target = path.resolve(root, ...relativePath.split("/"));
   const relative = path.relative(root, target);
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("插件资源路径越界：" + relativePath);
+  if ((!relative && relativePath !== ".") || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("插件资源路径越界：" + relativePath);
   const stat = lstatSync(target);
   if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) throw new Error("插件资源必须是普通文件或目录：" + relativePath);
   return target;
@@ -116,7 +116,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function normalizeClaudePath(value: string): string {
-  const normalized = value.startsWith("./") ? value.slice(2) : value;
+  const withoutPrefix = value.startsWith("./") ? value.slice(2) : value;
+  const normalized = withoutPrefix.replace(/\/+$/, "");
+  if (!normalized || normalized === ".") return ".";
   return resourcePath.parse(normalized);
 }
 
@@ -158,12 +160,15 @@ function collectMarkdownFiles(root: string, entryPath: string, kind: "skill" | "
 
 function normalizeClaudePluginDirectory(root: string): PluginManifest {
   const pluginJsonPath = path.join(root, ".claude-plugin", "plugin.json");
-  const pluginJsonStat = lstatSync(pluginJsonPath);
-  if (!pluginJsonStat.isFile() || pluginJsonStat.isSymbolicLink()) throw new Error("Claude Plugin 缺少普通文件 .claude-plugin/plugin.json。");
-  const raw = parseJsonFile(pluginJsonPath, "Claude Plugin manifest");
-  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  let raw: Record<string, unknown> = {};
+  if (existsSync(pluginJsonPath)) {
+    const pluginJsonStat = lstatSync(pluginJsonPath);
+    if (!pluginJsonStat.isFile() || pluginJsonStat.isSymbolicLink()) throw new Error("Claude Plugin manifest 必须是普通文件。");
+    raw = parseJsonFile(pluginJsonPath, "Claude Plugin manifest");
+  }
+  const name = typeof raw.name === "string" ? raw.name.trim() : path.basename(root);
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name.length > 100) {
-    throw new Error("Claude Plugin 的 name 必须是 1–100 个字符的小写 kebab-case 标识。");
+    throw new Error("Claude Plugin 的 name 必须是 1–100 个字符的小写 kebab-case 标识；没有 plugin.json 时使用目录名。");
   }
   const displayName = typeof raw.displayName === "string" && raw.displayName.trim() ? raw.displayName.trim() : name;
   const version = typeof raw.version === "string" && raw.version.trim() ? raw.version.trim().slice(0, 100) : "0.0.0";
