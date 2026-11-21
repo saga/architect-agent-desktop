@@ -70,7 +70,8 @@ export interface AgentSessionItem {
 }
 
 export type AgentWorkspaceMode = "sidepanel" | "pure";
-export type AgentScheduleRepeat = "none" | "daily" | "weekly";
+export type AgentScheduleRepeat = "none" | "interval" | "daily" | "weekly" | "biweekly" | "monthly" | "yearly";
+export type AgentScheduleRunStatus = "running" | "success" | "error";
 export type AgentWorkspaceRightTab = "browser" | "files" | "results";
 export interface AgentTask {
   id: string;
@@ -105,12 +106,31 @@ export interface AgentSchedule {
   expertId: string | null;
   runAt: string;
   repeat: AgentScheduleRepeat;
+  intervalMinutes?: number;
+  weekdays?: number[];
+  monthDays?: number[];
+  endsAt?: string | null;
   enabled: boolean;
   lastRunAt?: number;
   lastRunStatus?: "success" | "error";
+  lastRunId?: string;
   lastError?: string;
   createdAt: number;
   updatedAt: number;
+}
+export interface AgentScheduleRun {
+  id: string;
+  scheduleId: string;
+  scheduleTitle: string;
+  trigger: "scheduled" | "manual";
+  scheduledAt: string;
+  taskId: string | null;
+  startedAt: number;
+  finishedAt?: number;
+  durationMs?: number;
+  status: AgentScheduleRunStatus;
+  resultPreview?: string;
+  error?: string;
 }
 export interface AgentWorkspacePreferences {
   mode: AgentWorkspaceMode;
@@ -125,6 +145,7 @@ export interface AgentWorkspaceSnapshot {
   workspaces: AgentWorkspaceSummary[];
   experts: AgentExpert[];
   schedules: AgentSchedule[];
+  scheduleRuns: AgentScheduleRun[];
   preferences: AgentWorkspacePreferences;
 }
 
@@ -156,6 +177,7 @@ export interface BrowserApi {
   deleteAgentExpert(id: string): Promise<AgentExpert[]>;
   saveAgentSchedule(schedule: Omit<AgentSchedule, "createdAt" | "updatedAt"> & Partial<Pick<AgentSchedule, "createdAt" | "updatedAt">>): Promise<AgentSchedule[]>;
   deleteAgentSchedule(id: string): Promise<AgentSchedule[]>;
+  runAgentScheduleNow(id: string): Promise<void>;
   saveAgentWorkspacePreferences(preferences: AgentWorkspacePreferences): Promise<AgentWorkspacePreferences>;
   getWorkspaceLayout(): Promise<WorkspaceLayoutState>;
   saveWorkspaceLayout(layout: WorkspaceLayoutState): Promise<WorkspaceLayoutState>;
