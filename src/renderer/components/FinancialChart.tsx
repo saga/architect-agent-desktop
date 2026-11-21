@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as echarts from "echarts/core";
-import type { EChartsOption, EChartsType } from "echarts/core";
+import type { EChartsOption } from "echarts";
 import {
   BarChart, CandlestickChart, LineChart, PieChart, ScatterChart,
 } from "echarts/charts";
@@ -25,12 +25,19 @@ export interface FinancialChartProps {
 function sanitizeOption(value: EChartsOption | Record<string, unknown>): EChartsOption {
   const serialized = JSON.stringify(value);
   if (serialized.length > 50_000) throw new Error("图表配置超过 50 KB。");
-  return JSON.parse(serialized) as EChartsOption;
+  const parsed = JSON.parse(serialized) as EChartsOption;
+  const escapeText = (input: unknown): unknown => {
+    if (typeof input === "string") return input.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    if (Array.isArray(input)) return input.map(escapeText);
+    if (input && typeof input === "object") return Object.fromEntries(Object.entries(input).map(([key, item]) => [key, escapeText(item)]));
+    return input;
+  };
+  return escapeText(parsed) as EChartsOption;
 }
 
 export default function FinancialChart({ option, height = 360, label }: FinancialChartProps) {
   const elementRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<EChartsType | null>(null);
+  const chartRef = useRef<ReturnType<typeof echarts.init> | null>(null);
   const safeOption = useMemo(() => sanitizeOption(option), [option]);
   const chartHeight = Math.max(220, Math.min(760, Number.isFinite(height) ? height : 360));
 
