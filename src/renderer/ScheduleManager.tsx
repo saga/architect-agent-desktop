@@ -124,6 +124,11 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
   const [monthDays, setMonthDays] = useState<number[]>([]);
   const [endsOn, setEndsOn] = useState("");
 
+  const runningScheduleIds = useMemo(
+    () => new Set(snapshot.scheduleRuns.filter(run => run.status === "running").map(run => run.scheduleId)),
+    [snapshot.scheduleRuns],
+  );
+
   const filteredSchedules = useMemo(() => snapshot.schedules.filter(schedule => {
     if (scheduleFilter === "enabled" && !schedule.enabled) return false;
     if (scheduleFilter === "paused" && schedule.enabled) return false;
@@ -392,8 +397,8 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
             <div className="pure-schedule-main">
               <div className="pure-schedule-title-row">
                 <strong>{schedule.title}</strong>
-                <Tag color={!schedule.enabled ? "default" : schedule.lastRunStatus === "error" ? "error" : "success"}>
-                  {!schedule.enabled ? "已暂停" : schedule.lastRunStatus === "error" ? "上次失败" : "已启用"}
+                <Tag color={runningScheduleIds.has(schedule.id) ? "processing" : !schedule.enabled ? "default" : schedule.lastRunStatus === "error" ? "error" : "success"}>
+                  {runningScheduleIds.has(schedule.id) ? "运行中" : !schedule.enabled ? "已暂停" : schedule.lastRunStatus === "error" ? "上次失败" : "已启用"}
                 </Tag>
               </div>
               <p>{schedule.prompt}</p>
@@ -408,7 +413,7 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
             </div>
             <div className="pure-schedule-actions">
               <Button size="small" icon={<PlayCircleOutlined />} loading={runningId === schedule.id}
-                disabled={Boolean(runningId && runningId !== schedule.id)} onClick={() => void runNow(schedule)}>立即运行</Button>
+                disabled={runningScheduleIds.has(schedule.id) || Boolean(runningId && runningId !== schedule.id)} onClick={() => void runNow(schedule)}>立即运行</Button>
               <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(schedule)}>编辑</Button>
               <Button size="small" onClick={() => void updateEnabled(schedule, !schedule.enabled)}>{schedule.enabled ? "暂停" : "启用"}</Button>
               <Popconfirm title="删除这个定时任务？" description="已有运行记录和执行结果会保留。" okText="删除" cancelText="取消" onConfirm={() => void remove(schedule)}>
