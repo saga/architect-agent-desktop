@@ -404,7 +404,7 @@ export class AgentMemoryStore {
     try{
       this.database.prepare(
         "INSERT INTO memory_dream_runs(id,scope_key,status,summary,source_count,created_at,started_at,completed_at,max_source_created_at,cursor_before_created_at,cursor_before_session_id,cursor_before_message_id,cursor_after_session_id,cursor_after_message_id,evidence_manifest_json,rollback_reason,operation_count) "+
-        "VALUES(?,?,'prepared','',?,?,?,NULL,?,?,?,?,?,?,?,?,NULL,0)"
+        "VALUES(?,?,'prepared','',?,?,?,NULL,?,?,?,?,?,?,?,NULL,0)"
       ).run({}, id,key,sources.length,now,now,maxSourceCreatedAt,cursor.createdAt,cursor.sessionId,cursor.messageId,cursorAfter.sessionId,cursorAfter.messageId,JSON.stringify(sources.map(source=>source.sourceId)));
       const insert=this.database.prepare("INSERT INTO memory_dream_sources(source_id,run_id,session_id,message_id,kind,content,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?)");
       for(const source of sources)insert.run({}, source.sourceId,id,source.sessionId,source.messageId,source.kind,source.content,source.contentHash,source.createdAt);
