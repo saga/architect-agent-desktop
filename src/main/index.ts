@@ -19,6 +19,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AGENT_TOOL_IDS, CopilotDesktopAgent } from "./copilot";
 import { AgentTraceStore } from "./agent-trace-store";
+import { normalizeLocalEmbeddingConfig } from "./memory/local-embedding-service.js";
 import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import path from "node:path";
 import { isTrustedAppUrl } from "./app-url-policy";
@@ -272,7 +273,37 @@ function loadWorkspaceDocument(): WorkspaceDocument {
 let workspaceDocument = loadWorkspaceDocument();
 const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", toolPermission: "none", memoryEmbeddingProvider: "disabled", memoryEmbeddingBaseUrl: "http://127.0.0.1:11434", memoryEmbeddingModel: "nomic-embed-text", systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt." };
 function loadAgentSettings(): AgentSettings {
-  try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings> & { toolPermissionModelVersion?: number }; const hasExplicitPermissionModel = raw.toolPermissionModelVersion === 2; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" || raw.thinkingLevel === "xhigh" ? raw.thinkingLevel : "medium", toolPermission: hasExplicitPermissionModel && (raw.toolPermission === "none" || raw.toolPermission === "browser-only" || raw.toolPermission === "assisted" || raw.toolPermission === "allow-all") ? raw.toolPermission : "none", contextWindow: typeof raw.contextWindow === "number" && Number.isSafeInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined, copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? (raw.systemPrompt.trim() ? raw.systemPrompt.slice(0, 12000) : DEFAULT_SETTINGS.systemPrompt) : DEFAULT_SETTINGS.systemPrompt, memoryEmbeddingProvider: raw.memoryEmbeddingProvider === "ollama" ? "ollama" : "disabled", memoryEmbeddingBaseUrl: typeof raw.memoryEmbeddingBaseUrl === "string" ? raw.memoryEmbeddingBaseUrl.slice(0, 300) : DEFAULT_SETTINGS.memoryEmbeddingBaseUrl, memoryEmbeddingModel: typeof raw.memoryEmbeddingModel === "string" ? raw.memoryEmbeddingModel.slice(0, 120) : DEFAULT_SETTINGS.memoryEmbeddingModel }; } catch { return { ...DEFAULT_SETTINGS }; }
+  try {
+    const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings> & { toolPermissionModelVersion?: number };
+    const hasExplicitPermissionModel = raw.toolPermissionModelVersion === 2;
+    let embedding = DEFAULT_SETTINGS;
+    try {
+      const normalized = normalizeLocalEmbeddingConfig({
+        provider: raw.memoryEmbeddingProvider,
+        baseUrl: raw.memoryEmbeddingBaseUrl,
+        model: raw.memoryEmbeddingModel,
+      });
+      embedding = { ...DEFAULT_SETTINGS, memoryEmbeddingProvider: normalized.provider, memoryEmbeddingBaseUrl: normalized.baseUrl, memoryEmbeddingModel: normalized.model };
+    } catch {
+      recordOperation("memory-embedding", "invalid saved local embedding settings; semantic retrieval disabled");
+    }
+    return {
+      ...DEFAULT_SETTINGS,
+      ...raw,
+      provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot",
+      thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" || raw.thinkingLevel === "xhigh" ? raw.thinkingLevel : "medium",
+      toolPermission: hasExplicitPermissionModel && (raw.toolPermission === "none" || raw.toolPermission === "browser-only" || raw.toolPermission === "assisted" || raw.toolPermission === "allow-all") ? raw.toolPermission : "none",
+      contextWindow: typeof raw.contextWindow === "number" && Number.isSafeInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined,
+      copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "",
+      codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "",
+      systemPrompt: typeof raw.systemPrompt === "string" ? (raw.systemPrompt.trim() ? raw.systemPrompt.slice(0, 12000) : DEFAULT_SETTINGS.systemPrompt) : DEFAULT_SETTINGS.systemPrompt,
+      memoryEmbeddingProvider: embedding.memoryEmbeddingProvider,
+      memoryEmbeddingBaseUrl: embedding.memoryEmbeddingBaseUrl,
+      memoryEmbeddingModel: embedding.memoryEmbeddingModel,
+    };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
 }
 function taskForId(taskId?: string): AgentTask {
   const task = agentTasks.find(item => item.id === (taskId ?? activeAgentTaskId));
