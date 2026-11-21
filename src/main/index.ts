@@ -1634,36 +1634,44 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
     const startedAt = Date.now();
     const runId = randomUUID();
     let failure = "";
+    let skipped = false;
     try {
       await activateAgentTask(eligibleTask.id, false, true);
       activeAgentTraceId = runId;
       copilotAgent.setMemoryContext(eligibleTask.sessionId, runId);
       scheduledCapture = { taskId: eligibleTask.id, answer: "" };
+      const maintenance = copilotAgent.getMemoryMaintenanceStatus(schedule.scope);
       recordTaskTrace(eligibleTask, "memory.dreaming.schedule.started", {
-        runId, workspacePath: schedule.scope, intervalMinutes: schedule.intervalMinutes,
+        runId, workspacePath: schedule.scope, intervalMinutes: schedule.intervalMinutes, maintenance,
       });
-      const prompt = [
-        "执行当前 Workspace 的自动 Memory Dreaming 维护。这是后台维护任务，不要把本次维护对话或工具执行日志沉淀为长期知识。",
-        "第一步调用 memory_dreaming_list_runs，检查是否存在 prepared Run。如果存在，先用 memory_dreaming_get_run 读取并继续该 Run；不要创建第二个 Run。没有待处理 Run 时才调用 memory_dreaming_prepare。",
-        "对于 transcript Run：读取固定 evidence，检查 Notes、知识页与关系；对重要旧 Note 使用 memory_read_source 追溯历史 sourceRefs，必要时用 memory_search_history 搜索完整历史。所有 [TRUNCATED] 内容都只是预览，必须回查原始 Transcript。识别新事实、业务定义、用户明确偏好、成功流程、反复失败、已解决问题与冲突。更新必须带 baseVersion，每项操作引用当前 Run 的 sourceId 和 reason。无须变化时提交 operations=[]。成功后读取审计结果。",
-        "完成 transcript Run 后，再调用 memory_quality_review_prepare。若有到期候选，调用 memory_quality_review_list({runId})，只处理该 Run 返回的候选 Note；使用每条记录的 qualityReviewSourceRefs 作为 review_note.sourceRefs，不能使用旧 Run 的 sourceRefs。若没有任何候选映射，调用 memory_dreaming_abandon 放弃该质量复查 Run。提交当前 baseVersion、confidence 和 qualityScore（0–1）。质量评分考虑来源可靠性、直接性、清晰程度、时效性和交叉印证；不得因为旧 Note 标记为 validated 就自动信任，也不得在证据不足时提升为 validated。证据不再适用时标 disputed，无法重新确认时保留 unverified。每个复查 Run 成功提交并读取审计结果。",
-        "最后调用 memory_prune_expired 清理已过期且未置顶的 Note。不得归档置顶或唯一知识，不得删除原始 Transcript。任何版本冲突都应停止该项更新并报告，不允许覆盖新版本。"
-      ].join("\\n\\n");
-      await copilotAgent.send(prompt, []);
-      const toolResults = agentTraceStore.query({ traceId: runId, type: "tool.result", limit: 1000 });
-      const completedTools = new Set(toolResults.flatMap(event => {
-        const data = event.data && typeof event.data === "object" ? event.data as Record<string, unknown> : {};
-        return typeof data.name === "string" ? [data.name] : [];
-      }));
-      const hasTranscriptAssessment = completedTools.has("memory_dreaming_prepare") || completedTools.has("memory_dreaming_get_run");
-      const hasQualityAssessment = completedTools.has("memory_quality_review_prepare");
-      const hasExpiryCleanup = completedTools.has("memory_prune_expired");
-      if (!hasTranscriptAssessment || !hasQualityAssessment || !hasExpiryCleanup) {
-        failure = "自动 Dreaming 未完成全部维护步骤。请检查本次 Trace 中的 memory_dreaming_prepare/get_run、memory_quality_review_prepare 和 memory_prune_expired 工具结果。";
+      if (!maintenance.hasWork) {
+        skipped = true;
+        scheduledCapture.answer = "本次本地预检未发现新的 Transcript、到期质量复查、过期 Note 或待恢复 Run；未启动模型调用。";
+        recordTaskTrace(eligibleTask, "memory.dreaming.schedule.skipped", { runId, maintenance });
+      } else {
+        const prompt = [
+          "执行当前 Workspace 的自动 Memory Dreaming 维护。这是后台维护任务，不要把本次维护对话或工具执行日志沉淀为长期知识。",
+          "第一步调用 memory_dreaming_list_runs，检查是否存在 prepared Run。如果存在，先用 memory_dreaming_get_run 读取并继续该 Run；不要创建第二个 Run。没有待处理 Run 时才调用 memory_dreaming_prepare。",
+          "对于 transcript Run：读取固定 evidence，检查 Notes、知识页与关系；对重要旧 Note 使用 memory_read_source 追溯历史 sourceRefs，必要时用 memory_search_history 搜索完整历史。所有 [TRUNCATED] 内容都只是预览，必须回查原始 Transcript。识别新事实、业务定义、用户明确偏好、成功流程、反复失败、已解决问题与冲突。更新必须带 baseVersion，每项操作引用当前 Run 的 sourceId 和 reason。无须变化时提交 operations=[]。成功后读取审计结果。",
+          "完成 transcript Run 后，再调用 memory_quality_review_prepare。若有到期候选，调用 memory_quality_review_list({runId})，只处理该 Run 返回的候选 Note；使用每条记录的 qualityReviewSourceRefs 作为 review_note.sourceRefs，不能使用旧 Run 的 sourceRefs。若没有任何候选映射，调用 memory_dreaming_abandon 放弃该质量复查 Run。提交当前 baseVersion、confidence 和 qualityScore（0–1）。质量评分考虑来源可靠性、直接性、清晰程度、时效性和交叉印证；不得因为旧 Note 标记为 validated 就自动信任，也不得在证据不足时提升为 validated。证据不再适用时标 disputed，无法重新确认时保留 unverified。每个复查 Run 成功提交并读取审计结果。",
+          "最后调用 memory_prune_expired 清理已过期且未置顶的 Note。不得归档置顶或唯一知识，不得删除原始 Transcript。任何版本冲突都应停止该项更新并报告，不允许覆盖新版本。"
+        ].join("\\n\\n");
+        await copilotAgent.send(prompt, []);
+        const toolResults = agentTraceStore.query({ traceId: runId, type: "tool.result", limit: 1000 });
+        const completedTools = new Set(toolResults.flatMap(event => {
+          const data = event.data && typeof event.data === "object" ? event.data as Record<string, unknown> : {};
+          return typeof data.name === "string" ? [data.name] : [];
+        }));
+        const hasTranscriptAssessment = completedTools.has("memory_dreaming_prepare") || completedTools.has("memory_dreaming_get_run");
+        const hasQualityAssessment = completedTools.has("memory_quality_review_prepare");
+        const hasExpiryCleanup = completedTools.has("memory_prune_expired");
+        if (!hasTranscriptAssessment || !hasQualityAssessment || !hasExpiryCleanup) {
+          failure = "自动 Dreaming 未完成全部维护步骤。请检查本次 Trace 中的 memory_dreaming_prepare/get_run、memory_quality_review_prepare 和 memory_prune_expired 工具结果。";
+        }
+        const afterRun = copilotAgent.getMemorySnapshot(schedule.scope);
+        const pendingRun = afterRun.dreamRuns.find(run => String(run.status) === "prepared");
+        if (pendingRun) failure = "自动 Dreaming 留下了未提交 Run：" + String(pendingRun.id) + "。该 Run 已保留，可在 Memory 管理界面继续处理。";
       }
-      const afterRun = copilotAgent.getMemorySnapshot(schedule.scope);
-      const pendingRun = afterRun.dreamRuns.find(run => String(run.status) === "prepared");
-      if (pendingRun) failure = "自动 Dreaming 留下了未提交 Run：" + String(pendingRun.id) + "。该 Run 已保留，可在 Memory 管理界面继续处理。";
     } catch (error) {
       failure = error instanceof Error ? error.message : String(error);
     } finally {
@@ -1676,6 +1684,7 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
       recordTaskTrace(eligibleTask, "memory.dreaming.schedule.completed", {
         runId, status: succeeded ? "success" : "error",
         durationMs: Math.max(0, finishedAt - startedAt),
+        skipped,
         resultPreview: captured?.answer.trim().slice(0, 1200) || undefined,
         error: errorText || undefined,
       });
