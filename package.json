@@ -34,8 +34,8 @@
     "echarts": "^6.1.0",
     "pdfjs-dist": "^6.5.438",
     "mammoth": "^1.13.0",
-    "exceljs": "^4.4.0",
-    "word-extractor": "^1.0.4"
+    "word-extractor": "^1.0.4",
+    "node-xlsx": "^0.25.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -49,7 +49,8 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
     "vitest": "^5.1.1",
-    "wait-on": "^9.5.1"
+    "wait-on": "^9.5.1",
+    "@types/word-extractor": "^1.0.6"
   },
   "build": {
     "appId": "com.saga.architectagentdesktop",
