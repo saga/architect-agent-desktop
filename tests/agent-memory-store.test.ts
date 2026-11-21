@@ -182,6 +182,68 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("performs scope-safe semantic retrieval and invalidates stale vectors", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const workspace = store.saveNote({
+      scope: "/workspace/semantic",
+      title: "Issuer liquidity and funding risk",
+      content: "Assess refinancing concentration, cash buffers and counterparty funding.",
+    });
+    const personal = store.saveNote({
+      scope: null,
+      title: "General research preference",
+      content: "Prefer primary sources and distinguish fact from inference.",
+    });
+    const unrelatedWorkspace = store.saveNote({
+      scope: "/workspace/other",
+      title: "Confidential acquisition model",
+      content: "Private valuation assumptions for another project.",
+    });
+
+    const pendingWorkspace = store.listNotesMissingEmbeddings("/workspace/semantic", "ollama", "nomic-embed-text", 20);
+    const pendingPersonal = pendingWorkspace.find(note => note.id === personal.id)!;
+    const pendingIssuer = pendingWorkspace.find(note => note.id === workspace.id)!;
+    const pendingOther = store.listNotesMissingEmbeddings("/workspace/other", "ollama", "nomic-embed-text", 20)
+      .find(note => note.id === unrelatedWorkspace.id)!;
+    const base = [1, 0, 0, 0, 0, 0, 0, 0];
+    const near = [0.98, 0.2, 0, 0, 0, 0, 0, 0];
+
+    expect(store.upsertEmbedding({
+      noteId: workspace.id, scope: "/workspace/semantic", provider: "ollama", model: "nomic-embed-text",
+      contentHash: pendingIssuer.contentHash, vector: base,
+    })).toBe(true);
+    expect(store.upsertEmbedding({
+      noteId: personal.id, scope: null, provider: "ollama", model: "nomic-embed-text",
+      contentHash: pendingPersonal.contentHash, vector: near,
+    })).toBe(true);
+    expect(store.upsertEmbedding({
+      noteId: unrelatedWorkspace.id, scope: "/workspace/other", provider: "ollama", model: "nomic-embed-text",
+      contentHash: pendingOther.contentHash, vector: base,
+    })).toBe(true);
+
+    const results = store.search("/workspace/semantic", "rare terminology absent from the notes", 10, {
+      provider: "ollama", model: "nomic-embed-text", vector: base,
+    });
+    expect(results.map(note => note.id)).toContain(workspace.id);
+    expect(results.map(note => note.id)).toContain(personal.id);
+    expect(results.map(note => note.id)).not.toContain(unrelatedWorkspace.id);
+    expect(store.getEmbeddingIndexStatus("/workspace/semantic", "ollama", "nomic-embed-text"))
+      .toMatchObject({ total: 2, indexed: 2, missing: 0 });
+
+    const changed = store.saveNote({
+      id: workspace.id,
+      scope: "/workspace/semantic",
+      title: "Issuer liquidity and funding risk",
+      content: "Updated: include collateral calls and contingent liquidity facilities.",
+    });
+    expect(changed.version).toBe(workspace.version + 1);
+    expect(store.getEmbeddingIndexStatus("/workspace/semantic", "ollama", "nomic-embed-text"))
+      .toMatchObject({ total: 2, indexed: 1, missing: 1 });
+    expect(store.listNotesMissingEmbeddings("/workspace/semantic", "ollama", "nomic-embed-text", 20)
+      .map(note => note.id)).toContain(workspace.id);
+    store.close();
+  });
+
   it("marks evidence previews when a Transcript message exceeds the per-source limit", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const run = store.prepareDreaming("/workspace/truncated-source", [{
