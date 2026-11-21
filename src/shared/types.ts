@@ -125,6 +125,7 @@ export interface AgentScheduleRun {
   trigger: "scheduled" | "manual";
   scheduledAt: string;
   taskId: string | null;
+  previousTaskId?: string;
   startedAt: number;
   finishedAt?: number;
   durationMs?: number;
