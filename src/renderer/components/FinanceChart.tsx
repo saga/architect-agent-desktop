@@ -45,14 +45,18 @@ export default function FinanceChart(props: FinanceChartProps) {
     }
     const Component = chartComponents[props.chartType];
     if (!Component) return { error: "不支持的图表类型：" + props.chartType };
-    const options = isRecord(props.options) ? props.options : {};
+    const rawOptions = isRecord(props.options) ? props.options : {};
+    if (JSON.stringify(rawOptions).length > 32_000) return { error: "图表配置超过 32 KB。" };
+    const options = Object.fromEntries(Object.entries(rawOptions).filter(([key]) =>
+      !/^(on|data$|height$|width$|container$|autoFit$|animation$|renderer$)/i.test(key)
+    ));
     const height = Math.max(HEIGHT_MIN, Math.min(HEIGHT_MAX, Number(props.height) || 340));
     const base: Record<string, unknown> = {
+      ...options,
       data: props.data,
       height,
       autoFit: true,
       animation: false,
-      ...options,
     };
     if (props.xField) base.xField = props.xField;
     if (props.yField) base.yField = props.yField;
