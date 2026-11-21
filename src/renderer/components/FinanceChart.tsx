@@ -39,7 +39,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const BLOCKED_OPTION_KEYS = /^(on[a-z0-9_]*|html|customcontent|formatter|renderer|render|container|data|width|height|autofit|animation|plugin|callback)$/i;
-const UNSAFE_OPTION_TEXT = /javascript\\s*:|data\\s*:\\s*text\\/html|<\\s*(script|iframe|object|embed|foreignobject)\\b|\\bon[a-z]+\\s*=/i;
+const UNSAFE_OPTION_TEXT = /javascript\s*:|data\s*:\s*text\/html|<\s*(script|iframe|object|embed|foreignobject)\b|\bon[a-z]+\s*=/i;
 
 function hasUnsafeChartOption(value: unknown, depth = 0): boolean {
   if (depth > 8) return true;
