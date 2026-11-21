@@ -11,5 +11,5 @@
     "types": ["node", "electron"],
     "sourceMap": true
   },
-  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts"]
+  "include": ["src/main/**/*.ts", "src/main/**/*.mts", "src/preload/**/*.ts", "src/shared/**/*.ts", "src/shared/**/*.mts"]
 }
