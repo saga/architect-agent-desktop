@@ -100,6 +100,7 @@ const api: BrowserApi = {
   agentMemoryGetDreamRun: (taskId, runId) => ipcRenderer.invoke("agent:memory-get-run", { taskId, runId }),
   agentMemoryAbandonDreaming: (taskId, runId, reason) => ipcRenderer.invoke("agent:memory-abandon", { taskId, runId, reason }),
   agentMemoryRollbackDreaming: (taskId, runId, reason) => ipcRenderer.invoke("agent:memory-rollback", { taskId, runId, reason }),
+  agentMemorySaveDreamSchedule: (taskId, schedule) => ipcRenderer.invoke("agent:memory-save-dream-schedule", { taskId, ...schedule }),
   copilotCancel: () => ipcRenderer.invoke("copilot:cancel"),
   agentLoadSession: (taskId?: string) => ipcRenderer.invoke("agent:load-session", taskId),
   agentSaveSession: (items: AgentSessionItem[], taskId?: string) => ipcRenderer.invoke("agent:save-session", { items, taskId }),
