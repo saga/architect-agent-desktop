@@ -1624,7 +1624,7 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
       .filter(task => task.workspacePath === schedule.scope && memoryDreamTaskEligible(task))
       .sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if (!eligibleTask) {
-      const reason = "没有可执行 Memory Dreaming 的 Task。请为该 Workspace 选择开放长期记忆工具的 Expert，并将全局与 Expert 工具权限至少设置为 assisted。";
+      const reason = "没有可执行 Memory Dreaming 的 Task。请为当前 Memory scope（Personal 或 Workspace）选择开放长期记忆工具的 Expert，并将全局与 Expert 工具权限至少设置为 assisted。";
       copilotAgent.finishMemoryDreamSchedule(schedule.scope, "error", reason);
       recordOperation("memory-dreaming", reason + " Workspace=" + (schedule.scope ?? "Personal"));
       continue;
@@ -1650,7 +1650,7 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
         recordTaskTrace(eligibleTask, "memory.dreaming.schedule.skipped", { runId, maintenance });
       } else {
         const prompt = [
-          "执行当前 Workspace 的自动 Memory Dreaming 维护。这是后台维护任务，不要把本次维护对话或工具执行日志沉淀为长期知识。",
+          "执行当前 Memory scope（Personal 或 Workspace）的自动 Memory Dreaming 维护。这是后台维护任务，不要把本次维护对话或工具执行日志沉淀为长期知识。",
           "第一步调用 memory_dreaming_list_runs，检查是否存在 prepared Run。如果存在，先用 memory_dreaming_get_run 读取 Run 的 purpose 和固定 evidence，再按类型继续；不要创建第二个 Run。purpose=quality_review 时，直接调用 memory_quality_review_list({runId})，只提交带当前 Run qualityReviewSourceRefs 的 review_note；purpose=transcript 时按下一步处理。没有待处理 Run 时才调用 memory_dreaming_prepare。",
           "对于 transcript Run：读取固定 evidence，检查 Notes、知识页与关系；对重要旧 Note 使用 memory_read_source 追溯历史 sourceRefs，必要时用 memory_search_history 搜索完整历史。所有 [TRUNCATED] 内容都只是预览，必须回查原始 Transcript。识别新事实、业务定义、用户明确偏好、成功流程、反复失败、已解决问题与冲突。更新必须带 baseVersion，每项操作引用当前 Run 的 sourceId 和 reason。无须变化时提交 operations=[]。成功后读取审计结果。",
           "完成 transcript Run 后，再调用 memory_quality_review_prepare。若有到期候选，调用 memory_quality_review_list({runId})，只处理该 Run 返回的候选 Note；使用每条记录的 qualityReviewSourceRefs 作为 review_note.sourceRefs，不能使用旧 Run 的 sourceRefs。若没有任何候选映射，调用 memory_dreaming_abandon 放弃该质量复查 Run。提交当前 baseVersion、confidence 和 qualityScore（0–1）。质量评分考虑来源可靠性、直接性、清晰程度、时效性和交叉印证；不得因为旧 Note 标记为 validated 就自动信任，也不得在证据不足时提升为 validated。证据不再适用时标 disputed，无法重新确认时保留 unverified。每个复查 Run 成功提交并读取审计结果。",
