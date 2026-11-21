@@ -91,7 +91,7 @@ const api: BrowserApi = {
   },
   agentSaveSettings: (settings: AgentSettings) => ipcRenderer.invoke("agent:save-settings", settings),
   agentPickFiles: () => ipcRenderer.invoke("agent:pick-files"),
-  copilotSend: (prompt, history, taskId) => ipcRenderer.invoke("copilot:send", { prompt, history, taskId }),
+  copilotSend: (prompt, history, taskId, attachments) => ipcRenderer.invoke("copilot:send", { prompt, history, taskId, attachments }),
   copilotCancel: () => ipcRenderer.invoke("copilot:cancel"),
   agentLoadSession: (taskId?: string) => ipcRenderer.invoke("agent:load-session", taskId),
   agentSaveSession: (items: AgentSessionItem[], taskId?: string) => ipcRenderer.invoke("agent:save-session", { items, taskId }),
