@@ -1,7 +1,7 @@
 import type { CopilotClient, CopilotSession } from "@github/copilot-sdk" with { "resolution-mode": "import" };
 import { z } from "zod";
 import type { AgentChatMessage, AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission, McpServerConfig } from "../shared/types";
-import { mcpServerToolPatterns, resolveMcpServerConfigs } from "./agent-extensions";
+import { resolveMcpServerConfigs } from "./agent-extensions";
 import { app, session } from "electron";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -229,7 +229,7 @@ export class CopilotDesktopAgent {
   await this.stop();this.taskContext=next;
  }
  private configuredMcpServers(provider:"copilot"|"codebuddy",environment:Record<string,string|undefined>):Record<string,Record<string,unknown>>{
-  if(this.effectivePermission()!=="allow-all")return{};
+  if(this.effectivePermission()!=="allow-all" || (this.taskContext?.tools.length??0)>0)return{};
   return resolveMcpServerConfigs(this.getMcpServers(),provider,environment);
  }
  private effectivePermission():AgentToolPermission{
@@ -535,12 +535,12 @@ export class CopilotDesktopAgent {
   const detached=isManagedSession()?detachedCliOptions():null;
   const runtimeEnv=await resolvedAgentProcessEnvironment();
   const configuredMcpServers=this.configuredMcpServers("codebuddy",runtimeEnv);
-  allowed.push(...mcpServerToolPatterns(this.getMcpServers().filter(server=>Object.hasOwn(configuredMcpServers,server.id))));
   const queryOptions={
     ...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:{type:"adaptive" as const},includePartialMessages:true,
     systemPrompt:{append:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
     cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})},settingSources,persistSession:false,maxTurns:12,
-    mcpServers:{browser:server,...configuredMcpServers},allowedTools:allowed,
+    mcpServers:{browser:server,...configuredMcpServers},
+    ...(permission==="allow-all" && !allowedBuiltinTools ? {} : {allowedTools:allowed}),
     ...(permission==="browser-only"
       ? {permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}
       : permission==="assisted"
