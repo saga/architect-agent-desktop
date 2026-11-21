@@ -226,8 +226,8 @@ export class AgentMemoryStore {
       Number(before?.created_at??now),now,Number(before?.last_accessed_at??0),Number(before?.access_count??0),Math.max(1,oldVersion+1),
       clamp(input.importance??Number(before?.importance??0.5),0,1),
       input.expiresAt===undefined?(typeof before?.expires_at==="number"?before.expires_at:null):input.expiresAt,
-      JSON.stringify(sourceRefs),unchanged?before?.last_verified_at??null:null,null,
-      createHash("sha256").update(content).digest("hex"),before?.last_dreamed_at??null
+      JSON.stringify(sourceRefs),unchanged&&typeof before?.last_verified_at==="number"?before.last_verified_at:null,null,
+      createHash("sha256").update(content).digest("hex"),typeof before?.last_dreamed_at==="number"?before.last_dreamed_at:null
     );
     const after=this.getNoteRow(id,scopeKey);
     this.saveVersion(scopeKey,"note",id,Math.max(1,oldVersion+1),after,null);
