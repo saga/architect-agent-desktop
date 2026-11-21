@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Input, Popconfirm, Radio, Select, message } from "antd";
+import { Button, Input, Popconfirm, Radio, Select, Switch, message } from "antd";
 import { DeleteOutlined, PlusOutlined, TeamOutlined } from "@ant-design/icons";
 import type { AgentExpert, AgentToolPermission, PluginSummary } from "../shared/types";
 
@@ -16,7 +16,8 @@ const EMPTY_EXPERT: Omit<AgentExpert, "createdAt" | "updatedAt"> = {
   name: "",
   description: "",
   systemPrompt: "",
-  toolPermission: "assisted",
+  toolPermission: "allow-all",
+  allowAllTools: false,
   skills: [],
   tools: [],
 };
@@ -162,15 +163,23 @@ export default function ExpertManager({ onChanged }: ExpertManagerProps) {
             <label>System Prompt<Input.TextArea value={draft.systemPrompt} maxLength={12000} rows={8} showCount onChange={event => update("systemPrompt", event.target.value)} placeholder="定义角色、专业方法、输出要求和工作约束。" /></label>
             <label>权限上限
               <Radio.Group value={draft.toolPermission} onChange={event => update("toolPermission", event.target.value as AgentToolPermission)}>
+                <Radio value="none">No tools</Radio>
                 <Radio value="browser-only">Browser only</Radio>
                 <Radio value="assisted">Assisted</Radio>
                 <Radio value="allow-all">Allow all</Radio>
               </Radio.Group>
-              <span className="pure-form-help">Expert 的权限只能收紧全局 Agent 权限，不能突破全局权限设置。</span>
+              <span className="pure-form-help">这是该 Expert 的权限上限，不能突破全局 Agent 权限。全局默认是 No tools。</span>
+            </label>
+            <label className="pure-expert-tool-access">
+              <span>Allow all tools</span>
+              <Switch checked={draft.allowAllTools} onChange={value => update("allowAllTools", value)} />
+              <span className="pure-form-help">开启后允许当前全局权限范围内的全部工具；关闭后只允许下方明确勾选的工具。默认不允许任何工具。</span>
             </label>
             <label>可用 Tools
               <Select mode="multiple" allowClear value={draft.tools} onChange={value => update("tools", value)}
-                options={toolOptions} placeholder="留空表示使用当前权限允许的全部工具" maxTagCount="responsive" />
+                disabled={draft.allowAllTools}
+                options={toolOptions} placeholder="默认不允许工具；只选择这个 Expert 需要的工具" maxTagCount="responsive" />
+              {!draft.allowAllTools && !draft.tools.length && <span className="pure-form-help">当前没有选中工具。这个 Expert 不会调用任何工具。</span>}
             </label>
             <label>可用 Skills
               <Select mode="multiple" allowClear value={draft.skills} onChange={value => update("skills", value)}
