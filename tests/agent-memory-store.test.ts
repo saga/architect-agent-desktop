@@ -164,6 +164,24 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("retrieves partial multi-term and Chinese phrase matches", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const english = store.saveNote({
+      scope: "/workspace/search",
+      title: "Portfolio risk monitoring",
+      content: "Track issuer concentration and liquidity exposure before the monthly review.",
+    });
+    const chinese = store.saveNote({
+      scope: "/workspace/search",
+      title: "估值日期与基准币种",
+      content: "跨组合收益比较前先核对估值日期和基准币种。",
+    });
+
+    expect(store.search("/workspace/search", "liquidity drawdown exposure").map(note => note.id)).toContain(english.id);
+    expect(store.search("/workspace/search", "核对基准币").map(note => note.id)).toContain(chinese.id);
+    store.close();
+  });
+
   it("marks evidence previews when a Transcript message exceeds the per-source limit", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const run = store.prepareDreaming("/workspace/truncated-source", [{
