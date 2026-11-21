@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Space, Typography } from "antd";
 import { Graph } from "@antv/x6";
+import { validateWorkflowGraphJson } from "../graph-validation";
 
 export interface WorkflowDiagramProps {
   graphData: unknown;
@@ -10,53 +11,12 @@ export interface WorkflowDiagramProps {
   onSave?: (json: Record<string, unknown>) => void;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function containsUnsafeValue(value: unknown, depth = 0): boolean {
-  if (depth > 10) return true;
-  if (typeof value === "string") return /javascript:|data:text\/html|url\s*\(|<script\b|<foreignObject\b/i.test(value);
-  if (Array.isArray(value)) return value.length > 500 || value.some(item => containsUnsafeValue(item, depth + 1));
-  if (!isRecord(value)) return false;
-  return Object.entries(value).some(([key, item]) =>
-    /^(on[a-z]+|html|foreignObject|href|xlink:href)$/i.test(key) || containsUnsafeValue(item, depth + 1)
-  );
-}
-
-function validEdgeEndpoint(endpoint: unknown, ids: Set<string>): boolean {
-  if (!isRecord(endpoint)) return false;
-  if (typeof endpoint.cell === "string") return ids.has(endpoint.cell);
-  return typeof endpoint.x === "number" && Number.isFinite(endpoint.x) &&
-    typeof endpoint.y === "number" && Number.isFinite(endpoint.y);
-}
-
-function validateGraphJson(input: unknown): Record<string, unknown> | null {
-  if (!isRecord(input)) return null;
-  let encoded = "";
-  try { encoded = JSON.stringify(input); } catch { return null; }
-  if (encoded.length > 1_000_000 || containsUnsafeValue(input)) return null;
-  const cells = Array.isArray(input.cells) ? input.cells : null;
-  if (!cells || cells.length > 2_000) return null;
-  const allowedShapes = new Set(["edge", "rect", "circle", "ellipse", "polygon"]);
-  const ids = new Set<string>();
-  for (const cell of cells) {
-    if (!isRecord(cell) || typeof cell.id !== "string" || cell.id.length < 1 || cell.id.length > 120 ||
-        typeof cell.shape !== "string" || !allowedShapes.has(cell.shape) || ids.has(cell.id)) return null;
-    ids.add(cell.id);
-  }
-  for (const cell of cells) {
-    if (!isRecord(cell) || cell.shape !== "edge") continue;
-    if (!validEdgeEndpoint(cell.source, ids) || !validEdgeEndpoint(cell.target, ids)) return null;
-  }
-  return input;
-}
 
 export default function WorkflowDiagram({ graphData, title, height = 440, editable = false, onSave }: WorkflowDiagramProps) {
   const host = useRef<HTMLDivElement>(null);
   const graph = useRef<Graph | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
-  const serialized = useMemo(() => validateGraphJson(graphData), [graphData]);
+  const serialized = useMemo(() => validateWorkflowGraphJson(graphData), [graphData]);
   const safeHeight = Math.max(220, Math.min(760, Number(height) || 440));
 
   useEffect(() => {
@@ -107,7 +67,7 @@ export default function WorkflowDiagram({ graphData, title, height = 440, editab
       {title ? <Typography.Title level={5} style={{ margin: 0 }}>{title}</Typography.Title> : <span />}
       {editable && <Button size="small" onClick={() => {
         const current = graph.current?.toJSON() as unknown;
-        const safe = validateGraphJson(current);
+        const safe = validateWorkflowGraphJson(current);
         if (safe) onSave?.(safe);
         else setRenderError("编辑后的图数据未通过安全校验，未提交给 Agent。");
       }}>保存图</Button>}
