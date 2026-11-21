@@ -225,7 +225,7 @@ export class AgentMemoryStore {
       input.sourceSessionId??source?.sessionId??(typeof before?.source_session_id==="string"?before.source_session_id:null),input.sourceTraceId??(typeof before?.source_trace_id==="string"?before.source_trace_id:null),
       Number(before?.created_at??now),now,Number(before?.last_accessed_at??0),Number(before?.access_count??0),Math.max(1,oldVersion+1),
       clamp(input.importance??Number(before?.importance??0.5),0,1),
-      input.expiresAt===undefined?before?.expires_at??null:input.expiresAt,
+      input.expiresAt===undefined?(typeof before?.expires_at==="number"?before.expires_at:null):input.expiresAt,
       JSON.stringify(sourceRefs),unchanged?before?.last_verified_at??null:null,null,
       createHash("sha256").update(content).digest("hex"),before?.last_dreamed_at??null
     );
