@@ -210,4 +210,29 @@ describe("AgentMemoryStore", () => {
     store.abandonDreaming("/workspace/tie", second!.id, "验证同时间戳游标");
     store.close();
   });
+  it("advances the cursor for a reviewed batch with no durable memory changes", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const createdAt = Date.now();
+    const run = store.prepareDreaming("/workspace/no-op", [{
+      sessionId: "session-no-op",
+      messageId: "message-no-op",
+      kind: "user",
+      content: "这个请求是一次性信息，没有长期适用的项目事实或工作偏好。",
+      createdAt,
+    }]);
+    const result = store.commitDreaming({
+      scope: "/workspace/no-op",
+      runId: run!.id,
+      summary: "已评估证据；该请求没有应沉淀为长期记忆的内容。",
+      operations: [],
+    });
+    expect(result.operationCount).toBe(0);
+    expect(store.getDreamRun(run!.id, "/workspace/no-op")?.status).toBe("completed");
+    expect(store.getDreamCursor("/workspace/no-op")).toEqual({
+      createdAt, sessionId: "session-no-op", messageId: "message-no-op",
+    });
+    expect(store.listNotes("/workspace/no-op", true)).toHaveLength(0);
+    store.close();
+  });
+
 });
