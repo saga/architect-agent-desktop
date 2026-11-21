@@ -60,6 +60,45 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
 
 export interface CopilotEvent { type: "status" | "delta" | "thinking" | "message" | "error" | "done" | "tool" | "a2ui" | "a2ui-v1"; taskId?: string; status?: string; text?: string; streaming?: boolean; toolId?: string; toolName?: string; toolDetail?: string; toolState?: "running" | "done" | "error"; }
 
+export interface AgentMemoryNoteView {
+  id: string;
+  title: string;
+  content: string;
+  tags: string[];
+  validation: "unverified" | "validated" | "disputed";
+  confidence: number;
+  pinned: boolean;
+  importance: number;
+  status: "active" | "archived" | "superseded";
+  sourceRefs: string[];
+  version: number;
+  updatedAt: number;
+  expiresAt: number | null;
+}
+export interface AgentMemorySnapshot {
+  taskId: string;
+  workspacePath: string | null;
+  cursor: { createdAt: number; sessionId: string; messageId: string };
+  notes: AgentMemoryNoteView[];
+  relationships: Array<Record<string, unknown>>;
+  knowledge: Array<Record<string, unknown>>;
+  dreamRuns: Array<Record<string, unknown>>;
+}
+export interface AgentMemoryDreamRunDetail {
+  run: {
+    id: string;
+    status: string;
+    summary: string;
+    sourceCount: number;
+    createdAt: number;
+    startedAt: number;
+    completedAt: number | null;
+    maxSourceCreatedAt: number;
+    evidence: Array<{ sourceId: string; sessionId: string; messageId: string; kind: string; content: string; createdAt: number; contentHash: string }>;
+  };
+  operations: Array<Record<string, unknown>>;
+}
+
 export interface AgentSessionItem {
   id: string;
   kind: "user" | "assistant" | "thinking" | "tool" | "error" | "a2ui" | "a2ui-v1";
@@ -234,7 +273,10 @@ export interface BrowserApi {
   agentPickFiles(): Promise<string[]>;
   copilotSend(prompt: string, history?: AgentChatMessage[], taskId?: string, attachments?: string[]): Promise<void>;
   agentA2uiMessage(message: unknown, taskId: string): Promise<void>;
-  agentA2uiMessage(message: unknown, taskId: string): Promise<void>;
+  agentMemoryGetSnapshot(taskId: string): Promise<AgentMemorySnapshot>;
+  agentMemoryGetDreamRun(taskId: string, runId: string): Promise<AgentMemoryDreamRunDetail>;
+  agentMemoryAbandonDreaming(taskId: string, runId: string, reason: string): Promise<void>;
+  agentMemoryRollbackDreaming(taskId: string, runId: string, reason: string): Promise<void>;
   copilotCancel(): Promise<void>;
   agentLoadSession(taskId?: string): Promise<AgentSessionItem[]>;
   agentSaveSession(items: AgentSessionItem[], taskId?: string): Promise<void>;
