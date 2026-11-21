@@ -90,7 +90,13 @@ export class DuckDbAnalyticsService {
     const handle = await this.connection(scope);
     const suffix = createHash("sha256").update(datasetName).digest("hex").slice(0, 8);
     const table = "dataset_" + identifier(datasetName).toLowerCase() + "_" + suffix;
-    const normalizedColumns = columns.map((column, index) => identifier(column) || "column_" + (index + 1));
+    const usedColumnNames = new Map<string, number>();
+    const normalizedColumns = columns.map((column, index) => {
+      const base = identifier(column) || "column_" + (index + 1);
+      const count = (usedColumnNames.get(base) ?? 0) + 1;
+      usedColumnNames.set(base, count);
+      return count === 1 ? base : base + "_" + count;
+    });
     const types = normalizedColumns.map((_, index) => sqlType(rows.slice(0, 500).map(row => row[index])));
     const definition = normalizedColumns.map((column, index) => quoteIdentifier(column) + " " + types[index]).join(", ");
     await handle.connection.run("CREATE OR REPLACE TABLE " + quoteIdentifier(table) + " (" + definition + ")");
