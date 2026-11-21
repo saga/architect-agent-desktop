@@ -221,7 +221,7 @@ export class AgentTraceStore {
     if (!term) return [];
     try {
       const match = term.split(/\\s+/).filter(Boolean).map(token => '"' + token.replace(/"/g, '""') + '"').join(" AND ");
-      return this.database.prepare(`
+      const matches = this.database.prepare(`
         SELECT m.session_id AS sessionId, m.id, m.kind,
           snippet(session_messages_fts, 3, '[', ']', '…', 16) AS snippet,
           m.content, m.created_at AS createdAt
@@ -231,16 +231,16 @@ export class AgentTraceStore {
         WHERE s.workspace_path IS ? AND session_messages_fts MATCH ?
         ORDER BY bm25(session_messages_fts), m.created_at DESC LIMIT ?
       `).all(workspacePath, match, safeLimit) as Array<Record<string, unknown>>;
-    } catch {
-      const like = "%" + term.replace(/[%_]/g, "") + "%";
-      return this.database.prepare(`
-        SELECT m.session_id AS sessionId, m.id, m.kind, substr(m.content, 1, 4000) AS snippet,
-          m.created_at AS createdAt
-        FROM session_messages m JOIN sessions s ON s.id=m.session_id
-        WHERE s.workspace_path IS ? AND m.content LIKE ?
-        ORDER BY m.created_at DESC LIMIT ?
-      `).all(workspacePath, like, safeLimit) as Array<Record<string, unknown>>;
-    }
+      if (matches.length) return matches;
+    } catch { /* fallback to substring search */ }
+    const like = "%" + term.replace(/[%_]/g, "") + "%";
+    return this.database.prepare(`
+      SELECT m.session_id AS sessionId, m.id, m.kind, substr(m.content, 1, 4000) AS snippet,
+        m.created_at AS createdAt
+      FROM session_messages m JOIN sessions s ON s.id=m.session_id
+      WHERE s.workspace_path IS ? AND m.content LIKE ?
+      ORDER BY m.created_at DESC LIMIT ?
+    `).all(workspacePath, like, safeLimit) as Array<Record<string, unknown>>;
   }
 
   saveSessionItems(sessionId: string, workspacePath: string | null, items: Array<{ id: string; kind: string; content: string; toolName?: string; toolState?: string; createdAt: number }>): void {
