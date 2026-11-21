@@ -98,6 +98,22 @@ export class AgentA2UIService {
     return { handled: false, replies: [] };
   }
 
+  registerSurfaces(sessionId: string, surfaceIds: string[]): void {
+    const key = sessionId.trim() || "__default_agent_session__";
+    if (!Array.isArray(surfaceIds) || surfaceIds.length > 100) {
+      throw new Error("A2UI Task Surface registration exceeds 100 IDs.");
+    }
+    const ids = new Set<string>();
+    for (const id of surfaceIds) {
+      if (typeof id !== "string" || id.length < 1 || id.length > 120) {
+        throw new Error("A2UI Surface ID is invalid.");
+      }
+      ids.add(id);
+    }
+    this.stateFor(key);
+    this.surfacesBySession.set(key, ids);
+  }
+
   reset(sessionId: string): void {
     const key = sessionId.trim() || "__default_agent_session__";
     this.states.delete(key);
