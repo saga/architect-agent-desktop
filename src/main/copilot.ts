@@ -352,7 +352,7 @@ export class CopilotDesktopAgent {
     const results=await this.localEmbedding.embedMany(config,batch.map(note=>"Title: "+note.title+"\n\n"+note.content));
     for(let i=0;i<batch.length;i++){
      const note=batch[i]!,result=results[i]!;
-     if(this.memory.upsertEmbedding({noteId:note.id,scope:note.scope,provider:result.provider,model:result.model,contentHash:note.contentHash,vector:result.vector}))indexed++;
+     if(this.memory.upsertEmbedding({noteId:note.id,scope:note.scope,provider:result.provider,model:config.model,contentHash:note.contentHash,vector:result.vector}))indexed++;
     }
    }catch(cause){error=cause instanceof Error?cause.message:String(cause);break;}
   }
@@ -364,7 +364,7 @@ export class CopilotDesktopAgent {
   if(config.provider==="disabled")return {retrieval:"lexical",results:this.memory.search(this.memoryScope(),query,limit)};
   try{
    const embedding=await this.localEmbedding.embed(config,query);
-   return {retrieval:"hybrid",provider:embedding.provider,model:embedding.model,results:this.memory.search(this.memoryScope(),query,limit,{provider:embedding.provider,model:embedding.model,vector:embedding.vector})};
+   return {retrieval:"hybrid",provider:embedding.provider,model:embedding.model,results:this.memory.search(this.memoryScope(),query,limit,{provider:embedding.provider,model:config.model,vector:embedding.vector})};
   }catch(error){
    return {retrieval:"lexical_fallback",warning:error instanceof Error?error.message:String(error),results:this.memory.search(this.memoryScope(),query,limit)};
   }
