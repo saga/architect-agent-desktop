@@ -60,3 +60,7 @@ Agent Skills 支持选择目录，以及上传 Claude Desktop 风格的 ZIP。ZI
 Claude Desktop 当前使用 Customize > Skills 上传 Skill ZIP；MCP 本地服务可通过 Desktop Extensions（.mcpb）目录安装，也可通过 claude_desktop_config.json 的 mcpServers 配置。当前应用的 Skill ZIP 入口对齐 Claude 的 ZIP 上传形态；MCP 采用相同的 STDIO / HTTP server 字段模型，并提供 Firecrawl 示例，但不会修改 Claude Desktop 配置文件，也不会安装 Claude 的 .mcpb 包。需要在 Claude Desktop 中安装时，按照其 Settings > Desktop app > Manage > Browse extensions 或 Advanced settings > Extension Developer > Install Extension… 流程操作。
 
 详细示例和外部参考见 examples/mcp/README.md。
+
+## 验证
+
+ZIP 导入与安全边界由 tests/agent-extensions.test.ts 覆盖，包括 Claude Desktop 风格的 ZIP 目录结构、大小写兼容、压缩内容校验和路径穿越拒绝。
