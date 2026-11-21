@@ -239,6 +239,14 @@ export default function MemoryManager() {
     }
   };
 
+  const openExternalSource = async (url: string) => {
+    try {
+      await window.browser.openExternal(url);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const confirmExternalVerification = async (note: AgentMemoryNoteView) => {
     if (!taskId) return;
     try {
@@ -322,7 +330,10 @@ export default function MemoryManager() {
             {note.validation === "validated" ? "人工确认已核对来源" : note.externalVerification.status === "multi_domain_sources_recorded" ? "已记录多个来源域名 · 待人工核对" : "仅记录单一来源域名"}
           </Tag>
           {note.externalVerification.sources.map(source => <Tag key={source.sourceRef}>
-            <a href={source.url} target="_blank" rel="noreferrer">{source.domain} · {source.publisher}</a>
+            <Button type="link" size="small" style={{ padding: 0, height: "auto" }}
+              onClick={() => void openExternalSource(source.url)}>
+              {source.domain} · {source.publisher}
+            </Button>
           </Tag>)}
         </Space>
         <Text type="secondary" style={{ display: "block", fontSize: 11, marginTop: 3 }}>
