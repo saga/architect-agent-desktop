@@ -13,7 +13,7 @@ export const HOST_TOOL_IDS = [
 ] as const;
 
 const resourcePath = z.string().min(1).max(240).refine((value) => {
-  if (value.includes("\\\\") || value.includes("\\0") || value.startsWith("/") || /^[a-zA-Z]:/.test(value)) return false;
+  if (value.includes(String.fromCharCode(92)) || value.includes(String.fromCharCode(0)) || value.startsWith("/") || /^[a-zA-Z]:/.test(value)) return false;
   const segments = value.split("/");
   return segments.every((part) => part.length > 0 && part !== "." && part !== "..");
 }, "资源路径必须是包内相对路径，不能包含 ..、反斜杠或绝对路径");
@@ -151,9 +151,7 @@ function collectMarkdownFiles(root: string, entryPath: string, kind: "skill" | "
       found.push(path.relative(root, absolute).split(path.sep).join("/"));
     } else throw new Error("Claude Plugin 组件必须是 Markdown 文件或目录：" + entryPath);
   } else {
-    if (kind === "skill" && existsSync(path.join(absolute, "SKILL.md"))) {
-      found.push(path.relative(root, path.join(absolute, "SKILL.md")).split(path.sep).join("/"));
-    } else visit(absolute);
+    visit(absolute);
   }
   return found;
 }
