@@ -190,7 +190,9 @@ export function projectAgentTrajectory(events: readonly AgentTraceEventLike[]): 
           row.status = status(event.status ?? "completed");
           row.output = response;
           row.events.push(event);
-          const dataUsage = usage(data.usage ?? record(data.result).usage ?? record(data.result).data && record(record(data.result).data).usage);
+          const resultData = record(data.result);
+          const nestedResultData = record(resultData.data);
+          const dataUsage = usage(data.usage ?? resultData.usage ?? nestedResultData.usage);
           if (dataUsage) row.usage = dataUsage;
           const details = providerDetails([event]);
           row.provider = row.provider ?? details.provider;
