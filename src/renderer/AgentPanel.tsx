@@ -422,7 +422,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       <div className="agent-panel-toolbar">
         {onModeChange && <Tooltip title={mode === "pure" ? "切换到 Sidepanel 模式" : "切换到 Pure Agent 模式"}><Button type="text" size="small" onClick={onModeChange}>{mode === "pure" ? "Sidepanel" : "Pure Agent"}</Button></Tooltip>}
         {mode === "pure" && onToggleRightPane && <Tooltip title={rightPaneVisible ? "隐藏右侧工作区" : "显示右侧工作区"}><Button type="text" size="small" onClick={onToggleRightPane}>{rightPaneVisible ? "隐藏预览" : "显示预览"}</Button></Tooltip>}
-        <Tooltip title="Session Explorer"><Button type="text" size="small" aria-label="Session Explorer" icon={<HistoryOutlined />} onClick={() => setSessionExplorerOpen(true)} /></Tooltip>
+        <Tooltip title="执行轨迹与 Context Explorer"><Button type="text" size="small" aria-label="执行轨迹与 Context Explorer" icon={<HistoryOutlined />} onClick={() => setSessionExplorerOpen(true)} /></Tooltip>
         <Tooltip title="Agent 配置"><Button type="text" size="small" aria-label="Agent 配置" icon={<SettingOutlined />} onClick={() => void openSettings()} /></Tooltip>
         <Dropdown trigger={["click"]} placement="bottomRight" menu={{ items: moreItems, onClick: onMoreClick }}>
           <Button type="text" size="small" aria-label="更多操作" icon={<MoreOutlined />} />
