@@ -17,6 +17,7 @@ export interface A2UIV1CanvasProps {
 
 export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交互式分析" }: A2UIV1CanvasProps) {
   const [surfaces, setSurfaces] = useState<Array<SurfaceModel<ReactCatalogComponent>>>([]);
+  const [generation, setGeneration] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
   const onRendererMessageRef = useRef(onRendererMessage);
   const processedCount = useRef(0);
@@ -32,7 +33,7 @@ export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交
         setErrors(current => [...current.slice(-4), error.error?.message ?? "A2UI 1.0 渲染失败"]);
       },
     },
-  ), []);
+  ), [generation]);
 
   const refreshSurfaces = useCallback(() => {
     setSurfaces([...processor.model.surfacesMap.values()]);
@@ -50,7 +51,13 @@ export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交
   }, [processor, refreshSurfaces]);
 
   useEffect(() => {
-    if (messages.length < processedCount.current) processedCount.current = 0;
+    if (messages.length < processedCount.current) {
+      processedCount.current = 0;
+      setSurfaces([]);
+      setErrors([]);
+      setGeneration(value => value + 1);
+      return;
+    }
     const pending = messages.slice(processedCount.current);
     for (const payload of pending) {
       try {
