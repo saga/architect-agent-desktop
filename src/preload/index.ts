@@ -34,6 +34,7 @@ const api: BrowserApi = {
   redockAgentPanel: (position) => ipcRenderer.invoke("workspace:redock-agent", position),
   toggleSnapshot: () => ipcRenderer.invoke("browser:toggle-snapshot"),
   openExternal: (url: string) => ipcRenderer.invoke("app:open-external", url),
+  openInChrome: (url: string): Promise<"chrome" | "default"> => ipcRenderer.invoke("app:open-in-chrome", url),
   onSnapshotState: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, active: boolean) => listener(active);
     ipcRenderer.on("browser:snapshot-state", handler);
