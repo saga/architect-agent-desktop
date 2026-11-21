@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Form, Input, Radio, Select, Spin, message, List, Switch, Popconfirm, Tag, Divider } from "antd";
+import { ApiOutlined, AppstoreOutlined, CodeOutlined, SettingOutlined } from "@ant-design/icons";
+import { AgentSkillsPanel, McpSettingsPanel } from "./AgentExtensionsSettings";
 import type { AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission, PluginSummary } from "../shared/types";
 
 const DEFAULT_SETTINGS: AgentSettings = {
@@ -9,6 +11,7 @@ const DEFAULT_SETTINGS: AgentSettings = {
 
 export default function AgentSettingsWindow() {
   const [settings, setSettings] = useState<AgentSettings>(DEFAULT_SETTINGS);
+  const [activeSection, setActiveSection] = useState<"agent" | "mcp" | "skills" | "plugins">("agent");
   const [models, setModels] = useState<AgentModelInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [inspecting, setInspecting] = useState(false);
@@ -121,9 +124,20 @@ export default function AgentSettingsWindow() {
 
   return <main className="settings-window">
     <header className="settings-window-header">
-      <div><h1>Agent 与插件配置</h1><p>配置 Agent 模型、权限，并管理本机声明式插件</p></div>
+      <div><h1>Settings</h1><p>管理 Agent、MCP Servers、Agent Skills 和插件</p></div>
     </header>
     <section className="settings-window-content">
+      <div className="settings-layout">
+        <nav className="settings-sidebar" aria-label="配置分类">
+          <div className="settings-sidebar-label">WORKSPACE</div>
+          <Button type="text" className={"settings-nav-item" + (activeSection === "agent" ? " active" : "")} icon={<SettingOutlined />} onClick={() => setActiveSection("agent")}>Agent</Button>
+          <Button type="text" className={"settings-nav-item" + (activeSection === "mcp" ? " active" : "")} icon={<ApiOutlined />} onClick={() => setActiveSection("mcp")}>MCP Servers</Button>
+          <Button type="text" className={"settings-nav-item" + (activeSection === "skills" ? " active" : "")} icon={<CodeOutlined />} onClick={() => setActiveSection("skills")}>Agent Skills</Button>
+          <div className="settings-sidebar-label settings-sidebar-label-spaced">EXTENSIONS</div>
+          <Button type="text" className={"settings-nav-item" + (activeSection === "plugins" ? " active" : "")} icon={<AppstoreOutlined />} onClick={() => setActiveSection("plugins")}>Plugins</Button>
+        </nav>
+        <div className="settings-main">
+          {activeSection === "agent" && <>
       <Form layout="vertical" requiredMark={false}>
         <Form.Item label="默认 Provider">
           <Select value={settings.provider} onChange={(value: AgentProvider) => void changeProvider(value)} options={[
@@ -196,8 +210,10 @@ export default function AgentSettingsWindow() {
           <Button loading={changingDataDirectory} onClick={() => void chooseAgentDataDirectory()}>更改数据目录</Button>
         </div>
       </section>
-      <Divider />
-      <section className="plugin-manager">
+      </>}
+      {activeSection === "mcp" && <McpSettingsPanel />}
+      {activeSection === "skills" && <AgentSkillsPanel />}
+      {activeSection === "plugins" && <section className="plugin-manager">
         <div className="plugin-manager-heading">
           <div><h2>插件管理</h2><p>目录中需要包含 manifest.json。可参考仓库 examples/plugins/research-assistant。插件只能提供 Skills、宿主工具引用、工作流和宿主视图声明，不能运行任意代码。</p></div>
           <Button type="primary" loading={pluginBusy} onClick={() => void importPlugin()}>导入插件目录</Button>
@@ -222,11 +238,13 @@ export default function AgentSettingsWindow() {
             />
           </List.Item>}
         />
-      </section>
+      </section>}
+        </div>
+      </div>
     </section>
     <footer className="settings-window-footer">
-      <Button onClick={() => window.close()}>取消</Button>
-      <Button type="primary" loading={saving} onClick={() => void save()}>保存配置</Button>
+      <Button onClick={() => window.close()}>关闭</Button>
+      {activeSection === "agent" && <Button type="primary" loading={saving} onClick={() => void save()}>保存 Agent 配置</Button>}
     </footer>
   </main>;
 }
