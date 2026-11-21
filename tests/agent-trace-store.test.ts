@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -157,6 +158,34 @@ private-material
     expect(matches.every((item) => item.sessionId === "session-search-a")).toBe(true);
     expect(store.searchSessionMessages("/workspace/project-b", "投资组合", 10).every((item) => item.sessionId === "session-search-b")).toBe(true);
     store.close();
+  });
+
+  it("uses the legacy composite cursor when migrating an existing Transcript to revisions", () => {
+    const directory = temporaryDirectory();
+    const store = new AgentTraceStore(directory);
+    store.saveSessionItems("session-legacy", "/workspace/legacy", [
+      { id: "old-message", kind: "user", content: "Already processed legacy message.", createdAt: 100 },
+      { id: "new-message", kind: "assistant", content: "Newer legacy message after the old cursor.", createdAt: 300 },
+    ]);
+    store.close();
+
+    const database = new DatabaseSync(path.join(directory, "agent-traces.sqlite"));
+    try {
+      database.prepare("DELETE FROM session_message_revisions WHERE session_id=?").run("session-legacy");
+    } finally {
+      database.close();
+    }
+
+    const migrated = new AgentTraceStore(directory);
+    const evidence = migrated.listMemorySources("/workspace/legacy", {
+      createdAt: 200,
+      sessionId: "session-legacy",
+      messageId: "old-message",
+      transcriptRevision: 0,
+    }, 10);
+    expect(evidence.map(item => item.messageId)).toEqual(["new-message"]);
+    expect(evidence[0]?.changeType).toBe("baseline");
+    migrated.close();
   });
 
   it("re-surfaces an old Transcript message when its content is revised", () => {
