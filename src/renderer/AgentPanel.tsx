@@ -10,7 +10,7 @@ import type { AgentSessionItem, AgentSettings, CopilotEvent, WorkspaceProject } 
 
 type ChatItem = AgentSessionItem & { streaming?: boolean };
 type AgentPanelMode = "sidepanel" | "pure";
-const EMPTY_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", toolPermission: "browser-only", systemPrompt: "" };
+const EMPTY_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", toolPermission: "none", systemPrompt: "" };
 const SESSION_SAVE_DELAY_MS = 500;
 
 function toSessionItems(items: ChatItem[]): AgentSessionItem[] {
