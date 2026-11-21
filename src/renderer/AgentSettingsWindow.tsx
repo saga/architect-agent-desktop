@@ -262,13 +262,21 @@ export default function AgentSettingsWindow() {
       {activeSection === "memory" && <MemoryManager />}
       {activeSection === "plugins" && <section className="plugin-manager">
         <div className="plugin-manager-heading">
-          <div><h2>插件管理</h2><p>目录中需要包含 manifest.json。可参考仓库 examples/plugins/research-assistant。插件只能提供 Skills、宿主工具引用、工作流和宿主视图声明，不能运行任意代码。</p></div>
-          <Button type="primary" loading={pluginBusy} onClick={() => void importPlugin()}>导入插件目录</Button>
+          <div>
+            <h2>Claude Code Plugins</h2>
+            <p>插件目录采用 Claude Code Plugin 约定：根目录包含 .claude-plugin/plugin.json，组件放在 skills/、commands/ 和 agents/。</p>
+          </div>
+          <Space wrap>
+            <Button onClick={() => void window.browser.openExternal("https://claude.com/marketplace/plugins")}>浏览 Claude Marketplace</Button>
+            <Button type="primary" loading={pluginBusy} onClick={() => void importPlugin()}>导入 Claude Plugin 目录</Button>
+          </Space>
         </div>
+        <Alert type="info" showIcon message="从 Claude Marketplace 获取插件"
+          description="在 Claude Marketplace 中选择 Works with: Claude Code 的插件，获取其源码目录后导入。当前读取并加载 Markdown Skills、Commands 和 Agents；不会执行 Hooks、MCP/LSP 服务、Mod 或插件脚本。需要这些运行时能力的插件不会完整生效。" />
         <List
           loading={pluginsLoading}
           dataSource={plugins}
-          locale={{ emptyText: "尚未安装插件" }}
+          locale={{ emptyText: "尚未安装插件。可从 Claude Marketplace 选择 Claude Code 插件后导入源码目录。" }}
           renderItem={(plugin) => <List.Item actions={[
             <Switch key="enabled" checked={plugin.enabled} checkedChildren="启用" unCheckedChildren="停用" onChange={(value) => void togglePlugin(plugin, value)} />,
             <Button key="export" size="small" disabled={pluginBusy} onClick={() => void exportPlugin(plugin)}>导出</Button>,
@@ -277,10 +285,10 @@ export default function AgentSettingsWindow() {
             </Popconfirm>
           ]}>
             <List.Item.Meta
-              title={<span>{plugin.name} <Tag>{plugin.version}</Tag></span>}
+              title={<Space wrap><span>{plugin.name}</span><Tag>{plugin.version}</Tag>{plugin.sourceFormat === "claude-code" && <Tag color="geekblue">Claude Code Plugin</Tag>}</Space>}
               description={<>
                 <div>{plugin.description || plugin.id}</div>
-                <div className="settings-field-help">Skills {plugin.skills.length} · Tools {plugin.tools.length} · Workflows {plugin.workflows.length} · Views {plugin.views.length}{plugin.tools.length ? " · " + plugin.tools.join(", ") : ""}</div>
+                <div className="settings-field-help">Skills {plugin.skills.length} · Commands {plugin.commands.length + plugin.inlineCommands.length} · Agents {plugin.agents.length} · Tools {plugin.tools.length} · Workflows {plugin.workflows.length}</div>
               </>}
             />
           </List.Item>}
