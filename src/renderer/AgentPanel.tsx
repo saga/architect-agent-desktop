@@ -177,7 +177,11 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
             }
           }
         };
-        if (event.type === "status" && event.status) setStatus(event.status);
+        if (event.type === "status" && event.status) {
+          setStatus(event.status);
+          if (event.status === "starting") setLoading(true);
+          else if (event.status === "ready" || event.status === "unauthenticated") setLoading(false);
+        }
         if (event.type === "thinking" && event.text) {
           const thinkingText = event.text;
           setItems((current) => {
