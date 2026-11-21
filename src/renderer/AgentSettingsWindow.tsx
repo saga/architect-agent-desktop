@@ -16,6 +16,7 @@ export default function AgentSettingsWindow() {
   const [models, setModels] = useState<AgentModelInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [inspecting, setInspecting] = useState(false);
+  const [embeddingChecking, setEmbeddingChecking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [inspectError, setInspectError] = useState("");
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
@@ -112,6 +113,22 @@ export default function AgentSettingsWindow() {
     try { setAgentDataDirectory(await window.browser.agentDataSelectDirectory()); message.success("Agent Data 目录已切换。新事件将写入新目录，旧目录中的记录不会移动。"); }
     catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
     finally { setChangingDataDirectory(false); }
+  };
+
+  const checkMemoryEmbedding = async () => {
+    setEmbeddingChecking(true);
+    try {
+      const result = await window.browser.agentMemoryCheckEmbedding({
+        provider: "ollama",
+        baseUrl: settings.memoryEmbeddingBaseUrl,
+        model: settings.memoryEmbeddingModel,
+      });
+      message.success("本机 Ollama 连接正常：" + result.model + " · " + result.dimensions + " 维向量。");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setEmbeddingChecking(false);
+    }
   };
 
   const save = async () => {
@@ -223,6 +240,8 @@ export default function AgentSettingsWindow() {
             <Input value={settings.memoryEmbeddingModel} onChange={event => update("memoryEmbeddingModel", event.target.value)}
               maxLength={120} placeholder="nomic-embed-text" />
             <div className="settings-field-help">例如 nomic-embed-text。请确保该模型已在 Ollama 中下载；更换模型后需要重新建立索引。</div>
+            <Button size="small" loading={embeddingChecking} disabled={embeddingChecking || !settings.memoryEmbeddingModel.trim()}
+              onClick={() => void checkMemoryEmbedding()}>测试本机连接与模型</Button>
           </Form.Item>
         </>}
       </Form>
