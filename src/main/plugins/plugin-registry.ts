@@ -26,7 +26,7 @@ const inlineCommandSchema = z.object({
 export const pluginManifestSchema = z.object({
   manifestVersion: z.literal(1),
   sourceFormat: z.enum(["native", "claude-code"]).default("native"),
-  id: z.string().min(3).max(100).regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/),
+  id: z.string().min(1).max(100).regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/),
   name: z.string().trim().min(1).max(120),
   version: z.string().trim().min(1).max(100),
   description: z.string().max(500).optional(),
