@@ -4,6 +4,8 @@ import { ArrowLeftOutlined, ArrowRightOutlined, FileOutlined, FolderOpenOutlined
 import XMarkdown from "@ant-design/x-markdown";
 import { markdownComponents } from "./MarkdownLink";
 import AgentA2UICard from "./components/AgentA2UICard";
+import A2UIV1Canvas from "./a2ui/A2UIV1Canvas";
+import type { RendererToAgentMessage } from "@a2ui/agent";
 import type { AgentSessionItem, AgentWorkspaceRightTab, AgentWorkspaceSnapshot, BrowserState } from "../shared/types";
 
 interface PureAgentRightPanelProps {
@@ -108,6 +110,13 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
   };
 
   const resultMessages = useMemo(() => messages.filter(item => item.kind === "assistant" || item.kind === "error" || item.kind === "a2ui").slice(-12), [messages]);
+  const a2uiV1Messages = useMemo(() => messages.filter(item => item.kind === "a2ui-v1").map(item => item.content), [messages]);
+  const onA2UIRendererMessage = useCallback((rendererMessage: RendererToAgentMessage) => {
+    if (!task?.id) return;
+    void window.browser.agentA2uiMessage(rendererMessage, task.id).catch(error => {
+      message.error(error instanceof Error ? error.message : String(error));
+    });
+  }, [task?.id]);
 
   return <aside className="pure-right-panel">
     <header className="pure-right-header">
@@ -167,6 +176,7 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
         <div className="pure-result-meta">{item.kind === "error" ? "错误" : "Agent 结果"} · {new Date(item.createdAt).toLocaleString()}</div>
         {item.kind === "assistant" ? <XMarkdown content={item.content} components={markdownComponents} escapeRawHtml /> : item.kind === "a2ui" ? <AgentA2UICard content={item.content} /> : <pre>{item.content}</pre>}
       </article>) : <Empty description="完成任务后，Agent 的结果会显示在这里" />}
+      <A2UIV1Canvas messages={a2uiV1Messages} onRendererMessage={onA2UIRendererMessage} />
     </div>}
   </aside>;
 }
