@@ -107,7 +107,8 @@ describe("AgentMemoryStore", () => {
     expect(contextB).toContain("Architecture review preference");
     expect(contextB).not.toContain("Portfolio A private convention");
     expect(store.getSourceById(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
-    expect(store.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toEqual(personalSource);
+    expect(store.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
+    expect(store.getAgentAccessibleSource(personalSource.sourceId, null)).toEqual(personalSource);
     store.abandonDreaming(null, personalRun!.id, "test complete");
 
     expect(() => store.saveNote({
