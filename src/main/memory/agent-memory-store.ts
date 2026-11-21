@@ -511,6 +511,23 @@ export class AgentMemoryStore {
     return candidates.map(row=>this.toNote(row));
   }
 
+  listQualityReviewCandidatesForRun(scope:string|null,runId:string,limit=80):Array<Record<string,unknown>>{
+    const run=this.getDreamRun(runId,scope);
+    if(!run||run.status!=="prepared"||run.purpose!=="quality_review")throw new Error("质量复查候选必须关联当前 Workspace 的 prepared quality_review Run。");
+    const runSourceByMessage=new Map(run.evidence.map(source=>[source.sessionId+"\\0"+source.messageId,source.sourceId]));
+    return this.listQualityReviewCandidates(scope,limit).flatMap(note=>{
+      const mapped=new Set<string>();
+      for(const oldSourceId of note.sourceRefs){
+        const oldSource=this.getSourceById(oldSourceId,scope);
+        if(!oldSource)continue;
+        const currentSourceId=runSourceByMessage.get(oldSource.sessionId+"\\0"+oldSource.messageId);
+        if(currentSourceId)mapped.add(currentSourceId);
+      }
+      if(!mapped.size)return [];
+      return [{...note,qualityReviewSourceRefs:[...mapped]}];
+    });
+  }
+
   getDreamRun(id:string,scope:string|null):MemoryDreamRun|null{
     const row=this.database.prepare("SELECT * FROM memory_dream_runs WHERE id=? AND scope_key=?").get({},id,normalizeScope(scope)) as Record<string,unknown>|undefined;
     if(!row)return null;
