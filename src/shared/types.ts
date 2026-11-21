@@ -204,6 +204,7 @@ export interface BrowserApi {
   onToggleAgent(listener: () => void): () => void;
   copilotStatus(): Promise<{ status: string; message?: string; provider: AgentProvider }>;
   openAgentSettings(): Promise<void>;
+  openSessionExplorer(): Promise<void>;
   agentDataGetDirectory(): Promise<string>;
   agentDataSelectDirectory(): Promise<string>;
   agentTraceListSessions(): Promise<Array<Record<string, unknown>>>;
