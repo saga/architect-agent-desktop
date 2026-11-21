@@ -74,7 +74,8 @@ describe("AgentMemoryStore", () => {
   });
 
   it("shares Personal Memory across Workspaces without exposing project Notes", () => {
-    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const databasePath=path.join(temporaryDirectory(),"memory.sqlite");
+    const store = new AgentMemoryStore(databasePath);
     const personalRun = store.prepareDreaming(null, [{
       sessionId: "personal-session",
       messageId: "personal-source",
@@ -199,15 +200,27 @@ describe("AgentMemoryStore", () => {
     // Simulate a legacy personal Note that was incorrectly classified as a project fact.
     const database = (store as unknown as { database: DatabaseSync }).database;
     database.prepare("UPDATE memory_notes SET claim_type='project_fact' WHERE id=?").run({}, personalNote.id);
-    expect(store.listNotes(null, true).map(note => note.id)).toContain(personalNote.id);
-    expect(store.listAgentAccessibleNotes(null, true).map(note => note.id)).not.toContain(personalNote.id);
-    expect(store.search("/workspace/portfolio-b", "architecture review preference").map(note => note.id)).not.toContain(personalNote.id);
-    expect(store.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
-    expect(store.getAgentAccessibleSource(personalSource.sourceId, null)).toBeNull();
-    expect(store.listNotesMissingEmbeddings("/workspace/portfolio-b", "ollama", "nomic-embed-text", 20).map(note => note.id)).not.toContain(personalNote.id);
-    expect(store.getEmbeddingIndexStatus("/workspace/portfolio-b", "ollama", "nomic-embed-text").total).toBe(0);
-    expect(store.getInjectedContext("/workspace/portfolio-b")).not.toContain("Architecture review preference");
+    const personalRow=database.prepare("SELECT scope_key,content_hash FROM memory_notes WHERE id=?").get({},personalNote.id) as {scope_key:string;content_hash:string};
+    database.prepare("INSERT INTO memory_note_embeddings(note_id,scope_key,provider,model,content_hash,dimensions,vector_json,updated_at) VALUES(?,?,?,?,?,?,?,?)")
+      .run({},personalNote.id,personalRow.scope_key,"ollama","nomic-embed-text",personalRow.content_hash,8,JSON.stringify([1,0,0,0,0,0,0,0]),Date.now());
+    expect(database.prepare("SELECT COUNT(*) AS count FROM memory_note_embeddings WHERE note_id=?").get({},personalNote.id)).toMatchObject({count:1});
+    store.abandonDreaming(null, personalRun!.id, "test complete");
     store.close();
+
+    // Reopening the database runs the migration that physically removes vectors
+    // for legacy Personal Notes that were misclassified as project knowledge.
+    const reopened = new AgentMemoryStore(databasePath);
+    const reopenedDatabase=(reopened as unknown as {database:DatabaseSync}).database;
+    expect(reopenedDatabase.prepare("SELECT COUNT(*) AS count FROM memory_note_embeddings WHERE note_id=?").get({},personalNote.id)).toMatchObject({count:0});
+    expect(reopened.listNotes(null, true).map(note => note.id)).toContain(personalNote.id);
+    expect(reopened.listAgentAccessibleNotes(null, true).map(note => note.id)).not.toContain(personalNote.id);
+    expect(reopened.search("/workspace/portfolio-b", "architecture review preference").map(note => note.id)).not.toContain(personalNote.id);
+    expect(reopened.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
+    expect(reopened.getAgentAccessibleSource(personalSource.sourceId, null)).toBeNull();
+    expect(reopened.listNotesMissingEmbeddings("/workspace/portfolio-b", "ollama", "nomic-embed-text", 20).map(note => note.id)).not.toContain(personalNote.id);
+    expect(reopened.getEmbeddingIndexStatus("/workspace/portfolio-b", "ollama", "nomic-embed-text").total).toBe(0);
+    expect(reopened.getInjectedContext("/workspace/portfolio-b")).not.toContain("Architecture review preference");
+    reopened.close();
   });
 
   it("requires source-class and independent-session evidence before validating facts", () => {
