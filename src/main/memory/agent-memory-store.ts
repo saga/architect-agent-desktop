@@ -487,10 +487,16 @@ export class AgentMemoryStore {
     const evidence:MemorySourceEvidence[]=[];
     const seenSources=new Set<string>();
     for(const note of candidates){
+      const latestByMessage=new Map<string,StoredMemorySource>();
       for(const sourceId of note.sourceRefs){
         const source=this.getSourceById(sourceId,scope);
         if(!source)continue;
         const key=source.sessionId+"\\0"+source.messageId;
+        const previous=latestByMessage.get(key);
+        if(!previous || Number(source.revision??source.createdAt)>Number(previous.revision??previous.createdAt))
+          latestByMessage.set(key,source);
+      }
+      for(const [key,source] of latestByMessage){
         if(seenSources.has(key))continue;
         seenSources.add(key);
         evidence.push({
@@ -509,9 +515,9 @@ export class AgentMemoryStore {
     const candidates=this.database.prepare(
       "SELECT * FROM memory_notes WHERE scope_key=? AND status='active' "+
       "AND (expires_at IS NULL OR expires_at>?) "+
-      "AND COALESCE(last_quality_reviewed_at,created_at)<=? "+
+      "AND MAX(created_at,updated_at,COALESCE(last_quality_reviewed_at,0))<=? "+
       "AND source_refs_json<>'[]' "+
-      "ORDER BY pinned DESC,importance DESC,COALESCE(last_quality_reviewed_at,created_at) ASC LIMIT ?"
+      "ORDER BY pinned DESC,importance DESC,MAX(created_at,updated_at,COALESCE(last_quality_reviewed_at,0)) ASC LIMIT ?"
     ).all({},normalizeScope(scope),now,cutoff,Math.max(1,Math.min(Math.floor(limit),80))) as Record<string,unknown>[];
     return candidates.map(row=>this.toNote(row));
   }
