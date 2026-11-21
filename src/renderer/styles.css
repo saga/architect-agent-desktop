@@ -1164,3 +1164,28 @@ button { color: inherit; }
   .trajectory-run-counts { font-size:8px; }
   .agent-trajectory-empty { align-items:flex-start; padding:18px 13px; }
 }
+
+
+.memory-manager { display:grid; gap:16px; max-width:1160px; min-width:0; }
+.memory-manager-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.memory-manager-header h2 { margin:0; color:#20242b; font-size:18px; font-weight:650; }
+.memory-manager-header p { margin:6px 0 0; color:#798391; font-size:12px; line-height:1.55; }
+.memory-manager-stats { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }
+.memory-manager-stats .ant-card { border-color:#edf0f3; box-shadow:none; }
+.memory-manager-stats .ant-card-body { padding:13px 15px; }
+.memory-manager-stats .ant-statistic-title { font-size:11px; }
+.memory-manager-stats .ant-statistic-content { font-size:22px; }
+.memory-manager .ant-table { font-size:12px; }
+.memory-manager .ant-table-cell { vertical-align:top; }
+.memory-manager .ant-tabs-nav { margin-bottom:12px; }
+.memory-manager .ant-alert { overflow-wrap:anywhere; }
+.memory-manager .ant-collapse-content-box { min-width:0; }
+.memory-manager .ant-list-item-meta-description { overflow-wrap:anywhere; }
+@media (max-width:900px) {
+  .memory-manager-header { flex-direction:column; }
+  .memory-manager-stats { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media (max-width:560px) {
+  .memory-manager-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .memory-manager .ant-table { min-width:620px; }
+}
