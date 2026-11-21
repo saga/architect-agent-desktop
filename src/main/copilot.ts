@@ -1,6 +1,7 @@
 import type { CopilotClient, CopilotSession } from "@github/copilot-sdk" with { "resolution-mode": "import" };
 import { z } from "zod";
-import type { AgentChatMessage, AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission } from "../shared/types";
+import type { AgentChatMessage, AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission, McpServerConfig } from "../shared/types";
+import { mcpServerToolPatterns, resolveMcpServerConfigs } from "./agent-extensions";
 import { app, session } from "electron";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -219,13 +220,17 @@ export class CopilotDesktopAgent {
  private workspacePath:string|null;
  private taskContext:{systemPrompt:string;toolPermission:AgentToolPermission;skills:string[];tools:string[]}|null=null;
  private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null; private readonly codeRuntimeAbortControllers = new Set<AbortController>(); private readonly codeRuntime = new UtilityProcessAgentRuntime();
- constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:(skills?:string[])=>string=()=>"",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string)=>void=()=>{},initialTaskContext:{systemPrompt:string;toolPermission:AgentToolPermission;skills:string[];tools:string[]}|null=null){this.settings=settings;this.workspacePath=workspacePath;this.taskContext=initialTaskContext?{...initialTaskContext,skills:[...initialTaskContext.skills],tools:[...initialTaskContext.tools]}:null;}
+ constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:(skills?:string[])=>string=()=>"",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string)=>void=()=>{},initialTaskContext:{systemPrompt:string;toolPermission:AgentToolPermission;skills:string[];tools:string[]}|null=null,private getMcpServers:()=>McpServerConfig[]=()=>[]){this.settings=settings;this.workspacePath=workspacePath;this.taskContext=initialTaskContext?{...initialTaskContext,skills:[...initialTaskContext.skills],tools:[...initialTaskContext.tools]}:null;}
  async setWorkspacePath(workspacePath:string|null):Promise<void>{if(workspacePath===this.workspacePath)return;if(this.active)throw new Error("Wait for the current Agent request to finish before changing the workspace.");await this.stop();this.workspacePath=workspacePath;}
  async setTaskContext(context:{systemPrompt:string;toolPermission:AgentToolPermission;skills:string[];tools:string[]}|null):Promise<void>{
   if(this.active)throw new Error("Wait for the current Agent request to finish before changing the Expert.");
   const next=context?{systemPrompt:context.systemPrompt,toolPermission:context.toolPermission,skills:[...context.skills],tools:[...context.tools]}:null;
   if(JSON.stringify(next)===JSON.stringify(this.taskContext))return;
   await this.stop();this.taskContext=next;
+ }
+ private configuredMcpServers(provider:"copilot"|"codebuddy",environment:Record<string,string|undefined>):Record<string,Record<string,unknown>>{
+  if(this.effectivePermission()!=="allow-all")return{};
+  return resolveMcpServerConfigs(this.getMcpServers(),provider,environment);
  }
  private effectivePermission():AgentToolPermission{
   const rank:Record<AgentToolPermission,number>={"browser-only":0,assisted:1,"allow-all":2};
@@ -358,19 +363,24 @@ export class CopilotDesktopAgent {
      const{CopilotClient}=await import("@github/copilot-sdk");
      const baseDirectory=this.workspacePath??path.join(app.getPath("userData"),"copilot-session");
      mkdirSync(baseDirectory,{recursive:true});
-     client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory,env:await resolvedAgentProcessEnvironment()});
+     const runtimeEnvironment=await resolvedAgentProcessEnvironment();
+     client=new CopilotClient({useLoggedInUser:true,mode:"empty",baseDirectory,env:runtimeEnvironment});
      this.client=client;
      await client.start();
      if(generation!==this.generation)throw new Error("Copilot session startup was cancelled.");
      const{defineTool,ToolSet}=await import("@github/copilot-sdk");
      const tools=await this.handlers();
+     const configuredMcpServers=this.configuredMcpServers("copilot",runtimeEnvironment);
+     const availableTools=new ToolSet().addCustom("*");
+     if(Object.keys(configuredMcpServers).length)availableTools.addMcp("*");
      if(generation!==this.generation)throw new Error("Copilot session startup was cancelled.");
      const session=await client.createSession({
       streaming:true,
-      availableTools:new ToolSet().addCustom("*"),
+      availableTools,
       ...(modelId?{model:modelId}:{}),
       ...((this.inspectedModels.get("copilot:"+modelId)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),
       systemMessage:{mode:"append",content:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(this.effectivePermission())].filter(Boolean).join("\n\n")},
+      ...(Object.keys(configuredMcpServers).length?{mcpServers:configuredMcpServers}:{}),
       tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{
        this.recordTrace("tool.call",{name,input},"running");
        try{
@@ -524,11 +534,13 @@ export class CopilotDesktopAgent {
       : [];
   const detached=isManagedSession()?detachedCliOptions():null;
   const runtimeEnv=await resolvedAgentProcessEnvironment();
+  const configuredMcpServers=this.configuredMcpServers("codebuddy",runtimeEnv);
+  allowed.push(...mcpServerToolPatterns(this.getMcpServers().filter(server=>Object.hasOwn(configuredMcpServers,server.id))));
   const queryOptions={
     ...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:{type:"adaptive" as const},includePartialMessages:true,
     systemPrompt:{append:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
     cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})},settingSources,persistSession:false,maxTurns:12,
-    mcpServers:{browser:server},allowedTools:allowed,
+    mcpServers:{browser:server,...configuredMcpServers},allowedTools:allowed,
     ...(permission==="browser-only"
       ? {permissionMode:"default" as const,tools:[] as string[],disallowedTools:builtinToolNames}
       : permission==="assisted"
