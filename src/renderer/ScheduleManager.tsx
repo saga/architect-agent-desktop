@@ -433,7 +433,7 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
         {run.resultPreview && <p className="pure-schedule-run-preview">{run.resultPreview}</p>}
         {run.error && <p className="pure-schedule-error">{run.error}</p>}
         <div className="pure-schedule-run-actions">
-          {run.taskId && <Button size="small" type="link" icon={<HistoryOutlined />} onClick={() => onOpenTask(run.taskId as string)}>查看完整执行对话</Button>}
+          {run.taskId && <Button size="small" type="link" disabled={run.status === "running"} icon={<HistoryOutlined />} onClick={() => onOpenTask(run.taskId as string)}>查看完整执行对话</Button>}
           {run.status === "running" && <Button size="small" type="text" icon={<ReloadOutlined />} onClick={onChanged}>刷新状态</Button>}
         </div>
       </article>)}
