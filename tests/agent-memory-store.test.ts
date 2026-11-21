@@ -454,16 +454,28 @@ describe("AgentMemoryStore", () => {
     // Older versions counted arbitrary hostnames as independent domains.
     // Re-read must normalize their persisted status using registrable domains.
     const database = (store as unknown as { database: DatabaseSync }).database;
-    database.prepare("UPDATE memory_notes SET external_verification_json=? WHERE id=?").run(
+    database.prepare("UPDATE memory_notes SET external_verification_json=?,validation='validated',validation_evidence_json=? WHERE id=?").run(
       {},
       JSON.stringify({
         ...recorded.externalVerification,
         status: "multi_domain_sources_recorded",
       }),
+      JSON.stringify({
+        claimType: "external_fact",
+        sourceCount: 3,
+        independentSessions: 2,
+        directUserSources: 1,
+        toolObservations: 2,
+        evidenceClasses: ["direct_user", "tool_observation"],
+        eligible: true,
+        policy: "human_confirmed_multi_domain_source_review",
+        reason: "Legacy user confirmation.",
+      }),
       note.id,
     );
     const reread = store.listNotes("/workspace/external-subdomains", true).find(item => item.id === note.id);
     expect(reread?.externalVerification?.status).toBe("single_domain_sources_recorded");
+    expect(reread?.validation).toBe("unverified");
     store.abandonDreaming("/workspace/external-subdomains", run!.id, "test complete");
     store.close();
   });
