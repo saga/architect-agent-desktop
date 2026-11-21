@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Form, Input, Radio, Select, Spin, message, List, Switch, Popconfirm, Tag, Divider, Space } from "antd";
+import { Alert, Button, Form, Input, Radio, Select, Spin, message, List, Switch, Popconfirm, Tag, Divider, Space } from "antd";
 import { ApiOutlined, AppstoreOutlined, CodeOutlined, DatabaseOutlined, SettingOutlined } from "@ant-design/icons";
 import MemoryManager from "./MemoryManager";
 import { AgentSkillsPanel, McpSettingsPanel } from "./AgentExtensionsSettings";
