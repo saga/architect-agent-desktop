@@ -2462,6 +2462,32 @@ function registerIpcHandlers(): void {
     taskId: z.string().min(1).max(100),
     ...(withRun ? { runId: z.string().min(1).max(100) } : {}),
   }).safeParse(input);
+  ipcMain.handle("agent:memory-set-pinned", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等当前任务完成后再修改 Memory。");
+    const parsed = z.object({
+      taskId: z.string().min(1).max(100),
+      noteId: z.string().min(1).max(100),
+      pinned: z.boolean(),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Memory pin request.");
+    const task = taskForId(parsed.data.taskId);
+    const note = copilotAgent.setMemoryPinned(task.workspacePath, parsed.data.noteId, parsed.data.pinned);
+    recordTaskTrace(task, "memory.note.pinned", { noteId: parsed.data.noteId, pinned: parsed.data.pinned, version: note.version });
+    return note;
+  });
+  ipcMain.handle("agent:memory-archive-note", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等当前任务完成后再归档 Memory。");
+    const parsed = z.object({
+      taskId: z.string().min(1).max(100),
+      noteId: z.string().min(1).max(100),
+    }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Memory archive request.");
+    const task = taskForId(parsed.data.taskId);
+    copilotAgent.archiveMemoryNote(task.workspacePath, parsed.data.noteId);
+    recordTaskTrace(task, "memory.note.archived", { noteId: parsed.data.noteId });
+  });
   ipcMain.handle("agent:memory-get-snapshot", async (event, input: unknown) => {
     assertTrustedSender(event);
     const parsed = parseMemoryTaskInput(input);
