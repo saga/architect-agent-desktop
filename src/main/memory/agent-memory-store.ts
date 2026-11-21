@@ -459,7 +459,7 @@ export class AgentMemoryStore {
     const maxRevision=sources.reduce((max,source)=>Math.max(max,source.revision??0),cursor.transcriptRevision);
     const lastSource=sources[sources.length-1]!;
     const cursorAfter:MemoryDreamCursor=purpose==="quality_review"?cursor:{
-      createdAt:lastSource.createdAt,sessionId:lastSource.sessionId,messageId:lastSource.messageId,
+      createdAt:Math.max(cursor.createdAt,maxSourceCreatedAt),sessionId:lastSource.sessionId,messageId:lastSource.messageId,
       transcriptRevision:maxRevision,
     };
     this.database.exec("BEGIN IMMEDIATE");
