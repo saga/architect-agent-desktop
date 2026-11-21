@@ -2,6 +2,7 @@ import {
   A2uiGenerator,
   CatalogConfig,
   RendererState,
+  RendererToAgentMessageProcessor,
 } from "@a2ui/agent";
 import type { AgentToRendererMessage } from "@a2ui/agent";
 import { createAgentFinanceCatalog, FINANCE_A2UI_CATALOG_ID } from "../shared/a2ui-finance-catalog.mjs";
@@ -67,35 +68,28 @@ export class AgentA2UIService {
     };
   }
 
-  async validateRendererMessage(message: unknown, sessionId: string): Promise<{ handled: false; replies: AgentToRendererMessage[] }> {
-    if (!message || typeof message !== "object" || Array.isArray(message)) {
-      throw new Error("A2UI ActionMessage must be an object.");
-    }
-    const envelope = message as Record<string, unknown>;
-    if (envelope.version !== "1.0" || !envelope.action || typeof envelope.action !== "object" || Array.isArray(envelope.action)) {
-      throw new Error("A2UI ActionMessage must use protocol version 1.0.");
-    }
-    const action = envelope.action as Record<string, unknown>;
-    if (typeof action.name !== "string" || action.name.length < 1 || action.name.length > 120) {
-      throw new Error("A2UI ActionMessage action.name is invalid.");
-    }
-    if (typeof action.surfaceId !== "string" || action.surfaceId.length < 1 || action.surfaceId.length > 120) {
-      throw new Error("A2UI ActionMessage action.surfaceId is invalid.");
-    }
+  async validateRendererMessage(
+    message: unknown,
+    sessionId: string,
+  ): Promise<{ handled: boolean; replies: AgentToRendererMessage[] }> {
     const sessionKey = sessionId.trim() || "__default_agent_session__";
-    if (!this.surfacesBySession.get(sessionKey)?.has(action.surfaceId)) {
-      throw new Error("A2UI ActionMessage references a Surface that was not created in this Agent Task.");
-    }
-    if (action.sourceComponentId !== undefined &&
-        (typeof action.sourceComponentId !== "string" || action.sourceComponentId.length > 120)) {
-      throw new Error("A2UI ActionMessage sourceComponentId is invalid.");
-    }
-    if (Buffer.byteLength(JSON.stringify(message), "utf8") > 32 * 1024) {
-      throw new Error("A2UI ActionMessage exceeds the 32 KiB limit.");
-    }
-    // Renderer actions are user input. Validate only the protocol envelope here;
-    // the Agent interprets them as untrusted context and still uses Tool Broker.
-    return { handled: false, replies: [] };
+    const processor = new RendererToAgentMessageProcessor({
+      catalogs: [this.catalog],
+      onAction: (action) => {
+        const surfaceId = String((action as { surfaceId?: unknown }).surfaceId ?? "");
+        if (!this.surfacesBySession.get(sessionKey)?.has(surfaceId)) {
+          throw new Error("A2UI ActionMessage references a Surface that was not created in this Agent Task.");
+        }
+        if (Buffer.byteLength(JSON.stringify(action), "utf8") > 32 * 1024) {
+          throw new Error("A2UI ActionMessage exceeds the 32 KiB limit.");
+        }
+        // Return false so a conversational action is passed to the current Agent turn.
+        return false;
+      },
+      onError: () => true,
+      onRendererFunctionResponse: () => true,
+    });
+    return processor.processMessage(message);
   }
 
   registerSurfaces(sessionId: string, surfaceIds: string[]): void {
