@@ -1589,6 +1589,87 @@ function notifyScheduleRun(title: string, succeeded: boolean): void {
   }
 }
 
+function memoryDreamTaskEligible(task: AgentTask): boolean {
+  const rank: Record<AgentToolPermission, number> = { none: 0, "browser-only": 1, assisted: 2, "allow-all": 3 };
+  if (rank[agentSettings.toolPermission] < rank.assisted) return false;
+  if (!task.expertId) return true;
+  const expert = agentExperts.find(item => item.id === task.expertId);
+  if (!expert || rank[expert.toolPermission] < rank.assisted) return false;
+  if (expert.allowAllTools) return true;
+  const required = [
+    "memory_search", "memory_search_history", "memory_read_source",
+    "memory_list_notes", "memory_list_knowledge", "memory_list_relationships",
+    "memory_dreaming_prepare", "memory_dreaming_commit", "memory_dreaming_list_runs",
+    "memory_dreaming_get_run", "memory_dreaming_get_operations",
+    "memory_quality_review_prepare", "memory_quality_review_list",
+    "memory_dreaming_abandon", "memory_prune_expired",
+  ];
+  return required.every(name => expert.tools.includes(name));
+}
+
+async function processDueMemoryDreamingSchedules(): Promise<void> {
+  const due = copilotAgent.listDueMemoryDreamSchedules(Date.now(), 10);
+  if (!due.length) return;
+  for (const schedule of due) {
+    if (!copilotAgent.claimMemoryDreamSchedule(schedule.scope, Date.now())) continue;
+    const eligibleTask = agentTasks
+      .filter(task => task.workspacePath === schedule.scope && memoryDreamTaskEligible(task))
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    if (!eligibleTask) {
+      const reason = "没有可执行 Memory Dreaming 的 Task。请为该 Workspace 选择开放长期记忆工具的 Expert，并将全局与 Expert 工具权限至少设置为 assisted。";
+      copilotAgent.finishMemoryDreamSchedule(schedule.scope, "error", reason);
+      recordOperation("memory-dreaming", reason + " Workspace=" + (schedule.scope ?? "Personal"));
+      continue;
+    }
+
+    const previousTaskId = activeAgentTaskId;
+    const startedAt = Date.now();
+    const runId = randomUUID();
+    let failure = "";
+    try {
+      await activateAgentTask(eligibleTask.id, false, true);
+      activeAgentTraceId = runId;
+      copilotAgent.setMemoryContext(eligibleTask.sessionId, runId);
+      scheduledCapture = { taskId: eligibleTask.id, answer: "" };
+      recordTaskTrace(eligibleTask, "memory.dreaming.schedule.started", {
+        runId, workspacePath: schedule.scope, intervalMinutes: schedule.intervalMinutes,
+      });
+      const prompt = [
+        "执行当前 Workspace 的自动 Memory Dreaming 维护。这是后台维护任务，不要把本次维护对话或工具执行日志沉淀为长期知识。",
+        "第一步调用 memory_dreaming_list_runs，检查是否存在 prepared Run。如果存在，先用 memory_dreaming_get_run 读取并继续该 Run；不要创建第二个 Run。没有待处理 Run 时才调用 memory_dreaming_prepare。",
+        "对于 transcript Run：读取固定 evidence，检查 Notes、知识页与关系；对重要旧 Note 使用 memory_read_source 追溯历史 sourceRefs，必要时用 memory_search_history 搜索完整历史。所有 [TRUNCATED] 内容都只是预览，必须回查原始 Transcript。识别新事实、业务定义、用户明确偏好、成功流程、反复失败、已解决问题与冲突。更新必须带 baseVersion，每项操作引用当前 Run 的 sourceId 和 reason。无须变化时提交 operations=[]。成功后读取审计结果。",
+        "完成 transcript Run 后，再调用 memory_quality_review_prepare。若有到期候选，调用 memory_quality_review_list，逐条检查来源证据和当前有效性；对每条复查记录使用 review_note，提供当前 baseVersion、当前质量 Run 的 sourceRefs、confidence 和 qualityScore（0–1）。质量评分考虑来源可靠性、直接性、清晰程度、时效性和交叉印证；不得因为旧 Note 标记为 validated 就自动信任，也不得在证据不足时提升为 validated。证据不再适用时标 disputed，无法重新确认时保留 unverified。每个复查 Run 成功提交并读取审计结果。",
+        "最后调用 memory_prune_expired 清理已过期且未置顶的 Note。不得归档置顶或唯一知识，不得删除原始 Transcript。任何版本冲突都应停止该项更新并报告，不允许覆盖新版本。"
+      ].join("\\n\\n");
+      await copilotAgent.send(prompt, []);
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
+    } finally {
+      const captured = scheduledCapture;
+      scheduledCapture = null;
+      const errorText = captured?.error || failure || (!captured?.answer.trim() ? "Memory Dreaming Agent 没有返回可确认的完成结果。" : "");
+      const succeeded = !errorText;
+      const finishedAt = Date.now();
+      copilotAgent.finishMemoryDreamSchedule(schedule.scope, succeeded ? "success" : "error", errorText || null, finishedAt);
+      recordTaskTrace(eligibleTask, "memory.dreaming.schedule.completed", {
+        runId, status: succeeded ? "success" : "error",
+        durationMs: Math.max(0, finishedAt - startedAt),
+        resultPreview: captured?.answer.trim().slice(0, 1200) || undefined,
+        error: errorText || undefined,
+      });
+      activeAgentTraceId = null;
+      if (agentTasks.some(task => task.id === previousTaskId)) {
+        try { await activateAgentTask(previousTaskId, false, true); }
+        catch (error) { recordOperation("memory-dreaming", "failed to restore Task: " + (error instanceof Error ? error.message : String(error))); }
+      }
+      publishAgentWorkspaceSnapshot();
+      if (!succeeded) recordOperation("memory-dreaming", "scheduled Dreaming failed: " + errorText);
+      notifyScheduleRun("Memory Dreaming · " + (schedule.scope ?? "Personal Workspace"), succeeded);
+    }
+    break;
+  }
+}
+
 async function processDueAgentSchedules(manualScheduleId?: string): Promise<void> {
   const manual = Boolean(manualScheduleId);
   if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
@@ -1725,6 +1806,7 @@ async function processDueAgentSchedules(manualScheduleId?: string): Promise<void
       }
       if (manual) break;
     }
+    if (!manual) await processDueMemoryDreamingSchedules();
   } finally {
     scheduleRunnerActive = false;
     publishAgentWorkspaceSnapshot();
