@@ -27,16 +27,24 @@ describe("AgentMemoryStore", () => {
       kind: "user",
       content: "The holdings workbook uses one row per security; verify the as-of date before comparing returns.",
       createdAt: Date.now(),
+    }, {
+      sessionId: "session-2",
+      messageId: "tool-1",
+      kind: "tool",
+      content: "Workbook schema inspection confirms one row per security and an as-of date column.",
+      createdAt: Date.now() + 1,
     }]);
-    const evidence = prepared!.evidence[0]!;
+    const evidence = prepared!.evidence.find(source => source.kind === "user")!;
+    const toolEvidence = prepared!.evidence.find(source => source.kind === "tool")!;
     const note = store.saveNote({
       scope: "/workspace/portfolio",
       title: "Portfolio data convention",
       content: "The holdings workbook uses one row per security; verify the as-of date before comparing returns.",
+      claimType: "project_fact",
       tags: ["portfolio", "excel"],
       sourceSessionId: "session-1",
       sourceTraceId: "trace-1",
-      sourceRefs: [evidence.sourceId],
+      sourceRefs: [evidence.sourceId, toolEvidence.sourceId],
     });
 
     expect(note.validation).toBe("unverified");
@@ -44,7 +52,7 @@ describe("AgentMemoryStore", () => {
     expect(store.search("/workspace/portfolio", "holdings")).toHaveLength(1);
     expect(store.search("/workspace/another-project", "holdings")).toHaveLength(0);
 
-    const reviewed = store.setValidation(note.id, "validated", 0.95, [evidence.sourceId], "/workspace/portfolio");
+    const reviewed = store.setValidation(note.id, "validated", 0.95, [evidence.sourceId, toolEvidence.sourceId], "/workspace/portfolio");
     expect(reviewed.validation).toBe("validated");
     expect(reviewed.confidence).toBe(0.95);
 
@@ -272,8 +280,14 @@ describe("AgentMemoryStore", () => {
       kind: "user",
       content: "The project requires all risk comparisons to use the approved reporting date and base currency.",
       createdAt,
+    }, {
+      sessionId: "session-quality-tool",
+      messageId: "message-quality-tool",
+      kind: "tool",
+      content: "The project risk report schema contains an approved reporting date and base currency.",
+      createdAt: createdAt + 1,
     }]);
-    const originalSourceId = transcriptRun!.evidence[0]!.sourceId;
+    const originalSourceIds = transcriptRun!.evidence.map(source => source.sourceId);
     const note = store.commitDreaming({
       scope: "/workspace/quality-review",
       runId: transcriptRun!.id,
@@ -282,7 +296,8 @@ describe("AgentMemoryStore", () => {
         op: "upsert_note",
         title: "Risk comparison convention",
         content: "Risk comparisons must use the approved reporting date and base currency.",
-        sourceRefs: [originalSourceId],
+        claimType: "project_fact",
+        sourceRefs: originalSourceIds,
         reason: "This is a reusable project convention.",
       }],
     }).createdNoteIds[0]!;
@@ -318,7 +333,7 @@ describe("AgentMemoryStore", () => {
         validation: "validated",
         confidence: 0.93,
         qualityScore: 0.91,
-        sourceRefs: [reviewRun!.evidence[0]!.sourceId],
+        sourceRefs: reviewRun!.evidence.map(source => source.sourceId),
         reason: "The source remains clear, specific and consistent with the active project rule.",
       }],
     });
@@ -411,6 +426,7 @@ describe("AgentMemoryStore", () => {
       scope: "/workspace/ordinary-review",
       title: "Project naming rule",
       content: "The project uses lowercase snake_case.",
+      claimType: "user_intent",
       sourceRefs: [run!.evidence[0]!.sourceId],
     });
     store.commitDreaming({
