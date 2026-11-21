@@ -689,13 +689,15 @@ export class CopilotDesktopAgent {
     maxTurns: 12,
     mcpServers: { browser: server, ...configuredMcpServers },
     ...(unrestrictedAllowAll ? {} : { allowedTools: permission === "none" ? [] : allowed }),
-    ...(unrestrictedAllowAll ? {} : {
-      permissionMode: permission === "allow-all" ? "bypassPermissions" as const : "default" as const,
-      tools: permission === "none" || permission === "browser-only"
-        ? []
-        : allowedBuiltinTools ?? READ_ONLY_BUILTINS,
-      disallowedTools: disallowedBuiltinTools,
-    }),
+    ...(unrestrictedAllowAll
+      ? { permissionMode: "bypassPermissions" as const }
+      : {
+          permissionMode: permission === "allow-all" ? "bypassPermissions" as const : "default" as const,
+          tools: permission === "none" || permission === "browser-only"
+            ? []
+            : allowedBuiltinTools ?? READ_ONLY_BUILTINS,
+          disallowedTools: disallowedBuiltinTools,
+        }),
   };
   const abortController=new AbortController();
   this.codeBuddyAbortController=abortController;
