@@ -483,6 +483,8 @@ describe("AgentMemoryStore", () => {
     const reread = store.listNotes("/workspace/external-subdomains", true).find(item => item.id === note.id);
     expect(reread?.externalVerification?.status).toBe("single_domain_sources_recorded");
     expect(reread?.validation).toBe("unverified");
+    expect(reread?.validationEvidence?.eligible).toBe(false);
+    expect(reread?.validationEvidence?.reason).toMatch(/两个不同注册域名/);
     store.abandonDreaming("/workspace/external-subdomains", run!.id, "test complete");
     store.close();
   });
