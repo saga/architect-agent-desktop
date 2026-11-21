@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Space, Typography } from "antd";
 import { Graph } from "@antv/x6";
 
@@ -16,7 +16,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function containsUnsafeValue(value: unknown, depth = 0): boolean {
   if (depth > 10) return true;
-  if (typeof value === "string") return /javascript:|data:text\/html|<script\b|<foreignObject\b/i.test(value);
+  if (typeof value === "string") return /javascript:|data:text\/html|url\s*\(|<script\b|<foreignObject\b/i.test(value);
   if (Array.isArray(value)) return value.length > 500 || value.some(item => containsUnsafeValue(item, depth + 1));
   if (!isRecord(value)) return false;
   return Object.entries(value).some(([key, item]) =>
@@ -51,39 +51,53 @@ function validateGraphJson(input: unknown): Record<string, unknown> | null {
 export default function WorkflowDiagram({ graphData, title, height = 440, editable = false, onSave }: WorkflowDiagramProps) {
   const host = useRef<HTMLDivElement>(null);
   const graph = useRef<Graph | null>(null);
+  const [renderError, setRenderError] = useState<string | null>(null);
   const serialized = useMemo(() => validateGraphJson(graphData), [graphData]);
   const safeHeight = Math.max(220, Math.min(760, Number(height) || 440));
 
   useEffect(() => {
     const container = host.current;
     if (!container || !serialized) return;
-    const instance = new Graph({
-      container,
-      width: container.clientWidth || 640,
-      height: safeHeight,
-      grid: { visible: true, size: 10 },
-      background: { color: "transparent" },
-      interacting: Boolean(editable),
-      connecting: { router: "manhattan", connector: "rounded", allowBlank: false },
-      panning: { enabled: true },
-      mousewheel: { enabled: true, modifiers: ["ctrl", "meta"] },
-    });
-    instance.fromJSON(serialized);
-    instance.centerContent();
-    graph.current = instance;
-    const resize = new ResizeObserver(() => {
-      const width = container.clientWidth;
-      if (width > 0) instance.resize(width, safeHeight);
-    });
-    resize.observe(container);
+    let instance: Graph | null = null;
+    let resize: ResizeObserver | null = null;
+    setRenderError(null);
+    try {
+      instance = new Graph({
+        container,
+        width: container.clientWidth || 640,
+        height: safeHeight,
+        grid: { visible: true, size: 10 },
+        background: { color: "transparent" },
+        interacting: Boolean(editable),
+        connecting: { router: "manhattan", connector: "rounded", allowBlank: false },
+        panning: { enabled: true },
+        mousewheel: { enabled: true, modifiers: ["ctrl", "meta"] },
+      });
+      instance.fromJSON(serialized);
+      instance.centerContent();
+      graph.current = instance;
+      resize = new ResizeObserver(() => {
+        const width = container.clientWidth;
+        if (width > 0) instance?.resize(width, safeHeight);
+      });
+      resize.observe(container);
+    } catch (error) {
+      resize?.disconnect();
+      instance?.dispose();
+      if (graph.current === instance) graph.current = null;
+      setRenderError(error instanceof Error ? error.message : String(error));
+      return;
+    }
     return () => {
-      resize.disconnect();
-      instance.dispose();
+      resize?.disconnect();
+      instance?.dispose();
       if (graph.current === instance) graph.current = null;
     };
   }, [serialized, safeHeight, editable]);
 
-  if (!serialized) return <Alert type="warning" showIcon message="X6 图数据无效，或节点数量超过 2,000。" />;
+
+  if (!serialized) return <Alert type="warning" showIcon message="X6 图数据无效、包含不安全内容，或超过节点/大小限制。" />;
+  if (renderError) return <Alert type="error" showIcon message="X6 画布初始化失败" description={renderError} />;
   return <section className="agent-workflow-diagram" style={{ width: "100%", minWidth: 0 }}>
     <Space style={{ width: "100%", justifyContent: "space-between", marginBottom: 8 }}>
       {title ? <Typography.Title level={5} style={{ margin: 0 }}>{title}</Typography.Title> : <span />}
