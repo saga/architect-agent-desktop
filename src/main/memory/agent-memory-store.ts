@@ -515,11 +515,11 @@ export class AgentMemoryStore {
     return candidates.map(row=>this.toNote(row));
   }
 
-  listQualityReviewCandidatesForRun(scope:string|null,runId:string,limit=80):Array<Record<string,unknown>>{
+  listQualityReviewCandidatesForRun(scope:string|null,runId:string,limit=80,now=Date.now()):Array<Record<string,unknown>>{
     const run=this.getDreamRun(runId,scope);
     if(!run||run.status!=="prepared"||run.purpose!=="quality_review")throw new Error("质量复查候选必须关联当前 Workspace 的 prepared quality_review Run。");
     const runSourceByMessage=new Map(run.evidence.map(source=>[source.sessionId+"\\0"+source.messageId,source.sourceId]));
-    return this.listQualityReviewCandidates(scope,limit).flatMap(note=>{
+    return this.listQualityReviewCandidates(scope,limit,now).flatMap(note=>{
       const mapped=new Set<string>();
       for(const oldSourceId of note.sourceRefs){
         const oldSource=this.getSourceById(oldSourceId,scope);
