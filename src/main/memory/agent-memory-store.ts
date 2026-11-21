@@ -14,6 +14,7 @@ export interface MemorySourceEvidence {
   content: string;
   createdAt: number;
   revision?: number;
+  changeType?: string;
 }
 export interface StoredMemorySource extends MemorySourceEvidence {
   sourceId: string;
@@ -416,10 +417,11 @@ export class AgentMemoryStore {
       const createdAt=Number(source.createdAt),revision=Number(source.revision);
       if(!sessionId||!messageId||!Number.isFinite(createdAt))continue;
       const hasRevision=Number.isSafeInteger(revision)&&revision>0;
+      const isAfterLegacyCursor=createdAt>cursor.createdAt || (createdAt===cursor.createdAt &&
+        (sessionId>cursor.sessionId || (sessionId===cursor.sessionId&&messageId>cursor.messageId)));
       const isAfterCursor=purpose==="quality_review" || (hasRevision
-        ? revision>cursor.transcriptRevision
-        : createdAt>cursor.createdAt || (createdAt===cursor.createdAt &&
-          (sessionId>cursor.sessionId || (sessionId===cursor.sessionId&&messageId>cursor.messageId))));
+        ? revision>cursor.transcriptRevision && (cursor.transcriptRevision>0 || source.changeType!=="baseline" || isAfterLegacyCursor)
+        : isAfterLegacyCursor);
       if(!isAfterCursor||!String(source.content??"").trim())continue;
       const keyForMessage=sessionId+"\\0"+messageId,previous=candidates.get(keyForMessage);
       if(!previous){candidates.set(keyForMessage,source);continue;}
@@ -478,14 +480,21 @@ export class AgentMemoryStore {
   prepareQualityReview(scope:string|null,limit=20,now=Date.now()):MemoryDreamRun|null{
     const candidates=this.listQualityReviewCandidates(scope,Math.max(1,Math.min(Math.floor(limit),80)),now);
     const evidence:MemorySourceEvidence[]=[];
+    const seenSources=new Set<string>();
     for(const note of candidates){
       for(const sourceId of note.sourceRefs){
         const source=this.getSourceById(sourceId,scope);
-        if(source)evidence.push({
+        if(!source)continue;
+        const key=source.sessionId+"\\0"+source.messageId;
+        if(seenSources.has(key))continue;
+        seenSources.add(key);
+        evidence.push({
           sessionId:source.sessionId,messageId:source.messageId,kind:source.kind,
           content:source.content,createdAt:source.createdAt,revision:source.revision,
         });
+        if(evidence.length>=MAX_DREAM_SOURCES)break;
       }
+      if(evidence.length>=MAX_DREAM_SOURCES)break;
     }
     return this.prepareDreaming(scope,evidence,"quality_review");
   }
@@ -505,7 +514,7 @@ export class AgentMemoryStore {
   getDreamRun(id:string,scope:string|null):MemoryDreamRun|null{
     const row=this.database.prepare("SELECT * FROM memory_dream_runs WHERE id=? AND scope_key=?").get({},id,normalizeScope(scope)) as Record<string,unknown>|undefined;
     if(!row)return null;
-    const sources=this.database.prepare("SELECT * FROM memory_dream_sources WHERE run_id=? ORDER BY COALESCE(source_revision,created_at),session_id,message_id").all({},id) as Record<string,unknown>[];
+    const sources=this.database.prepare("SELECT * FROM memory_dream_sources WHERE run_id=? ORDER BY created_at,session_id,message_id").all({},id) as Record<string,unknown>[];
     return {
       id:String(row.id),status:row.status as MemoryDreamStatus,
       purpose:row.purpose==="quality_review"?"quality_review":"transcript",
@@ -638,6 +647,8 @@ export class AgentMemoryStore {
       source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before?.source_refs_json,[]),...refs])].slice(-100)),
       last_verified_at:same?before?.last_verified_at??null:null,superseded_by_id:null,
       content_hash:createHash("sha256").update(content).digest("hex"),last_dreamed_at:now,
+      quality_score:same?(before?.quality_score??null):null,
+      last_quality_reviewed_at:same?(before?.last_quality_reviewed_at??null):null,
     };
     this.replaceNoteSnapshot(id,snapshot);
     this.recordEntityChange(runId,sequence,"note",id,before,this.getNoteRow(id,scopeKey),"upsert_note",reason);
