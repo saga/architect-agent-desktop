@@ -2653,6 +2653,19 @@ function registerIpcHandlers(): void {
     return result;
   });
 
+  ipcMain.handle("agent:memory-reindex-embeddings", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+      throw new Error("Agent 正在运行，请等当前任务完成后再建立 Memory 向量索引。");
+    }
+    const parsed = z.object({ taskId: z.string().min(1).max(100), limit: z.number().int().min(1).max(500).optional().default(200) }).safeParse(input);
+    if (!parsed.success) throw new Error("Invalid Memory embedding index request.");
+    const task = taskForId(parsed.data.taskId);
+    const result = await copilotAgent.reindexMemoryEmbeddings(task.workspacePath, parsed.data.limit);
+    recordTaskTrace(task, "memory.embedding.indexed", result);
+    return result;
+  });
+
   ipcMain.handle("agent:memory-save-dream-schedule", (event, input: unknown) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
