@@ -17,7 +17,11 @@ const FinanceChartImplementation = createComponentImplementation(
 
 const KnowledgeGraphImplementation = createComponentImplementation(
   KnowledgeGraphApi,
-  ({ props }) => <KnowledgeGraph {...(props as unknown as KnowledgeGraphProps)} />,
+  ({ props }) => <KnowledgeGraph
+    {...(props as unknown as KnowledgeGraphProps)}
+    setSelectedNodeId={props.setSelectedNodeId as ((nodeId: string) => void) | undefined}
+    onNodeSelect={() => props.onNodeSelect?.()}
+  />,
 );
 
 const WorkflowDiagramImplementation = createComponentImplementation(
@@ -26,7 +30,6 @@ const WorkflowDiagramImplementation = createComponentImplementation(
     {...(props as unknown as WorkflowDiagramProps)}
     onChange={(json) => {
       props.setGraphData?.(json);
-      props.onChange?.();
     }}
     onSave={() => props.onSave?.()}
   />,
