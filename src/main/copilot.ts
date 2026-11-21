@@ -298,19 +298,20 @@ export class CopilotDesktopAgent {
    ...tool,
    schema: { toJSONSchema: () => z.toJSONSchema(tool.schema) },
    handler: async (input: unknown) => {
-    this.recordTrace("tool.call",{name:tool.name,input,source:"code-mode"},"running");
+    const toolCallId=randomUUID();
+    this.recordTrace("tool.call",{name:tool.name,input,toolCallId,source:"code-mode"},"running");
     const parsed=tool.schema.safeParse(input ?? {});
     if(!parsed.success) {
-     this.recordTrace("tool.failed",{name:tool.name,input,error:parsed.error.message,source:"code-mode"},"failed");
+     this.recordTrace("tool.failed",{name:tool.name,input,toolCallId,error:parsed.error.message,source:"code-mode"},"failed");
      throw new Error("Invalid tool input: "+parsed.error.message);
     }
     try {
      const value=await tool.handler(parsed.data);
      const output=typeof value==="string"?value:JSON.stringify(value)??String(value);
-     this.recordTrace("tool.result",{name:tool.name,input,result:output.slice(0,10000),source:"code-mode"},"completed");
+     this.recordTrace("tool.result",{name:tool.name,input,toolCallId,result:output.slice(0,10000),source:"code-mode"},"completed");
      return value;
     } catch(error) {
-     this.recordTrace("tool.failed",{name:tool.name,input,error:error instanceof Error?error.message:String(error),source:"code-mode"},"failed");
+     this.recordTrace("tool.failed",{name:tool.name,input,toolCallId,error:error instanceof Error?error.message:String(error),source:"code-mode"},"failed");
      throw error;
     }
    }
@@ -349,6 +350,76 @@ export class CopilotDesktopAgent {
   return tools;
  }
  private generation = 0;
+ private registeredTools: Array<{ name: string; description: string; schema: any }> = [];
+
+ private systemPromptContent(): string {
+  return [
+   this.settings.systemPrompt.trim(),
+   this.taskContext?.systemPrompt ?? "",
+   this.getPluginInstructions(this.taskContext?.skills),
+   this.workspaceInstructions(),
+   instructionsFor(this.effectivePermission()),
+  ].filter(Boolean).join("\n\n");
+ }
+
+ private contextSnapshot(
+  provider: AgentProvider,
+  prompt: string,
+  system: string,
+  tools: Array<{ name: string; description: string; schema?: any }>,
+  parameters: Record<string, unknown>,
+  response?: unknown,
+  responseText?: string,
+ ): Record<string, unknown> {
+  const createdAt = new Date().toISOString();
+  const messages = [
+   ...(system ? [{
+    id: randomUUID(), index: 0, role: "system",
+    parts: [{ kind: "text", text: system }],
+    raw: { role: "system", content: system },
+    metadata: { captureScope: "desktop-to-sdk-system-instruction" },
+   }] : []),
+   {
+    id: randomUUID(), index: system ? 1 : 0, role: "user",
+    parts: [{ kind: "text", text: prompt }],
+    raw: { role: "user", content: prompt },
+    metadata: { captureScope: "desktop-to-sdk-input" },
+   },
+  ];
+  const normalizedTools = tools.map(tool => {
+   let inputSchema: unknown;
+   try { if (tool.schema) inputSchema = z.toJSONSchema(tool.schema); } catch { /* preserve the raw schema below */ }
+   return {
+    name: tool.name,
+    description: tool.description,
+    ...(inputSchema === undefined ? {} : { inputSchema }),
+    raw: { name: tool.name, description: tool.description, schema: inputSchema ?? tool.schema },
+   };
+  });
+  const responseMessages = typeof responseText === "string" && responseText.length ? [{
+   id: randomUUID(), index: 0, role: "assistant",
+   parts: [{ kind: "text", text: responseText }],
+   raw: { role: "assistant", content: responseText },
+   metadata: { captureScope: "sdk-response" },
+  }] : [];
+  return {
+   id: randomUUID(),
+   provider,
+   createdAt,
+   messages,
+   tools: normalizedTools,
+   parameters: { ...parameters },
+   system,
+   rawRequest: { prompt, system, tools: normalizedTools, parameters: { ...parameters } },
+   ...(response === undefined ? {} : { rawResponse: response }),
+   responseMessages,
+   warnings: [
+    "该快照记录桌面应用提交给 SDK/CLI 的输入，不等同于底层 Provider HTTP 请求。",
+    "SDK/CLI 可能自行加入会话历史、工具定义、系统指令或上下文变换；当前未能从传输边界完整观察这些内容。",
+   ],
+   provenance: { sourceRevision: "architect-agent-desktop/sdk-boundary", initiator: provider, scope: "desktop-to-sdk" },
+  };
+ }
 
  private async ensureCopilotSession():Promise<CopilotSession>{
   if(this.session)return this.session;
@@ -370,6 +441,7 @@ export class CopilotDesktopAgent {
      if(generation!==this.generation)throw new Error("Copilot session startup was cancelled.");
      const{defineTool,ToolSet}=await import("@github/copilot-sdk");
      const tools=await this.handlers();
+     this.registeredTools = tools.map(({ name, description, schema }) => ({ name, description, schema }));
      const configuredMcpServers=this.configuredMcpServers("copilot",runtimeEnvironment);
      const availableTools=new ToolSet().addCustom("*");
      if(Object.keys(configuredMcpServers).length)availableTools.addMcp("*");
@@ -379,17 +451,18 @@ export class CopilotDesktopAgent {
       availableTools,
       ...(modelId?{model:modelId}:{}),
       ...((this.inspectedModels.get("copilot:"+modelId)?.effortOptions?.includes(this.settings.thinkingLevel))?{reasoningEffort:this.settings.thinkingLevel}:{}),
-      systemMessage:{mode:"append",content:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(this.effectivePermission())].filter(Boolean).join("\n\n")},
+      systemMessage:{mode:"append",content:this.systemPromptContent()},
       ...(Object.keys(configuredMcpServers).length?{mcpServers:configuredMcpServers}:{}),
       tools:tools.map(({name,description,schema,handler})=>defineTool(name,{skipPermission:true,description,parameters:schema,handler:async(input:unknown)=>{
-       this.recordTrace("tool.call",{name,input},"running");
+       const toolCallId=randomUUID();
+       this.recordTrace("tool.call",{name,input,toolCallId,source:"copilot-sdk"},"running");
        try{
         const result=await handler(input);
-        this.recordTrace("tool.result",{name,input,result:typeof result==="string"?result:result.text},"completed");
+        this.recordTrace("tool.result",{name,input,toolCallId,result:typeof result==="string"?result:result.text,source:"copilot-sdk"},"completed");
         if(typeof result==="string")return result;
         return{textResultForLlm:result.text,resultType:"success",...(result.image?{binaryResultsForLlm:[{type:"image",data:result.image.data,mimeType:result.image.mimeType}]}:{})};
        }catch(error){
-        this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error)},"failed");
+        this.recordTrace("tool.failed",{name,input,toolCallId,error:error instanceof Error?error.message:String(error),source:"copilot-sdk"},"failed");
         throw error;
        }
       }} as never)),
@@ -431,7 +504,19 @@ export class CopilotDesktopAgent {
   const session=await this.ensureCopilotSession();
   let sawDelta=false;let sawReasoningDelta=false;
   const effectivePrompt=historyPrompt(history,prompt);
-  this.recordTrace("provider.request",{prompt:effectivePrompt,model:this.settings.copilotModel,captureLevel:"sdk-call-input",providerPayloadComplete:false},"started");
+  const requestId=randomUUID();
+  const system=this.systemPromptContent();
+  const snapshot=this.contextSnapshot("copilot",effectivePrompt,system,this.registeredTools,{
+   model:this.settings.copilotModel,
+   thinkingLevel:this.settings.thinkingLevel,
+   toolPermission:this.effectivePermission(),
+   workspacePath:this.workspacePath,
+   sessionMode:"managed-sdk-session",
+  });
+  this.recordTrace("provider.request",{
+   requestId,prompt:effectivePrompt,model:this.settings.copilotModel,
+   captureLevel:"sdk-call-input",providerPayloadComplete:false,snapshot,
+  },"started",false);
   const offs:Array<()=>void>=[];
   offs.push(session.on("assistant.message_delta",event=>{
    this.recordTrace("provider.message.delta",event);
@@ -450,8 +535,18 @@ export class CopilotDesktopAgent {
   }));
   try{
    const result=await session.sendAndWait({prompt:effectivePrompt},300000);
-   this.recordTrace("provider.response",{result,captureLevel:"sdk-response"},"completed");
    const text=(result as unknown as{data?:{content?:string}}|undefined)?.data?.content;
+   const responseSnapshot=this.contextSnapshot("copilot",effectivePrompt,system,this.registeredTools,{
+    model:this.settings.copilotModel,
+    thinkingLevel:this.settings.thinkingLevel,
+    toolPermission:this.effectivePermission(),
+    workspacePath:this.workspacePath,
+    sessionMode:"managed-sdk-session",
+   },result,text);
+   this.recordTrace("provider.response",{
+    requestId,response:result,text,captureLevel:"sdk-response",
+    providerPayloadComplete:false,snapshot:responseSnapshot,
+   },"completed",false);
    if(text&&!sawDelta)this.publish({type:"message",text});
   }finally{for(const off of offs)off();}
  }
@@ -468,9 +563,13 @@ export class CopilotDesktopAgent {
    }
    const input=coerceRawToolInput(call.input,tool.schema);
    const parsed=tool.schema.safeParse(input);
+   const toolCallId=randomUUID();
+   const traceInput=parsed.success?parsed.data:input;
+   this.recordTrace("tool.call",{name:call.name,input:traceInput,toolCallId,source:"raw-tool-call"},"running");
    if(!parsed.success){
     const detail="Invalid tool input: "+parsed.error.message;
-    this.publish({type:"tool",toolId:randomUUID(),toolName:call.name,toolDetail:detail,toolState:"error"});
+    this.publish({type:"tool",toolId:toolCallId,toolName:call.name,toolDetail:detail,toolState:"error"});
+    this.recordTrace("tool.failed",{name:call.name,input:traceInput,toolCallId,error:detail,source:"raw-tool-call"},"failed");
     results.push({name:call.name,error:detail});
     continue;
    }
@@ -478,10 +577,10 @@ export class CopilotDesktopAgent {
     const value=await tool.handler(parsed.data);
     const detail=typeof value==="string"?value:value.text;
     results.push({name:call.name,result:detail.slice(0,20000)});
-    this.recordTrace("tool.call",{name:call.name,input:parsed.data,source:"raw-tool-call"},"running");
-    this.recordTrace("tool.result",{name:call.name,result:detail.slice(0,10000),source:"raw-tool-call"},"completed");
+    this.recordTrace("tool.result",{name:call.name,input:parsed.data,toolCallId,result:detail.slice(0,10000),source:"raw-tool-call"},"completed");
    }catch(error){
     const detail=error instanceof Error?error.message:String(error);
+    this.recordTrace("tool.failed",{name:call.name,input:parsed.data,toolCallId,error:detail,source:"raw-tool-call"},"failed");
     results.push({name:call.name,error:detail.slice(0,2000)});
    }
   }
@@ -490,7 +589,21 @@ export class CopilotDesktopAgent {
  private async sendCodeBuddy(prompt:string,history?:AgentChatMessage[]){
   const sdk=await import("@tencent-ai/agent-sdk");
   const handlers=await this.handlers();
-   const tools=handlers.map(({name,description,schema,handler})=>sdk.tool(name,description,schema.shape,async(input:any)=>{this.recordTrace("tool.call",{name,input},"running");try{const result=await handler(input);this.recordTrace("tool.result",{name,input,result:typeof result==="string"?result:result.text},"completed");if(typeof result==="string")return{content:[{type:"text" as const,text:result}]};const content:Array<{type:"text";text:string}|{type:"image";data:string;mimeType:string}>=[{type:"text",text:result.text}];if(result.image)content.push({type:"image",data:result.image.data,mimeType:result.image.mimeType});return{content};}catch(error){this.recordTrace("tool.failed",{name,input,error:error instanceof Error?error.message:String(error)},"failed");throw error;}}));
+   const tools=handlers.map(({name,description,schema,handler})=>sdk.tool(name,description,schema.shape,async(input:any)=>{
+    const toolCallId=randomUUID();
+    this.recordTrace("tool.call",{name,input,toolCallId,source:"codebuddy-sdk"},"running");
+    try{
+     const result=await handler(input);
+     this.recordTrace("tool.result",{name,input,toolCallId,result:typeof result==="string"?result:result.text,source:"codebuddy-sdk"},"completed");
+     if(typeof result==="string")return{content:[{type:"text" as const,text:result}]};
+     const content:Array<{type:"text";text:string}|{type:"image";data:string;mimeType:string}>=[{type:"text",text:result.text}];
+     if(result.image)content.push({type:"image",data:result.image.data,mimeType:result.image.mimeType});
+     return{content};
+    }catch(error){
+     this.recordTrace("tool.failed",{name,input,toolCallId,error:error instanceof Error?error.message:String(error),source:"codebuddy-sdk"},"failed");
+     throw error;
+    }
+   }));
   const server=sdk.createSdkMcpServer({name:"browser",tools});
   const allowed=handlers.map(({name})=>"mcp__browser__"+name);
   const builtinToolNames=["Agent","Read","Write","Edit","Bash","PowerShell","Glob","Grep","EnterPlanMode","ExitPlanMode","TaskCreate","TaskGet","TaskUpdate","TaskList","WebFetch","WebSearch","TaskStop","TaskOutput","AskUserQuestion","AskUserForStructuredInput","StructuredOutput","ToolSearch","DeferExecuteTool","SendMessage","SendUserMessage","TeamCreate","TeamDelete","NotebookEdit","LSP","ImageGen","ViewImage","LibraryUpload","VideoGen","AudioTranscribe","Artifact","ArtifactControl","EnterWorktree","LeaveWorktree","CronCreate","CronDelete","CronList","DelegateTool","WeChatReply","WeComReply","PushNotification","ReportFindings","ComputerUse","ListMcpResources","ReadMcpResource","WaitForMcpServers","Workflow","Monitor","REPL","A2AGetAgentCard","A2ASendMessage","A2AGetTask","A2ACancelTask","Skill","SkillManage","Component","Mods"];
@@ -535,9 +648,10 @@ export class CopilotDesktopAgent {
   const detached=isManagedSession()?detachedCliOptions():null;
   const runtimeEnv=await resolvedAgentProcessEnvironment();
   const configuredMcpServers=this.configuredMcpServers("codebuddy",runtimeEnv);
+  const systemPrompt=[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n");
   const queryOptions={
     ...(selectedModel?{model:selectedModel}:{}),...(effort?{effort}:{}),thinking:{type:"adaptive" as const},includePartialMessages:true,
-    systemPrompt:{append:[this.settings.systemPrompt.trim(),this.taskContext?.systemPrompt??"",this.getPluginInstructions(this.taskContext?.skills),this.workspaceInstructions(),instructionsFor(permission)].filter(Boolean).join("\n\n")},
+    systemPrompt:{append:[systemPrompt]},
     cwd,...(detached?{extraArgs:detached.extraArgs}:{}),env:{...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})},settingSources,persistSession:false,maxTurns:12,
     mcpServers:{browser:server,...configuredMcpServers},
     ...(permission==="allow-all" && !allowedBuiltinTools ? {} : {allowedTools:allowed}),
@@ -559,7 +673,15 @@ export class CopilotDesktopAgent {
     const query=sdk.query({prompt:currentPrompt,options:{...queryOptions,abortController}});
     this.codeBuddyQuery=query;
     let answer="";let sawThinkingDelta=false;
-    this.recordTrace("provider.request",{step,prompt:currentPrompt,options:{model:selectedModel,effort,cwd,settingSources,permission},captureLevel:"sdk-query-input",providerPayloadComplete:false},"started");
+    const requestId=randomUUID();
+    const snapshot=this.contextSnapshot("codebuddy",currentPrompt,systemPrompt,handlers,{
+     model:selectedModel,effort,contextWindow:this.settings.contextWindow,cwd,settingSources,permission,
+     includePartialMessages:true,maxTurns:12,
+    });
+    this.recordTrace("provider.request",{
+     requestId,step,prompt:currentPrompt,options:{model:selectedModel,effort,cwd,settingSources,permission},
+     captureLevel:"sdk-query-input",providerPayloadComplete:false,snapshot,
+    },"started",false);
     for await(const item of query){
      const m=item as {
       type?:string;subtype?:string;error?:unknown;
@@ -580,6 +702,14 @@ export class CopilotDesktopAgent {
      }
      if(m.type==="result"&&m.subtype&&m.subtype!=="success")throw new Error("CodeBuddy 执行失败："+String(m.error||m.subtype));
     }
+    const responseSnapshot=this.contextSnapshot("codebuddy",currentPrompt,systemPrompt,handlers,{
+     model:selectedModel,effort,contextWindow:this.settings.contextWindow,cwd,settingSources,permission,
+     includePartialMessages:true,maxTurns:12,
+    },answer,answer);
+    this.recordTrace("provider.response",{
+     requestId,step,response:answer,text:answer,captureLevel:"sdk-stream-aggregate-with-tool-loop",
+     providerPayloadComplete:false,snapshot:responseSnapshot,
+    },"completed",false);
     const parsed=parseRawToolCalls(answer);
     if(!answer.trim()&&!parsed.calls.length)throw new Error("CodeBuddy 已结束但没有返回文本，请确认 CodeBuddy 登录状态和模型权限。");
     if(parsed.thinking)this.publish({type:"thinking",text:parsed.thinking,streaming:false});
@@ -593,7 +723,6 @@ export class CopilotDesktopAgent {
     if(parsed.text.trim())currentPrompt+="\n\nYour previous unfinished assistant text was: "+parsed.text.trim();
    }
    if(!finalAnswer.trim())finalAnswer="已执行工具调用，但模型未在限定步数内给出最终回复。";
-   this.recordTrace("provider.response",{text:finalAnswer.trim(),captureLevel:"sdk-stream-aggregate-with-tool-loop"},"completed");
    this.publish({type:"message",text:finalAnswer.trim()});
   }
   finally{clearTimeout(timeout);this.codeBuddyQuery=null;this.codeBuddyAbortController=null;cleanup?.();}
