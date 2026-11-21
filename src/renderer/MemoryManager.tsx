@@ -123,6 +123,33 @@ export default function MemoryManager() {
     }
   };
 
+  const resumeRun = async (runId: string) => {
+    if (!taskId) return;
+    setRunning(true);
+    try {
+      await window.browser.copilotSend(
+        "请继续当前 Workspace 中已经准备好的 Memory Dreaming Run，不要重新调用 prepare，也不要创建新 Run。目标 Run ID：" + runId + "。先调用 memory_dreaming_get_run 读取完整固定证据集；再检查当前 Notes、知识页和关系，必要时读取该 Run 的历史操作。对每项变更引用该 Run 的 sourceId 并说明 reason；更新已有 Note 必须使用当前 baseVersion，更新已有知识页必须使用当前 baseVersion。遇到版本冲突时不要覆盖，保留 Run 为 prepared 并报告冲突。若证据已评估且没有需要变更的长期知识，提交 operations=[]。成功后读取 Run 与审计记录，汇报结果。",
+        [],
+        taskId,
+      );
+      const after = await window.browser.agentMemoryGetSnapshot(taskId);
+      setSnapshot(after);
+      const run = after.dreamRuns.find(item => valueOf(item, "id") === runId);
+      if (run && valueOf(run, "status") === "completed") {
+        message.success("已完成这批 Dreaming，并提交了记忆变更。");
+      } else if (run && valueOf(run, "status") === "prepared") {
+        message.warning("这批 Dreaming 仍处于待处理状态，请查看 Run 详情或处理报告。");
+      } else {
+        message.info("未找到该 Run 的最新状态，请刷新后检查。");
+      }
+      await refresh(taskId);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRunning(false);
+    }
+  };
+
   const abandonRun = async (runId: string) => {
     if (!taskId) return;
     try {
@@ -185,12 +212,13 @@ export default function MemoryManager() {
     { title: "变更", key: "operations", width: 76, render: (_: unknown, row: Record<string, unknown>) => numberOf(row, "operation_count") },
     { title: "开始时间", key: "createdAt", width: 180, render: (_: unknown, row: Record<string, unknown>) => dateOf(row.created_at) },
     {
-      title: "操作", key: "action", width: 210,
+      title: "操作", key: "action", width: 260,
       render: (_: unknown, row: Record<string, unknown>) => {
         const id = valueOf(row, "id");
         const status = valueOf(row, "status");
         return <Space size={4}>
           <Button type="link" size="small" loading={runLoading} onClick={() => void openRun(id)}>详情</Button>
+          {status === "prepared" && <Button type="link" size="small" loading={running} onClick={() => void resumeRun(id)}>继续处理</Button>}
           {status === "prepared" && <Popconfirm title="放弃本次 Dreaming？" description="不会修改 Memory，也不会推进 Transcript 游标。" onConfirm={() => void abandonRun(id)}>
             <Button type="link" size="small" danger>放弃</Button>
           </Popconfirm>}
