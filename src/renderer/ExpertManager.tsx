@@ -7,7 +7,7 @@ const TOOL_GROUPS: Array<{ label: string; tools: string[] }> = [
   { label: "浏览器", tools: ["browser_get_current_page", "browser_snapshot", "browser_screenshot", "browser_console", "browser_list_tabs", "browser_navigate", "browser_open_tab", "browser_switch_tab", "browser_click", "browser_fill", "browser_scroll"] },
   { label: "工作区（只读）", tools: ["workspace_list_files", "workspace_read_file", "workspace_search_files"] },
   { label: "工作区（写入）", tools: ["workspace_write_file"] },
-  { label: "数据分析", tools: ["duckdb_list_tables", "duckdb_query", "document_extract", "a2ui_render"] },
+  { label: "数据分析", tools: ["duckdb_list_tables", "duckdb_query", "document_extract"] },
   { label: "长期记忆", tools: ["memory_search", "memory_search_history", "memory_save", "memory_list_notes", "memory_list_knowledge", "memory_list_relationships", "memory_dreaming_prepare", "memory_dreaming_commit", "memory_dreaming_list_runs", "memory_dreaming_get_run", "memory_dreaming_get_operations", "memory_dreaming_abandon", "memory_dreaming_rollback", "memory_prune_expired"] },
   { label: "页面增强", tools: ["browser_execute_javascript", "browser_inject_css", "browser_cdp"] },
   { label: "Code Mode", tools: ["execute_code"] },
