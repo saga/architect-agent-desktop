@@ -60,8 +60,14 @@ export function validateAgentA2UICommands(input: unknown): AgentA2UICommand[] {
           }
         }
       }
-      if (operation === "updateDataModel" && (!boundedString(payload.path, 500) || !("value" in payload))) {
-        throw new Error("A2UI updateDataModel 必须包含 path 和 value。");
+      if (operation === "updateDataModel") {
+        if (!boundedString(payload.path, 500) || !("value" in payload)) {
+          throw new Error("A2UI updateDataModel 必须包含 path 和 value。");
+        }
+        const segments = payload.path.split("/").filter(Boolean);
+        if (segments.some(segment => segment === "__proto__" || segment === "prototype" || segment === "constructor")) {
+          throw new Error("A2UI data model path 包含不允许的对象属性。");
+        }
       }
     }
     result.push(raw);
