@@ -298,7 +298,10 @@ describe("AgentMemoryStore", () => {
       }],
     });
     expect(store.getRepresentations("/workspace/knowledge-archive")).toHaveLength(0);
-    expect(store.getDreamOperations(run!.id, "/workspace/knowledge-archive").some(operation => operation.operation === "archive_knowledge")).toBe(true);
+    const archiveOperation = store.getDreamOperations(run!.id, "/workspace/knowledge-archive")
+      .find(operation => operation.operation === "archive_knowledge");
+    expect(archiveOperation).toBeDefined();
+    expect(JSON.parse(String(archiveOperation!.after)).source_refs_json).toContain(run!.evidence[0]!.sourceId);
 
     store.rollbackDreaming("/workspace/knowledge-archive", run!.id, "Verify knowledge-page rollback.");
     expect(store.getRepresentations("/workspace/knowledge-archive")[0]?.content).toBe("The retired process.");
