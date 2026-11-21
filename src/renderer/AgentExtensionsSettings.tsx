@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Divider, Empty, Form, Input, InputNumber, List, Modal, Popconfirm, Select, Space, Switch, Tag, Typography, message } from "antd";
+import { Alert, Button, Divider, Dropdown, Empty, Form, Input, InputNumber, List, Modal, Popconfirm, Select, Space, Switch, Tag, Typography, message } from "antd";
+import { DownOutlined } from "@ant-design/icons";
 import { DeleteOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import type { AgentSkillSummary, McpServerConfig } from "../shared/types";
 
@@ -73,11 +74,40 @@ export function McpSettingsPanel() {
     catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
   };
   const activeCount = useMemo(() => servers.filter(server => server.enabled).length, [servers]);
+  const addSample = async (kind: "firecrawl-stdio" | "firecrawl-http") => {
+    const sample: McpServerConfig = kind === "firecrawl-stdio"
+      ? {
+          id: "firecrawl", transport: "stdio", enabled: true,
+          description: "Firecrawl 官方 MCP（keyless 模式可限流使用 search / scrape / parse；配置 API Key 可启用完整工具）",
+          command: "npx", args: ["-y", "firecrawl-mcp"], env: {}, timeout: 60000,
+        }
+      : {
+          id: "firecrawl-cloud", transport: "http", enabled: true,
+          description: "Firecrawl 托管 MCP（keyless 模式可限流使用 search / scrape / parse）",
+          url: "https://mcp.firecrawl.dev/v2/mcp", headers: {}, timeout: 60000,
+        };
+    if (servers.some(server => server.id === sample.id)) {
+      message.info("示例 MCP 已存在：" + sample.id + "。不会覆盖现有配置。");
+      return;
+    }
+    try {
+      setServers(await window.browser.agentMcpSave(sample));
+      message.success("已添加 Firecrawl 示例 MCP：" + sample.id);
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+  };
   return <div className="extension-settings">
     <div className="extension-heading">
       <div><h2>MCP Servers</h2><p>管理 Agent 可连接的外部工具服务。配置保存在本机，不会写入 Copilot 或 CodeBuddy 原有配置。</p></div>
-      <Space><Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>刷新</Button>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(undefined); setModalOpen(true); }}>添加 MCP</Button></Space>
+      <Space wrap>
+        <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>刷新</Button>
+        <Dropdown menu={{ items: [
+          { key: "firecrawl-stdio", label: "Firecrawl · 本地 STDIO（npx）" },
+          { key: "firecrawl-http", label: "Firecrawl · 托管 HTTP" },
+        ], onClick: ({ key }) => { if (key === "firecrawl-stdio" || key === "firecrawl-http") void addSample(key); } }}>
+          <Button>添加示例 MCP <DownOutlined /></Button>
+        </Dropdown>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(undefined); setModalOpen(true); }}>添加 MCP</Button>
+      </Space>
     </div>
     <Alert type="warning" showIcon message="外部 MCP 仅在当前 Agent 的有效工具权限为 Allow all 时连接"
       description="MCP Server 提供的工具由外部服务定义，不受浏览器工具的细粒度权限控制。请只连接可信服务。密钥建议使用 ${ENV_VAR} 环境变量引用，不要把真实 Token 写入配置。" />
@@ -120,7 +150,7 @@ export function McpSettingsPanel() {
 export function AgentSkillsPanel() {
   const [skills, setSkills] = useState<AgentSkillSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [importing, setImporting] = useState(false);
+  const [busyAction, setBusyAction] = useState<"folder" | "zip" | "sample" | null>(null);
   const refresh = async () => {
     setLoading(true);
     try { setSkills(await window.browser.agentSkillList()); }
@@ -129,7 +159,7 @@ export function AgentSkillsPanel() {
   };
   useEffect(() => { void refresh(); }, []);
   const importSkill = async () => {
-    setImporting(true);
+    setBusyAction("folder");
     try {
       const skill = await window.browser.agentSkillImport();
       if (skill) {
@@ -137,7 +167,27 @@ export function AgentSkillsPanel() {
         message.success("已导入 Agent Skill：" + skill.name);
       }
     } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
-    finally { setImporting(false); }
+    finally { setBusyAction(null); }
+  };
+  const importSkillZip = async () => {
+    setBusyAction("zip");
+    try {
+      const skill = await window.browser.agentSkillImportZip();
+      if (skill) {
+        setSkills(current => [...current.filter(item => item.id !== skill.id), skill].sort((a, b) => a.name.localeCompare(b.name)));
+        message.success("已上传 Agent Skill ZIP：" + skill.name);
+      }
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+    finally { setBusyAction(null); }
+  };
+  const installSample = async () => {
+    setBusyAction("sample");
+    try {
+      const skill = await window.browser.agentSkillInstallSample();
+      setSkills(current => [...current.filter(item => item.id !== skill.id), skill].sort((a, b) => a.name.localeCompare(b.name)));
+      message.success("已安装示例 Skill：" + skill.name);
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+    finally { setBusyAction(null); }
   };
   const toggle = async (skill: AgentSkillSummary, enabled: boolean) => {
     try { setSkills(await window.browser.agentSkillSetEnabled(skill.id, enabled)); }
@@ -149,12 +199,16 @@ export function AgentSkillsPanel() {
   };
   return <div className="extension-settings">
     <div className="extension-heading">
-      <div><h2>Agent Skills</h2><p>导入兼容 OpenCode / Agent Skills 规范的本地 Skill 目录。启用后，SKILL.md 内容会加入 Agent 指令上下文。</p></div>
-      <Space><Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>刷新</Button>
-        <Button type="primary" icon={<PlusOutlined />} loading={importing} onClick={() => void importSkill()}>导入 Skill</Button></Space>
+      <div><h2>Agent Skills</h2><p>支持直接导入目录，以及 Claude Desktop 风格的 Skill ZIP 上传。启用后，Skill 指引会加入 Agent 上下文。</p></div>
+      <Space wrap>
+        <Button icon={<ReloadOutlined />} onClick={() => void refresh()} loading={loading}>刷新</Button>
+        <Button loading={busyAction === "sample"} disabled={busyAction !== null} onClick={() => void installSample()}>安装示例</Button>
+        <Button loading={busyAction === "folder"} disabled={busyAction !== null} onClick={() => void importSkill()}>导入文件夹</Button>
+        <Button type="primary" icon={<PlusOutlined />} loading={busyAction === "zip"} disabled={busyAction !== null} onClick={() => void importSkillZip()}>上传 Skill ZIP</Button>
+      </Space>
     </div>
     <Alert type="info" showIcon message="Skill 作为任务指引加载，不作为可执行插件"
-      description="目录必须包含 SKILL.md，并在 YAML frontmatter 中提供 name 和 description。Skill 中的脚本、命令和其他文件不会被应用自动执行。" />
+      description="支持 SKILL.md / skill.md。ZIP 需包含一个以 Skill name 命名的顶层目录，例如 web-research/SKILL.md。启用前请检查下载内容；Skill 中的脚本、命令不会被应用自动执行。" />
     <List className="extension-list" loading={loading} dataSource={skills}
       locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span>尚未导入 Skill<br /><Text type="secondary">选择一个包含 SKILL.md 的目录即可添加</Text></span>} /> }}
       renderItem={(skill) => (
