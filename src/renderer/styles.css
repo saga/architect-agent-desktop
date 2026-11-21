@@ -650,6 +650,21 @@ button { color: inherit; }
 .session-event pre { max-height:360px; margin:7px 0 0; padding:10px; overflow:auto; border-radius:6px; background:#f5f7fa; color:#384252; font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
 .session-explorer-content { display:flex; flex-direction:column; gap:14px; padding:8px 0; }
 
+.session-explorer-window { display:flex; width:100%; height:100vh; min-width:0; min-height:0; flex-direction:column; overflow:hidden; background:#fff; }
+.session-explorer-window-header { display:flex; flex:0 0 auto; align-items:center; justify-content:space-between; gap:16px; padding:15px 20px; border-bottom:1px solid #e8ebef; background:#fff; }
+.session-explorer-window-header h1 { margin:0; color:#283443; font-size:15px; font-weight:650; }
+.session-explorer-window-header p { margin:4px 0 0; color:#8993a0; font-size:11px; }
+.session-explorer-window-actions { display:flex; flex:0 0 auto; gap:8px; }
+.session-explorer-window > .session-explorer { flex:1; min-height:0; }
+.session-explorer-window .session-explorer-main { min-width:0; flex:1 1 0; overflow:auto; }
+.session-explorer-window .session-explorer-main .ant-tabs { width:100%; min-width:0; }
+.session-explorer-window .session-explorer-main .ant-tabs-nav { flex:0 0 auto; }
+.session-explorer-window .session-explorer-main .ant-tabs-content-holder { width:100%; min-width:0; }
+.session-explorer-window .agent-trajectory,
+.session-explorer-window .trajectory-turn-list,
+.session-explorer-window .trajectory-inspector { min-width:0; max-width:100%; }
+
+
 .agent-trajectory { display:flex; min-width:0; flex-direction:column; gap:12px; }
 .trajectory-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
 .trajectory-summary>div { display:flex; align-items:baseline; gap:7px; padding:9px 11px; border:1px solid #e9edf2; border-radius:7px; background:#fff; }
