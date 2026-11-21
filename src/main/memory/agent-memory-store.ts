@@ -700,7 +700,7 @@ export class AgentMemoryStore {
     const external=parseJson<AgentMemoryExternalVerification|null>(before.external_verification_json,null);
     const domains=new Set((external?.sources??[]).map(source=>sourceRegistrableDomain(source.domain)));
     if(!external||external.status!=="multi_domain_sources_recorded"||domains.size<2)
-      throw new Error("至少记录两个不同 HTTPS 域名的工具来源后，才可以确认人工核验。");
+      throw new Error("至少记录两个不同注册域名的 HTTPS 工具来源后，才可以确认人工核验。相同机构的不同子域名不算独立来源。");
     for(const source of external.sources){
       const stored=this.getSourceById(source.sourceRef,scope);
       if(!stored||stored.kind!=="tool")
