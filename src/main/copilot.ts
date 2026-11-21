@@ -680,7 +680,7 @@ export class CopilotDesktopAgent {
     ...(effort ? { effort } : {}),
     thinking: { type: "adaptive" as const },
     includePartialMessages: true,
-    systemPrompt: { append: [systemPrompt] },
+    systemPrompt: { append: systemPrompt },
     cwd,
     ...(detached ? { extraArgs: detached.extraArgs } : {}),
     env: { ...runtimeEnv, ...(detached?.env ?? {}), ...(runtimeConfigDir ? { CODEBUDDY_CONFIG_DIR: runtimeConfigDir } : {}) },
