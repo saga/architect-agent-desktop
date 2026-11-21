@@ -377,7 +377,7 @@ export class CopilotDesktopAgent {
   const callableTools = tools.filter(tool =>
    (permission === "allow-all" ||
    (permission !== "none" && tool.name.startsWith("browser_")) ||
-   (permission === "assisted" && tool.name.startsWith("workspace_"))) &&
+   (permission === "assisted" && (tool.name.startsWith("workspace_") || tool.name.startsWith("duckdb_") || tool.name.startsWith("document_") || tool.name.startsWith("memory_") || tool.name.startsWith("a2ui_")))) &&
    expertAllowsTool(tool.name)
   );
   const brokerTools = callableTools.map(tool => ({
