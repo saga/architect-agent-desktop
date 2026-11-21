@@ -1,4 +1,5 @@
 import { Catalog } from "@a2ui/web_core";
+import type { ComponentApi } from "@a2ui/web_core";
 import { basicCatalog } from "@a2ui/web_core/catalogs/basic/v1";
 import { CommonSchemas } from "@a2ui/web_core/v1_0";
 import { z } from "zod3";
@@ -59,24 +60,15 @@ export type FinanceA2UIComponentName =
   | "KnowledgeGraph"
   | "WorkflowDiagram";
 
-export function createAgentFinanceCatalog(): Catalog {
-  return basicCatalog.copyWith({
-    catalogId: FINANCE_A2UI_CATALOG_ID,
-    components: [
-      ...basicCatalog.components.values(),
-      ...FINANCE_A2UI_COMPONENT_APIS,
-    ],
-  });
-}
-
-export function createFinanceCatalogWithImplementations<T extends { name: string }>(
-  implementations: T[],
-): Catalog<T> {
-  return basicCatalog.copyWith({
-    catalogId: FINANCE_A2UI_CATALOG_ID,
-    components: [
-      ...basicCatalog.components.values(),
-      ...implementations,
-    ] as T[],
-  });
+export function createAgentFinanceCatalog(): Catalog<ComponentApi> {
+  return new Catalog<ComponentApi>(
+    FINANCE_A2UI_CATALOG_ID,
+    "1.0",
+    [...basicCatalog.components.values(), ...FINANCE_A2UI_COMPONENT_APIS] as ComponentApi[],
+    [...basicCatalog.functions.values()],
+    {
+      themeSchema: basicCatalog.themeSchema,
+      instructions: "Use FinanceChart for quantitative analysis, KnowledgeGraph for read-only entity relationships, and WorkflowDiagram for editable process/data lineage diagrams. Do not generate component code.",
+    },
+  );
 }
