@@ -195,6 +195,57 @@ function toContextEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOp
   };
 }
 
+/** Merge start/end records for the same request into one inspectable model call. */
+function mergeRequestRuns(runs: ContextRun[]): ContextRun[] {
+  const byRequest = new Map<string, ContextRun>();
+  const result: ContextRun[] = [];
+  for (const run of runs) {
+    const key = run.requestId ?? run.apiCallId ?? run.providerCallId ?? run.serviceRequestId ?? run.id;
+    const previous = byRequest.get(key);
+    if (!previous) {
+      byRequest.set(key, run);
+      result.push(run);
+      continue;
+    }
+    const responseSnapshot = run.snapshot.rawResponse !== undefined || run.snapshot.responseMessages.length > 0
+      ? run.snapshot
+      : previous.snapshot;
+    const mergedSnapshot: ContextSnapshot = {
+      ...previous.snapshot,
+      ...responseSnapshot,
+      id: previous.snapshot.id,
+      messages: previous.snapshot.messages.length ? previous.snapshot.messages : responseSnapshot.messages,
+      tools: previous.snapshot.tools.length ? previous.snapshot.tools : responseSnapshot.tools,
+      parameters: previous.snapshot.parameters,
+      system: previous.snapshot.system ?? responseSnapshot.system,
+      rawRequest: previous.snapshot.rawRequest,
+      rawResponse: responseSnapshot.rawResponse ?? previous.snapshot.rawResponse,
+      responseMessages: responseSnapshot.responseMessages.length
+        ? responseSnapshot.responseMessages
+        : previous.snapshot.responseMessages,
+      usage: run.usage ?? previous.usage ?? responseSnapshot.usage,
+      warnings: [...new Set([...previous.snapshot.warnings, ...responseSnapshot.warnings])],
+      provenance: previous.snapshot.provenance ?? responseSnapshot.provenance,
+    };
+    const merged: ContextRun = {
+      ...previous,
+      completedAt: run.completedAt ?? previous.completedAt,
+      status: run.status === "running" ? previous.status : run.status,
+      snapshot: mergedSnapshot,
+      usage: run.usage ?? previous.usage,
+      contextUsage: run.contextUsage ?? previous.contextUsage,
+      payloadComplete: previous.payloadComplete === false || run.payloadComplete === false
+        ? false
+        : previous.payloadComplete ?? run.payloadComplete,
+      metadata: { ...(previous.metadata ?? {}), ...(run.metadata ?? {}), mergedEventCount: Number(object(previous.metadata).mergedEventCount ?? 1) + 1 },
+    };
+    byRequest.set(key, merged);
+    const index = result.findIndex(item => item.id === previous.id);
+    if (index >= 0) result[index] = merged;
+  }
+  return result;
+}
+
 /** Convert the existing @saga/agent-tracing / @saga/agent-contracts event envelope into debugger sessions. */
 export function contextSessionsFromAgentEvents(
   events: readonly AgentTraceEventLike[],
@@ -208,7 +259,7 @@ export function contextSessionsFromAgentEvents(
   }
   return [...groups.entries()].map(([id, group]) => {
     const ordered = [...group].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || (a.sequence ?? 0) - (b.sequence ?? 0));
-    const runs = ordered.map((event) => runFromEvent(event, options)).filter((run): run is ContextRun => Boolean(run));
+    const runs = mergeRequestRuns(ordered.map((event) => runFromEvent(event, options)).filter((run): run is ContextRun => Boolean(run)));
     return {
       id, ...(ordered[0]?.traceId ? { traceId: ordered[0].traceId } : {}),
       ...(ordered[0]?.correlationId ? { correlationId: ordered[0].correlationId } : {}),
