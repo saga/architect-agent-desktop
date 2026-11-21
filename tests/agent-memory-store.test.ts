@@ -107,6 +107,51 @@ describe("AgentMemoryStore", () => {
     expect(contextB).not.toContain("Portfolio A private convention");
     expect(store.getSourceById(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
     expect(store.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toEqual(personalSource);
+
+    expect(() => store.saveNote({
+      scope: null,
+      title: "Portfolio A project fact",
+      content: "Portfolio A follows a project-specific internal process.",
+      claimType: "project_fact",
+    })).toThrow(/Personal Memory 只允许跨项目通用/);
+    expect(() => store.publishRepresentation({
+      scope: null,
+      slug: "portfolio-a-project-method",
+      title: "Portfolio A method",
+      content: "A project-specific method must not enter Personal Memory.",
+      sourceNoteIds: [personalNote.id],
+    })).toThrow(/Personal Memory 不发布项目知识页/);
+
+    const personalProjectRun = store.prepareDreaming(null, [{
+      sessionId: "personal-project-discussion",
+      messageId: "personal-project-fact",
+      kind: "user",
+      content: "Portfolio A has a project-specific valuation convention.",
+      createdAt: Date.now() + 1,
+    }]);
+    expect(() => store.commitDreaming({
+      scope: null,
+      runId: personalProjectRun!.id,
+      summary: "Attempt to promote a project-only fact into Personal Memory.",
+      operations: [{
+        op: "upsert_note",
+        title: "Portfolio A valuation convention",
+        content: "Portfolio A uses a confidential valuation convention.",
+        claimType: "project_fact",
+        sourceRefs: [personalProjectRun!.evidence[0]!.sourceId],
+        reason: "Project-specific facts must remain in their Workspace.",
+      }],
+    })).toThrow(/Personal Dreaming 只允许沉淀跨项目通用/);
+    store.abandonDreaming(null, personalProjectRun!.id, "test complete");
+
+    // Simulate a legacy personal Note that was incorrectly classified as a project fact.
+    const database = (store as unknown as { database: DatabaseSync }).database;
+    database.prepare("UPDATE memory_notes SET claim_type='project_fact' WHERE id=?").run({}, personalNote.id);
+    expect(store.listNotes(null, true).map(note => note.id)).toContain(personalNote.id);
+    expect(store.listAgentAccessibleNotes(null, true).map(note => note.id)).not.toContain(personalNote.id);
+    expect(store.search("/workspace/portfolio-b", "architecture review preference").map(note => note.id)).not.toContain(personalNote.id);
+    expect(store.getAgentAccessibleSource(personalSource.sourceId, "/workspace/portfolio-b")).toBeNull();
+    expect(store.getInjectedContext("/workspace/portfolio-b")).not.toContain("Architecture review preference");
     store.abandonDreaming(null, personalRun!.id, "test complete");
     store.close();
   });
@@ -227,6 +272,7 @@ describe("AgentMemoryStore", () => {
       scope: null,
       title: "General research preference",
       content: "Prefer primary sources and distinguish fact from inference.",
+      claimType: "user_preference",
     });
     const unrelatedWorkspace = store.saveNote({
       scope: "/workspace/other",
