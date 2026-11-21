@@ -29,6 +29,19 @@ export interface AgentMemoryNote {
   version: number; expiresAt: number | null; lastVerifiedAt: number | null; supersededById: string | null;
   qualityScore: number | null; lastQualityReviewedAt: number | null;
 }
+export interface MemoryDreamSchedule {
+  enabled: boolean;
+  intervalMinutes: number;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  lastRunStatus: "success" | "error" | "running" | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+  updatedAt: number;
+}
+export interface DueMemoryDreamSchedule extends MemoryDreamSchedule {
+  scope: string | null;
+}
 export interface AgentMemoryRepresentation {
   id: string; slug: string; title: string; content: string; sourceNoteIds: string[];
   updatedAt: number; version: number; status: "active" | "archived";
@@ -156,6 +169,9 @@ export class AgentMemoryStore {
       "id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,version INTEGER NOT NULL," +
       "snapshot_json TEXT NOT NULL,run_id TEXT,created_at INTEGER NOT NULL);" +
       "CREATE INDEX IF NOT EXISTS idx_memory_versions_entity ON memory_versions(scope_key,entity_type,entity_id,version DESC);" +
+      "CREATE TABLE IF NOT EXISTS memory_dream_schedules (" +
+      "scope_key TEXT PRIMARY KEY,scope_value TEXT,enabled INTEGER NOT NULL DEFAULT 0,interval_minutes INTEGER NOT NULL DEFAULT 1440," +
+      "next_run_at INTEGER,last_run_at INTEGER,last_run_status TEXT,last_error TEXT,consecutive_failures INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL);" +
       "CREATE TABLE IF NOT EXISTS memory_relationships (" +
       "id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,source_note_id TEXT NOT NULL,target_note_id TEXT NOT NULL,relationship TEXT NOT NULL," +
       "details TEXT NOT NULL DEFAULT '',source_refs_json TEXT NOT NULL DEFAULT '[]',created_at INTEGER NOT NULL," +
@@ -807,6 +823,73 @@ export class AgentMemoryStore {
       this.database.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  getDreamSchedule(scope:string|null):MemoryDreamSchedule{
+    const row=this.database.prepare("SELECT * FROM memory_dream_schedules WHERE scope_key=?").get({},normalizeScope(scope)) as Record<string,unknown>|undefined;
+    return {
+      enabled:Number(row?.enabled??0)===1,
+      intervalMinutes:Math.max(60,Math.min(10080,Number(row?.interval_minutes??1440))),
+      nextRunAt:row?.next_run_at==null?null:Number(row.next_run_at),
+      lastRunAt:row?.last_run_at==null?null:Number(row.last_run_at),
+      lastRunStatus:row?.last_run_status==="success"||row?.last_run_status==="error"||row?.last_run_status==="running"?row.last_run_status:null,
+      lastError:typeof row?.last_error==="string"&&row.last_error?row.last_error:null,
+      consecutiveFailures:Number(row?.consecutive_failures??0),
+      updatedAt:Number(row?.updated_at??0),
+    };
+  }
+
+  saveDreamSchedule(scope:string|null,input:{enabled:boolean;intervalMinutes:number},now=Date.now()):MemoryDreamSchedule{
+    if(!Number.isSafeInteger(input.intervalMinutes)||input.intervalMinutes<60||input.intervalMinutes>10080)
+      throw new Error("Memory Dreaming 频率必须在 60 至 10,080 分钟之间。");
+    if(typeof input.enabled!=="boolean")throw new Error("Memory Dreaming enabled 必须是布尔值。");
+    const scopeKey=normalizeScope(scope),before=this.getDreamSchedule(scope);
+    const nextRunAt=input.enabled
+      ? (before.enabled&&before.intervalMinutes===input.intervalMinutes&&before.nextRunAt!==null?before.nextRunAt:now+input.intervalMinutes*60_000)
+      : null;
+    this.database.prepare(
+      "INSERT INTO memory_dream_schedules(scope_key,scope_value,enabled,interval_minutes,next_run_at,last_run_at,last_run_status,last_error,consecutive_failures,updated_at) "+
+      "VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(scope_key) DO UPDATE SET scope_value=excluded.scope_value,enabled=excluded.enabled,"+
+      "interval_minutes=excluded.interval_minutes,next_run_at=excluded.next_run_at,last_run_at=excluded.last_run_at,"+
+      "last_run_status=CASE WHEN excluded.enabled=0 THEN NULL ELSE memory_dream_schedules.last_run_status END,"+
+      "last_error=CASE WHEN excluded.enabled=0 THEN NULL ELSE memory_dream_schedules.last_error END,"+
+      "consecutive_failures=CASE WHEN excluded.enabled=0 THEN 0 ELSE memory_dream_schedules.consecutive_failures END,updated_at=excluded.updated_at"
+    ).run({},scopeKey,scope,input.enabled?1:0,input.intervalMinutes,nextRunAt,before.lastRunAt,before.lastRunStatus,before.lastError,before.consecutiveFailures,now);
+    return this.getDreamSchedule(scope);
+  }
+
+  listDueDreamSchedules(now=Date.now(),limit=10):DueMemoryDreamSchedule[]{
+    const rows=this.database.prepare(
+      "SELECT scope_key,scope_value,enabled,interval_minutes,next_run_at,last_run_at,last_run_status,last_error,consecutive_failures,updated_at "+
+      "FROM memory_dream_schedules WHERE enabled=1 AND next_run_at IS NOT NULL AND next_run_at<=? ORDER BY next_run_at ASC LIMIT ?"
+    ).all({},now,Math.max(1,Math.min(Math.floor(limit),20))) as Array<Record<string,unknown>>;
+    return rows.map(row=>({
+      scope:typeof row.scope_value==="string"?row.scope_value:null,
+      enabled:true,intervalMinutes:Number(row.interval_minutes),nextRunAt:Number(row.next_run_at),
+      lastRunAt:row.last_run_at==null?null:Number(row.last_run_at),
+      lastRunStatus:row.last_run_status==="success"||row.last_run_status==="error"||row.last_run_status==="running"?row.last_run_status:null,
+      lastError:typeof row.last_error==="string"&&row.last_error?row.last_error:null,
+      consecutiveFailures:Number(row.consecutive_failures??0),updatedAt:Number(row.updated_at??0),
+    }));
+  }
+
+  claimDreamSchedule(scope:string|null,now=Date.now()):boolean{
+    const result=this.database.prepare(
+      "UPDATE memory_dream_schedules SET next_run_at=?,last_run_status='running',last_error=NULL,updated_at=? "+
+      "WHERE scope_key=? AND enabled=1 AND next_run_at IS NOT NULL AND next_run_at<=?"
+    ).run({},now+15*60_000,now,normalizeScope(scope),now);
+    return Number(result.changes)===1;
+  }
+
+  finishDreamSchedule(scope:string|null,status:"success"|"error",error:string|null=null,now=Date.now()):MemoryDreamSchedule{
+    const before=this.getDreamSchedule(scope);
+    const failures=status==="success"?0:before.consecutiveFailures+1;
+    const retryMinutes=status==="success"?before.intervalMinutes:Math.min(before.intervalMinutes,15*Math.pow(2,Math.min(failures-1,5)));
+    const nextRunAt=before.enabled?now+retryMinutes*60_000:null;
+    this.database.prepare(
+      "UPDATE memory_dream_schedules SET next_run_at=?,last_run_at=?,last_run_status=?,last_error=?,consecutive_failures=?,updated_at=? WHERE scope_key=?"
+    ).run({},nextRunAt,now,status,error?redactSecrets(error,1000):null,failures,now,normalizeScope(scope));
+    return this.getDreamSchedule(scope);
   }
 
   getSourceById(sourceId:string,scope?:string|null):StoredMemorySource|null{
