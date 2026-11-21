@@ -225,7 +225,7 @@ export class AgentMemoryStore {
 
   getNote(id: string, scope?: string | null): AgentMemoryNote | null {
     const row=this.getNoteRow(id,normalizeScope(scope));
-    return row?this.toNote(row):null;
+    return row && row.status === "active" ? this.toNote(row) : null;
   }
 
   search(scope: string | null, query: string, limit = 10): AgentMemoryNote[] {
@@ -335,13 +335,13 @@ export class AgentMemoryStore {
     if(sourceInput.length>MAX_DREAM_SOURCES)throw new Error("每次 Dreaming 最多处理 160 条 transcript 消息。");
     const pending=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='prepared' LIMIT 1").get(key) as {id?:string}|undefined;
     if(pending?.id)throw new Error("当前 Workspace 已存在待处理 Dreaming Run，请先 commit 或 abandon："+pending.id);
-    const cursor=this.getDreamCursor(scope),deduped=new Map<string,StoredMemorySource>();
+    const cursor=this.getDreamCursor(scope),runId=randomUUID(),deduped=new Map<string,StoredMemorySource>();
     let totalChars=0;
     for(const source of sourceInput){
       const sessionId=String(source.sessionId??"").slice(0,100),messageId=String(source.messageId??"").slice(0,100);
       const content=scrubEvidence(String(source.content??"")),createdAt=Number(source.createdAt);
       if(!sessionId||!messageId||!Number.isFinite(createdAt)||createdAt<=cursor||!content.trim())continue;
-      const sourceId=createHash("sha256").update(sessionId+"\\0"+messageId).digest("hex").slice(0,32);
+      const sourceId=createHash("sha256").update(runId+"\\0"+sessionId+"\\0"+messageId).digest("hex").slice(0,32);
       if(deduped.has(sourceId))continue;
       totalChars+=content.length;
       if(totalChars>MAX_DREAM_EVIDENCE_CHARS)throw new Error("Dreaming 证据包超过 1 MB，请缩小来源数量或单条消息长度。");
@@ -349,7 +349,7 @@ export class AgentMemoryStore {
     }
     const sources=[...deduped.values()].sort((a,b)=>a.createdAt-b.createdAt);
     if(!sources.length)return null;
-    const id=randomUUID(),now=Date.now(),maxSourceCreatedAt=Math.max(...sources.map(source=>source.createdAt));
+    const id=runId,now=Date.now(),maxSourceCreatedAt=Math.max(...sources.map(source=>source.createdAt));
     this.database.exec("BEGIN IMMEDIATE");
     try{
       this.database.prepare(
@@ -423,8 +423,6 @@ export class AgentMemoryStore {
       const next={scope_key:scopeKey,max_source_created_at:Math.max(run.maxSourceCreatedAt,Number(previous?.max_source_created_at??0)),last_run_id:input.runId,updated_at:now};
       this.recordDreamOperation(input.runId,sequence+1,"cursor",scopeKey,"advance_cursor",previous??null,next,"Advance the transcript cursor after a successful atomic commit.");
       this.upsertCursor(next);
-      this.database.prepare("UPDATE memory_notes SET last_dreamed_at=? WHERE scope_key=? AND id IN (SELECT DISTINCT entity_id FROM memory_dream_operations WHERE run_id=? AND entity_type='note')")
-        .run(now,scopeKey,input.runId);
       this.database.prepare("UPDATE memory_dream_runs SET status='completed',summary=?,completed_at=?,operation_count=? WHERE id=? AND scope_key=? AND status='prepared'")
         .run(summary,now,sequence+1,input.runId,scopeKey);
       this.database.exec("COMMIT");
@@ -468,7 +466,7 @@ export class AgentMemoryStore {
     const now=Date.now(),after={
       ...before,validation:op.validation,confidence:clamp(op.confidence,0,1),
       source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100)),
-      last_verified_at:op.validation==="validated"?now:before.last_verified_at??null,updated_at:now,version:Number(before.version)+1,
+      last_verified_at:op.validation==="validated"?now:before.last_verified_at??null,last_dreamed_at:now,updated_at:now,version:Number(before.version)+1,
     };
     this.replaceNoteSnapshot(op.id,after);
     this.recordEntityChange(runId,sequence,"note",op.id,before,this.getNoteRow(op.id,scopeKey),"review_note",reason);
@@ -479,7 +477,7 @@ export class AgentMemoryStore {
     if(!before||before.status!=="active")throw new Error("只能归档当前 Workspace 的活动 Note："+op.id);
     if(Number(before.version)!==op.baseVersion)throw new Error("Memory Note 版本已变化，请重新检索："+op.id);
     if(Number(before.pinned))throw new Error("置顶 Note 不能直接归档，请先取消置顶或保留它。");
-    const after={...before,status:"archived",pinned:0,source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100)),updated_at:Date.now(),version:Number(before.version)+1};
+    const after={...before,status:"archived",pinned:0,last_dreamed_at:Date.now(),source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100)),updated_at:Date.now(),version:Number(before.version)+1};
     this.replaceNoteSnapshot(op.id,after);
     this.recordEntityChange(runId,sequence,"note",op.id,before,this.getNoteRow(op.id,scopeKey),"archive_note",reason);
   }
@@ -489,7 +487,7 @@ export class AgentMemoryStore {
     if(!before||before.status!=="active"||!replacement||replacement.status!=="active")throw new Error("supersede_note 必须引用同一 Workspace 的活动 Note。");
     if(Number(before.version)!==op.baseVersion)throw new Error("被替代 Note 的版本已变化："+op.id);
     if(op.id===op.replacementId)throw new Error("Note 不能替代自己。");
-    const after={...before,status:"superseded",superseded_by_id:op.replacementId,pinned:0,updated_at:Date.now(),version:Number(before.version)+1,
+    const after={...before,status:"superseded",superseded_by_id:op.replacementId,pinned:0,last_dreamed_at:Date.now(),updated_at:Date.now(),version:Number(before.version)+1,
       source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100))};
     this.replaceNoteSnapshot(op.id,after);
     this.recordEntityChange(runId,sequence,"note",op.id,before,this.getNoteRow(op.id,scopeKey),"supersede_note",reason);
