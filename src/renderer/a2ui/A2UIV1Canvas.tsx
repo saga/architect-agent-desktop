@@ -10,12 +10,13 @@ export type RendererToAgentMessage = { version: "1.0"; action: RendererAction };
 import { financeRendererCatalog } from "./finance-renderer-catalog";
 
 export interface A2UIV1CanvasProps {
+  taskId: string;
   messages: string[];
   onRendererMessage?: (message: RendererToAgentMessage) => void;
   title?: string;
 }
 
-export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交互式分析" }: A2UIV1CanvasProps) {
+export default function A2UIV1Canvas({ taskId, messages, onRendererMessage, title = "交互式分析" }: A2UIV1CanvasProps) {
   const [surfaces, setSurfaces] = useState<Array<SurfaceModel<ReactCatalogComponent>>>([]);
   const [generation, setGeneration] = useState(0);
   const [errors, setErrors] = useState<string[]>([]);
@@ -36,8 +37,10 @@ export default function A2UIV1Canvas({ messages, onRendererMessage, title = "交
   ), [generation]);
 
   const refreshSurfaces = useCallback(() => {
-    setSurfaces([...processor.model.surfacesMap.values()]);
-  }, [processor]);
+    const nextSurfaces = [...processor.model.surfacesMap.values()];
+    setSurfaces(nextSurfaces);
+    void window.browser.agentA2uiRegisterSurfaces(taskId, nextSurfaces.map(surface => surface.id)).catch(() => undefined);
+  }, [processor, taskId]);
 
   useEffect(() => {
     const created = processor.onSurfaceCreated(refreshSurfaces);
