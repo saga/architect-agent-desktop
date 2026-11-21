@@ -6,7 +6,15 @@ import { MessageProcessor } from "@a2ui/web_core";
 import type { SurfaceModel } from "@a2ui/web_core";
 import type { ReactCatalogComponent } from "@a2ui/react";
 import type { AgentToRendererMessage } from "@a2ui/agent";
-type RendererAction = { name: string; surfaceId: string; sourceComponentId?: string; timestamp?: string; context?: Record<string, unknown> };
+type RendererAction = {
+  name: string;
+  surfaceId: string;
+  sourceComponentId: string;
+  timestamp: string;
+  context: Record<string, unknown>;
+  userMessage?: string;
+  metadata?: { extensions?: Record<string, unknown> };
+};
 export type RendererToAgentMessage = { version: "1.0"; action: RendererAction };
 import { financeRendererCatalog } from "./finance-renderer-catalog";
 
