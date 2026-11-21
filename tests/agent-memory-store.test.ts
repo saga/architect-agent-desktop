@@ -130,7 +130,7 @@ describe("AgentMemoryStore", () => {
     }]);
     expect(run?.status).toBe("prepared");
     expect(store.getDreamCursor("/workspace/dream")).toEqual({
-      createdAt: 0, sessionId: "", messageId: "",
+      createdAt: 0, sessionId: "", messageId: "", transcriptRevision: 0,
     });
 
     const sourceId = run!.evidence[0]!.sourceId;
@@ -151,7 +151,7 @@ describe("AgentMemoryStore", () => {
     expect(committed.status).toBe("completed");
     expect(committed.createdNoteIds).toHaveLength(1);
     expect(store.getDreamCursor("/workspace/dream")).toEqual({
-      createdAt, sessionId: "session-dream", messageId: "message-dream",
+      createdAt, sessionId: "session-dream", messageId: "message-dream", transcriptRevision: 0,
     });
     const note = store.getNote(committed.createdNoteIds[0]!, "/workspace/dream");
     expect(note?.validation).toBe("unverified");
@@ -163,7 +163,7 @@ describe("AgentMemoryStore", () => {
     expect(rolledBack.rolledBackOperations).toBeGreaterThan(0);
     expect(store.getNote(committed.createdNoteIds[0]!, "/workspace/dream")).toBeNull();
     expect(store.getDreamCursor("/workspace/dream")).toEqual({
-      createdAt: 0, sessionId: "", messageId: "",
+      createdAt: 0, sessionId: "", messageId: "", transcriptRevision: 0,
     });
     store.close();
   });
@@ -260,6 +260,67 @@ describe("AgentMemoryStore", () => {
     expect(store.getRepresentations("/workspace/knowledge-conflict")[0]?.content).toBe("A newer manual revision.");
     expect(store.getDreamCursor("/workspace/knowledge-conflict").createdAt).toBe(0);
     store.abandonDreaming("/workspace/knowledge-conflict", run!.id, "stale knowledge page");
+    store.close();
+  });
+
+  it("performs an audited quality review without advancing the Transcript revision cursor", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const createdAt = Date.now() - 45 * 24 * 60 * 60 * 1000;
+    const transcriptRun = store.prepareDreaming("/workspace/quality-review", [{
+      sessionId: "session-quality",
+      messageId: "message-quality",
+      kind: "user",
+      content: "The project requires all risk comparisons to use the approved reporting date and base currency.",
+      createdAt,
+    }]);
+    const originalSourceId = transcriptRun!.evidence[0]!.sourceId;
+    const note = store.commitDreaming({
+      scope: "/workspace/quality-review",
+      runId: transcriptRun!.id,
+      summary: "Create a durable project rule.",
+      operations: [{
+        op: "upsert_note",
+        title: "Risk comparison convention",
+        content: "Risk comparisons must use the approved reporting date and base currency.",
+        sourceRefs: [originalSourceId],
+        reason: "This is a reusable project convention.",
+      }],
+    }).createdNoteIds[0]!;
+    const cursorBefore = store.getDreamCursor("/workspace/quality-review");
+    const candidates = store.listQualityReviewCandidates("/workspace/quality-review", 10, Date.now());
+    expect(candidates.map(item => item.id)).toContain(note);
+
+    const reviewRun = store.prepareQualityReview("/workspace/quality-review", 10, Date.now());
+    expect(reviewRun?.purpose).toBe("quality_review");
+    expect(reviewRun?.evidence.length).toBeGreaterThan(0);
+    expect(store.getDreamCursor("/workspace/quality-review")).toEqual(cursorBefore);
+    const currentNote = store.getNote(note, "/workspace/quality-review")!;
+    const result = store.commitDreaming({
+      scope: "/workspace/quality-review",
+      runId: reviewRun!.id,
+      summary: "Reviewed the original source and confirmed the convention remains applicable.",
+      operations: [{
+        op: "review_note",
+        id: note,
+        baseVersion: currentNote.version,
+        validation: "validated",
+        confidence: 0.93,
+        qualityScore: 0.91,
+        sourceRefs: [reviewRun!.evidence[0]!.sourceId],
+        reason: "The source remains clear, specific and consistent with the active project rule.",
+      }],
+    });
+    expect(result.status).toBe("completed");
+    const reviewed = store.getNote(note, "/workspace/quality-review")!;
+    expect(reviewed.qualityScore).toBe(0.91);
+    expect(reviewed.lastQualityReviewedAt).toBeGreaterThan(0);
+    expect(store.getDreamCursor("/workspace/quality-review")).toEqual(cursorBefore);
+
+    store.rollbackDreaming("/workspace/quality-review", reviewRun!.id, "Verify quality review rollback.");
+    const restored = store.getNote(note, "/workspace/quality-review")!;
+    expect(restored.qualityScore).toBeNull();
+    expect(restored.lastQualityReviewedAt).toBeNull();
+    expect(store.getDreamCursor("/workspace/quality-review")).toEqual(cursorBefore);
     store.close();
   });
 
@@ -422,7 +483,7 @@ describe("AgentMemoryStore", () => {
     expect(result.operationCount).toBe(0);
     expect(store.getDreamRun(run!.id, "/workspace/no-op")?.status).toBe("completed");
     expect(store.getDreamCursor("/workspace/no-op")).toEqual({
-      createdAt, sessionId: "session-no-op", messageId: "message-no-op",
+      createdAt, sessionId: "session-no-op", messageId: "message-no-op", transcriptRevision: 0,
     });
     expect(store.listNotes("/workspace/no-op", true)).toHaveLength(0);
     store.close();
