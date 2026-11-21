@@ -136,7 +136,13 @@ const ALLOW_ALL_INSTRUCTIONS = [
 "Treat \"current page\" as the active tab. Do not substitute a new local HTML file or the macOS wallpaper unless the user explicitly asks for that.",
 "When editing files, running commands or injecting page code, report exactly what you did."
 ].join("\n");
+const NO_TOOLS_INSTRUCTIONS = [
+  "No tools are available in this task. Do not attempt to call tools, MCP servers, shell commands, file operations or browser actions.",
+  "Answer using only the supplied conversation context. If the user requests an action that requires a tool, explain that tool access is disabled and ask the user to enable only the required tools.",
+].join("\n");
+
 function instructionsFor(permission: AgentSettings["toolPermission"]): string {
+  if (permission === "none") return NO_TOOLS_INSTRUCTIONS + "\n\n" + BASE_INSTRUCTIONS;
   const mode = permission === "allow-all" ? ALLOW_ALL_INSTRUCTIONS : permission === "assisted" ? ASSISTED_INSTRUCTIONS : BROWSER_ONLY_INSTRUCTIONS;
   return mode + "\n\n" + BASE_INSTRUCTIONS + (permission === "allow-all" ? "\n\n" + CODE_MODE_SYSTEM_INSTRUCTIONS : "");
 }
@@ -218,27 +224,27 @@ function coerceRawToolInput(input: Record<string, unknown>, schema: any): Record
 }
 export class CopilotDesktopAgent {
  private workspacePath:string|null;
- private taskContext:{systemPrompt:string;toolPermission:AgentToolPermission;skills:string[];tools:string[]}|null=null;
+ private taskContext:{systemPrompt:string;toolPermission:AgentToolPermission;allowAllTools:boolean;skills:string[];tools:string[]}|null=null;
  private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null; private readonly codeRuntimeAbortControllers = new Set<AbortController>(); private readonly codeRuntime = new UtilityProcessAgentRuntime();
- constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:(skills?:string[])=>string=()=>"",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string,payloadComplete?:boolean)=>void=()=>{},initialTaskContext:{systemPrompt:string;toolPermission:AgentToolPermission;skills:string[];tools:string[]}|null=null,private getMcpServers:()=>McpServerConfig[]=()=>[]){this.settings=settings;this.workspacePath=workspacePath;this.taskContext=initialTaskContext?{...initialTaskContext,skills:[...initialTaskContext.skills],tools:[...initialTaskContext.tools]}:null;}
+ constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:(skills?:string[])=>string=()=>"",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string,payloadComplete?:boolean)=>void=()=>{},initialTaskContext:{systemPrompt:string;toolPermission:AgentToolPermission;allowAllTools:boolean;skills:string[];tools:string[]}|null=null,private getMcpServers:()=>McpServerConfig[]=()=>[]){this.settings=settings;this.workspacePath=workspacePath;this.taskContext=initialTaskContext?{...initialTaskContext,allowAllTools:initialTaskContext.allowAllTools===true,skills:[...initialTaskContext.skills],tools:[...initialTaskContext.tools]}:null;}
  async setWorkspacePath(workspacePath:string|null):Promise<void>{if(workspacePath===this.workspacePath)return;if(this.active)throw new Error("Wait for the current Agent request to finish before changing the workspace.");await this.stop();this.workspacePath=workspacePath;}
- async setTaskContext(context:{systemPrompt:string;toolPermission:AgentToolPermission;skills:string[];tools:string[]}|null):Promise<void>{
+ async setTaskContext(context:{systemPrompt:string;toolPermission:AgentToolPermission;allowAllTools:boolean;skills:string[];tools:string[]}|null):Promise<void>{
   if(this.active)throw new Error("Wait for the current Agent request to finish before changing the Expert.");
-  const next=context?{systemPrompt:context.systemPrompt,toolPermission:context.toolPermission,skills:[...context.skills],tools:[...context.tools]}:null;
+  const next=context?{systemPrompt:context.systemPrompt,toolPermission:context.toolPermission,allowAllTools:context.allowAllTools===true,skills:[...context.skills],tools:[...context.tools]}:null;
   if(JSON.stringify(next)===JSON.stringify(this.taskContext))return;
   await this.stop();this.taskContext=next;
  }
  private configuredMcpServers(provider:"copilot"|"codebuddy",environment:Record<string,string|undefined>){
-  if(this.effectivePermission()!=="allow-all" || (this.taskContext?.tools.length??0)>0)return{};
+  if(this.effectivePermission()!=="allow-all" || (this.taskContext !== null && !this.taskContext.allowAllTools))return{};
   return resolveMcpServerConfigs(this.getMcpServers(),provider,environment);
  }
  private effectivePermission():AgentToolPermission{
-  const rank:Record<AgentToolPermission,number>={"browser-only":0,assisted:1,"allow-all":2};
+  const rank:Record<AgentToolPermission,number>={"none":0,"browser-only":1,assisted:2,"allow-all":3};
   const ceiling=this.taskContext?.toolPermission??"allow-all";
   return rank[this.settings.toolPermission]<=rank[ceiling]?this.settings.toolPermission:ceiling;
  }
  private workspaceInstructions():string{return this.workspacePath?"Current local project workspace root: "+this.workspacePath+". Treat this as the project root. Use relative paths for workspace file tools and do not access files outside this directory.":"No local project workspace is selected. Do not attempt local project file operations until the user selects a workspace."; }
- async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(!["low","medium","high","xhigh"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");if(!["browser-only","assisted","allow-all"].includes(settings.toolPermission))throw new Error("Unsupported tool permission.");const changed=settings.provider!==this.settings.provider||settings.copilotModel!==this.settings.copilotModel||settings.codebuddyModel!==this.settings.codebuddyModel||settings.thinkingLevel!==this.settings.thinkingLevel||settings.toolPermission!==this.settings.toolPermission||settings.contextWindow!==this.settings.contextWindow||settings.systemPrompt!==this.settings.systemPrompt;if(changed)await this.stop();this.settings={...settings};}
+ async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(!["low","medium","high","xhigh"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");if(!["none","browser-only","assisted","allow-all"].includes(settings.toolPermission))throw new Error("Unsupported tool permission.");const changed=settings.provider!==this.settings.provider||settings.copilotModel!==this.settings.copilotModel||settings.codebuddyModel!==this.settings.codebuddyModel||settings.thinkingLevel!==this.settings.thinkingLevel||settings.toolPermission!==this.settings.toolPermission||settings.contextWindow!==this.settings.contextWindow||settings.systemPrompt!==this.settings.systemPrompt;if(changed)await this.stop();this.settings={...settings};}
 
  async inspectModels(provider: AgentProvider): Promise<AgentModelInfo[]> {
   if (provider === "codebuddy") { const models=readCodeBuddyCatalog().map(model => normalizeModelInfo("codebuddy", model)).filter((m): m is AgentModelInfo => Boolean(m)); models.forEach(model=>this.inspectedModels.set("codebuddy:"+model.id,model)); return models; }
@@ -288,11 +294,12 @@ export class CopilotDesktopAgent {
    {name:"browser_cdp",description:"Run a read-only, allowlisted Chrome DevTools Protocol diagnostic against the active tab. Page JavaScript execution, synthetic input, navigation, cookies and storage commands are not exposed. Only available with Allow all.",schema:z.object({method:z.string().min(1).max(200),params:z.record(z.string(),z.unknown()).optional()}),handler:({method,params}:{method:string;params?:Record<string,unknown>})=>report("CDP "+method,()=>b.cdp(method,params))}
   );
   const expertTools=this.taskContext?.tools??[];
+  const expertAllowsTool=(toolName:string)=>this.taskContext===null || this.taskContext.allowAllTools || expertTools.includes(toolName);
   const callableTools = tools.filter(tool =>
    (permission === "allow-all" ||
-   tool.name.startsWith("browser_") ||
+   (permission !== "none" && tool.name.startsWith("browser_")) ||
    (permission === "assisted" && tool.name.startsWith("workspace_"))) &&
-   (!expertTools.length || expertTools.includes(tool.name))
+   expertAllowsTool(tool.name)
   );
   const brokerTools = callableTools.map(tool => ({
    ...tool,
