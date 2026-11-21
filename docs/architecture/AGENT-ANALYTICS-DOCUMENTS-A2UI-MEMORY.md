@@ -8,7 +8,7 @@
 
 1. 文档理解：PDF、DOC/DOCX、XLS/XLSX/XLSM，以及 CSV、TSV、JSON、TXT、Markdown。
 2. 结构化分析：将表格导入本地 DuckDB，Agent 使用只读 SQL 做汇总、对比、趋势、风险敞口和异常分析。
-3. 分析展示：Agent 通过 A2UI v0.9 描述界面，桌面端用 Ant Design X Card 和本地 Catalog 渲染原生卡片；金融图表使用 ECharts。
+3. 分析展示：A2UI 1.0 作为主协议，官方 Agent/Core SDK 负责生成、校验和状态管理；保留 Ant Design X Card 的 v0.9 Renderer 以恢复旧会话。Finance Catalog 同时集成 Ant Design Charts、G6、X6 和 ECharts。
 4. 长期记忆：复用当前会话记录作为 Transcript 层，再增加 Memory Notes、主题知识页和小型上下文注入索引。
 
 ## 整体结构
@@ -37,13 +37,13 @@ Agent Prompt Context       Workspace DuckDB
                     Agent Analysis / Metrics
                               |
                               v
-                      A2UI v0.9 Commands
+                      A2UI 1.0 Messages
                               |
                               v
                  A2UI Validator + Catalog
                               |
                               v
-             Ant Design X Card + ECharts
+             A2UI 1.0 React Surface + Finance Catalog
 ```
 
 ## 文件理解链路
@@ -89,23 +89,33 @@ Agent 通过两个工具访问数据：
 
 这些约束不是数据库完整安全沙箱的替代品。后续如果需要开放自定义 SQL 模板、脚本执行或数据源连接，应继续通过 Tool Broker 和独立权限控制，而不是放宽 SQL 规则。
 
-## 金融图表与 A2UI
+## 可视化与 A2UI
 
-### 为什么使用 A2UI
+### A2UI 1.0 为主协议，v0.9 保留兼容
 
-Agent 不生成 HTML、JS 或 React 代码，而是输出 A2UI v0.9 JSON 命令。Renderer 只注册本地 Catalog 中的组件，不执行模型返回的源码。当前 Catalog 组件包括：
+新会话使用官方 TypeScript Agent SDK、`web_core` 和 React Renderer：
 
-- 布局：Column、Row、Card、Divider
-- 文本和指标：Text、Metric
-- 数据展示：DataTable
-- 金融图表：FinancialChart
-- 交互：Button
+- `@a2ui/agent`：维护模型侧生成器、协议提示和跨轮 Surface 状态。
+- `@a2ui/web_core`：协议解析、消息校验、Surface 状态和 Action 事件处理。
+- `@a2ui/react`：把已校验的 Surface 渲染为 React 组件。
+- Finance Catalog：注册本地的金融图表、知识关系图和可编辑流程图组件。
 
-FinancialChart 接受 JSON ECharts option，当前按需注册折线、柱状、K 线、饼图、散点图、Tooltip、Legend、DataZoom 等模块。图表随容器尺寸变化；高度和配置大小均有限制。任意 formatter 和额外 CSS 注入字段会在渲染前移除，Tooltip 固定为 richText。
+A2UI 1.0 RendererState 按 Agent Task Session 隔离；新消息增量进入 MessageProcessor，Surface 生命周期独立管理。ActionMessage 经主进程 IPC 重新校验后交给当前 Task 的 Agent 解释，Renderer 不直接执行 Agent 工具。
 
-A2UI 当前使用 `createSurface`、`updateComponents`、`updateDataModel` 和 `deleteSurface`。命令必须使用当前应用 Catalog ID；组件、动作和数据路径先经主进程白名单校验，再交给 X Card 渲染。按钮操作通过 `onAction` 回到 Agent 对话。
+旧会话仍通过 Ant Design X Card 的 v0.9 Catalog 渲染。新会话不再把 v0.9 JSON 当作 A2UI 1.0；两种格式有独立的事件类型和解析入口。
 
-当前实现以一批完整命令提交为主；X Card 支持增量命令队列，后续如需要再把 Agent 输出改为渐进式 UI 更新。
+### Finance Catalog 组件
+
+| 组件 | 底层技术 | 用途 |
+|---|---|---|
+| FinanceChart | Ant Design Charts | 折线、面积、柱状、双轴、饼图、散点、雷达、玫瑰、树图、瀑布、桑基等统计和金融图表 |
+| KnowledgeGraph | AntV G6 | 只读知识图谱、实体关系、持仓/发行人/行业关系及影响路径 |
+| WorkflowDiagram | AntV X6 | 流程图、审批流、数据血缘、Agent 工作流；允许受控编辑和保存 |
+| FinancialChart（legacy） | ECharts | 兼容已有 A2UI v0.9 卡片和原有图表输出 |
+
+G6 主要承担关系网络的布局、缩放、节点拖动和选择；X6 承担图形节点、连线和画布编辑，不把二者合并成一个通用图库。Ant Design Charts 用于常见统计图表；ECharts 继续作为现有图表兼容项。
+
+模型只输出 Catalog 约束下的 JSON 数据和属性，不输出 HTML/React/JS，不向 Renderer 传递可执行 formatter。图表、节点、边和画布数据均有大小/数量上限。编辑后的 X6 JSON 通过受控事件回传，不允许它绕过 Tool Broker 去写任意路径。
 
 ### 金融分析展示约定
 
@@ -134,24 +144,86 @@ Anthropic《The components of agent memory》（2026-11-06）提出的核心层�
 
 Memory Note 保留 Workspace Scope、标题、正文、标签、创建/更新时间、来源 Session/Trace、访问次数、置顶标记、验证状态和置信度。默认状态为 `unverified`。只有基于原始会话、文件或可靠来源复核后才可标记 `validated`；相互冲突或已过时的内容标记为 `disputed`。
 
-### Dreaming 工作方式
+### Dreaming：证据驱动的完整整理事务
 
-当前提供显式 Agent 工具：
+Dreaming 不再只是让模型总结历史。它现在有独立状态、证据快照、版本前置条件和原子提交：
 
-- `memory_search`：检索 Note。
-- `memory_search_history`：检索现有 Transcript。
-- `memory_save`：记录值得跨会话保留的经验。
-- `memory_review`：依据证据更新验证状态。
-- `memory_publish_knowledge`：将 Note 整理成主题知识页。
-- `memory_dreaming`：在重要任务后回看历史，晋级高价值 Note、整理知识页、取消或归档重复/过时内容，并记录整理摘要。
+```text
+Transcript cursor
+      |
+      v
+prepare run + evidence manifest
+      |
+      v
+de-duplicate / redact / inspect evidence
+      |
+      v
+plan Note / relation / knowledge changes
+      |
+      v
+validate sourceRefs + baseVersion
+      |
+      v
+BEGIN IMMEDIATE
+  entity changes + versions + audit log + cursor
+COMMIT
+      |
+      v
+completed / list / rollback
+```
 
-Dreaming 不应只记录失败。对该 Workspace 中有长期价值的成功路径、反复出现的业务规则、用户明确偏好、数据口径和已确认决策，也应考虑沉淀。
+**证据准备**
 
-当前 Dreaming 是 Agent 在任务中主动调用的受控工具，不是后台定时任务，也不承诺在每次对话结束时自动执行。这样可以避免不可控的后台模型成本和静默修改。后续可以加“空闲时整理”调度，但应先具备可审阅的变更记录和撤销机制。
+`memory_dreaming_prepare` 从当前 Workspace 已保存的 Session Transcript 读取 cursor 之后的消息。每次最多处理 160 条、证据包不超过 1 MB；消息最多 8,000 字符，先做常见密钥/Token 模式脱敏，再保存 source hash、session/message ID、消息类型和时间。证据 ID 按 Run 生成，重试不会与已放弃 Run 的主键冲突。
+
+游标由 `createdAt + sessionId + messageId` 组成。相同毫秒时间戳的消息仍有稳定顺序，分批整理时不会仅按时间戳而漏掉同一批尾部消息。游标只在事务成功提交时前移。
+
+**变更操作**
+
+`memory_dreaming_commit` 接受带理由与来源引用的结构化操作：
+
+- `upsert_note`：创建或更新记忆；更新必须携带读取时的 `baseVersion`。
+- `review_note`：根据本次 evidence 更新 `unverified / validated / disputed`。
+- `archive_note`：归档重复或失效 Note；置顶条目不能直接归档。
+- `supersede_note`：将旧 Note 标记为被新 Note 替代，并建立关系。
+- `link_notes`：建立 supports、contradicts、refines、derived_from、related_to、supersedes 关系。
+- `publish_knowledge`：把多条活动 Note 整理成有来源的知识页。
+
+所有操作必须引用当前 Run 的 evidence source ID 并提供 reason。对现有 Note 的改动必须提供版本号；如果在准备后被其他操作更新，整个提交会失败回滚，不会覆盖更新后的内容。
+
+**事务和审计**
+
+SQLite 使用 `BEGIN IMMEDIATE`，一次性提交实体、版本快照、Dreaming 操作前后快照和 cursor。单次提交失败时，所有变更回滚，Run 保持 prepared，cursor 不前移。旧版本保留在 `memory_versions`，操作记录保存在 `memory_dream_operations`。
+
+Run 状态：
+
+| 状态 | 含义 |
+|---|---|
+| `prepared` | 已固定证据集，尚未提交 |
+| `completed` | 事务成功提交 |
+| `abandoned` | 用户/Agent 放弃本次准备，不推进 cursor |
+| `rolled_back` | 已撤销最近一次成功提交 |
+| `failed` | 预留的失败状态；当前事务错误会自动回滚并保留 prepared，供检查或 abandon |
+
+**回滚**
+
+`memory_dreaming_rollback` 只能回滚当前 Workspace 最新的 completed Run。回滚前逐项比对当前实体与本次提交后的快照；如果之后有人工或 Agent 修改，则拒绝回滚，避免用旧快照覆盖新内容。回滚同样在事务中恢复 Note、知识页、关系和 cursor。
+
+**Agent 的整理策略**
+
+对重要任务，系统提示要求 Agent 主动执行 prepare → evidence review → commit。整理目标不局限于失败记录，还包括成功流程、稳定的用户偏好、项目约定、业务定义、数据口径、重复出现的错误和已解决问题。模型必须区分事实、推测、冲突和时效性信息；证据不足时保持 unverified，矛盾并存时记录 contradicts 或 disputed，不为了减少 Note 数量而删除唯一知识。
+
+当前是 Agent 驱动的任务后整理，不是无条件后台定时调用模型；用户仍可通过 Dreaming 工具检查 Run、放弃待处理 Run 或回滚最近一次提交。准备阶段、提交阶段和撤销阶段都有独立工具，避免将“总结完成”误认为“记忆已落库”。
+
+### Memory 生命周期
+
+Memory Note 除标题、正文和标签外，还带有 Workspace Scope、来源 Session/Trace、sourceRefs、创建/更新时间、访问次数、重要度、置顶、验证状态、置信度、过期时间、版本号和替代关系。内容发生实质变化时验证状态会重置为 unverified；来源不被丢弃。
+
+主题知识页通过来源 Note ID 和 sourceRefs 追溯。过期且未置顶的 Note 可由 `memory_prune_expired` 归档，保留历史版本而不物理删除。
 
 ### 上下文注入原则
 
-每次会话只注入一个约 9 KB 的小型索引：优先置顶和已验证内容，同时保留未验证/争议标记与来源 ID。更长的 Note 和知识页通过检索工具按需读取。对时效性信息、外部产品行为、模型价格、监管要求等，记忆只能提供线索，不能替代实时核验。
+每次会话只注入一个有硬上限的小型索引：优先置顶、高重要度和已验证内容，同时保留争议标记、版本和来源 ID。更长的 Note、关系和知识页通过检索工具按需读取。对时效性信息、外部产品行为、模型价格、监管要求等，记忆只能提供线索，不能替代实时核验。
 
 ## 权限与安全
 
@@ -171,9 +243,9 @@ A2UI Catalog 和 ECharts option 都有大小、组件和字段约束；所有数
 2. PDF 以文本和页码为主，尚未做跨页表格、图像、图表结构化抽取。
 3. Word 解析提取正文，暂不保留复杂版面与修订痕迹。
 4. 当前附件解析、DuckDB 导入和工具查询有明确大小、行数和返回行数上限。
-5. A2UI 使用自有白名单 Catalog，不直接下载远程组件；当前支持的图表种类按需注册，后续增加新图表类型需要同时扩展 Catalog 和 ECharts 注册项。
-6. Memory Dreaming 目前是显式工具，不是自动后台调度；Memory 仍需基于来源进行人工或 Agent 复核。
-7. 尚未实现 PDF OCR、PDF 表格重建、Embedding/向量记忆和跨 Workspace 全局记忆。
+5. 新会话使用 A2UI 1.0 的 Agent/Core/React SDK 和本地 Finance Catalog；旧会话保留 x-card v0.9。新组件必须同步扩展 Agent API schema 与 Renderer 实现。
+6. Dreaming 已有 evidence、composite cursor、版本冲突检查、原子事务、审计快照和最新 Run 回滚；整理触发由 Agent 在重要任务中调用工具，不是独立的定时模型服务。
+7. 尚未实现 PDF OCR、PDF 表格重建、Embedding/向量记忆、跨 Workspace 全局记忆，以及独立的后台定时 Dreaming 服务。
 
 ## 主要实现文件
 
@@ -181,6 +253,12 @@ A2UI Catalog 和 ECharts option 都有大小、组件和字段约束；所有数
 - `src/main/analytics/duckdb-service.ts`
 - `src/main/memory/agent-memory-store.ts`
 - `src/main/agent-trace-store.ts`
-- `src/shared/a2ui.ts`
+- `src/shared/a2ui-finance-catalog.ts`
+- `src/main/a2ui-service.ts`
+- `src/renderer/a2ui/A2UIV1Canvas.tsx`
+- `src/renderer/a2ui/finance-renderer-catalog.tsx`
 - `src/renderer/components/AgentA2UICard.tsx`
 - `src/renderer/components/FinancialChart.tsx`
+- `src/renderer/components/FinanceChart.tsx`
+- `src/renderer/components/KnowledgeGraph.tsx`
+- `src/renderer/components/WorkflowDiagram.tsx`
