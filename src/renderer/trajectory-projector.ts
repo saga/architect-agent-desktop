@@ -1,4 +1,4 @@
-import type { AgentTraceEventLike } from "./context-explorer/model.js";
+import type { AgentTraceEventLike } from "./context-explorer/agent-trace-adapter.js";
 
 export type TrajectoryRowKind = "user" | "context" | "model" | "tool" | "permission" | "compaction" | "system";
 export type TrajectoryStatus = "running" | "completed" | "failed" | "waiting" | "info";
@@ -76,10 +76,6 @@ function elapsed(startedAt: string, completedAt?: string): number | undefined {
   const duration = Date.parse(completedAt) - Date.parse(startedAt);
   return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
 }
-function eventPayload(events: AgentTraceEventLike[]): unknown {
-  if (events.length === 1) return events[0]?.data;
-  return events.map(event => ({ type: event.type, timestamp: event.timestamp, status: event.status, data: event.data }));
-}
 function providerDetails(events: AgentTraceEventLike[]): { provider?: string; model?: string } {
   const latest = [...events].reverse().find(event => event.provider || event.model);
   return { ...(latest?.provider ? { provider: latest.provider } : {}), ...(latest?.model ? { model: latest.model } : {}) };
@@ -156,7 +152,7 @@ export function projectAgentTrajectory(events: readonly AgentTraceEventLike[]): 
       const name = string(data.name ?? data.toolName ?? data.tool) ?? event.type;
       if (event.type === "turn.started" || event.type === "schedule.started") {
         const prompt = string(data.prompt);
-        rows.push(makeRow(event, "user", event.type === "schedule.started" ? "定时任务输入" : "用户输入", prompt ?? "已记录用户输入", data.history, prompt));
+        rows.push(makeRow(event, "user", event.type === "schedule.started" ? "定时任务输入" : "用户输入", prompt ?? "已记录用户输入", prompt, undefined));
         continue;
       }
       if (event.type === "provider.request") {
