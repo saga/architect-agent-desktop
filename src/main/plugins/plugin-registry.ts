@@ -100,19 +100,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function normalizeClaudePath(value: string): string {
+function normalizeClaudePath(value: string, field: string): string {
+  const rootReference = value === "./" || (field === "skills" && value === ".");
+  if (!value.startsWith("./") && !rootReference) {
+    throw new Error("Claude Plugin 的 " + field + " 自定义路径必须以 ./ 开头：" + value);
+  }
   const withoutPrefix = value.startsWith("./") ? value.slice(2) : value;
-  if (withoutPrefix === ".") return ".";
   const normalized = withoutPrefix.replace(/\/+$/, "");
-  if (!normalized) throw new Error("Claude Plugin 组件路径不能为空。");
+  if (!normalized || normalized === ".") return ".";
   return resourcePath.parse(normalized);
 }
 
 function manifestPaths(value: unknown, fallback: string, field: string): string[] {
-  const values = value === undefined ? [fallback] : typeof value === "string" ? [value]
+  if (value === undefined) return [fallback];
+  const values = typeof value === "string" ? [value]
     : Array.isArray(value) && value.every(item => typeof item === "string") ? value as string[] : null;
   if (!values) throw new Error("Claude Plugin 的 " + field + " 必须是路径或路径数组。");
-  return [...new Set(values.map(normalizeClaudePath))];
+  return [...new Set(values.map(item => normalizeClaudePath(item, field)))];
 }
 
 function collectMarkdownFiles(root: string, entryPath: string, kind: "skill" | "markdown"): string[] {
@@ -151,20 +155,20 @@ function normalizeClaudePluginDirectory(root: string): ClaudePlugin {
     raw = parseJsonFile(pluginJsonPath, "Claude Plugin manifest");
   }
   const name = typeof raw.name === "string" ? raw.name.trim() : path.basename(root);
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name.length > 100) {
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) || name.length > 100) {
     throw new Error("Claude Plugin 的 name 必须是 1–100 个字符的小写 kebab-case 标识；没有 plugin.json 时使用目录名。");
   }
   const displayName = typeof raw.displayName === "string" && raw.displayName.trim() ? raw.displayName.trim() : name;
   const version = typeof raw.version === "string" && raw.version.trim() ? raw.version.trim().slice(0, 100) : "0.0.0";
   const description = typeof raw.description === "string" ? raw.description.slice(0, 500) : undefined;
 
-  const skillPaths = manifestPaths(raw.skills, "skills", "skills");
+  const skillPaths = raw.skills === undefined
+    ? existsSync(path.join(root, "skills")) ? ["skills"]
+      : existsSync(path.join(root, "SKILL.md")) ? ["."] : []
+    : manifestPaths(raw.skills, "skills", "skills");
   const skills = skillPaths.flatMap(entry => {
     const target = path.resolve(root, ...entry.split("/"));
-    if (!existsSync(target)) {
-      if (raw.skills !== undefined) throw new Error("Claude Plugin skills 路径不存在：" + entry);
-      return [];
-    }
+    if (!existsSync(target)) throw new Error("Claude Plugin skills 路径不存在：" + entry);
     if (!lstatSync(resolvePluginEntry(root, entry)).isDirectory()) throw new Error("Claude Plugin skills 必须指向目录：" + entry);
     return collectMarkdownFiles(root, entry, "skill");
   });
@@ -187,7 +191,7 @@ function normalizeClaudePluginDirectory(root: string): ClaudePlugin {
         throw new Error("Claude Plugin command 必须且只能指定 source 或 content：" + commandName);
       }
       if (typeof source === "string") {
-        const commandPath = normalizeClaudePath(source);
+        const commandPath = normalizeClaudePath(source, "commands");
         const file = resolveResource(root, commandPath);
         if (path.extname(file).toLowerCase() !== ".md") throw new Error("Claude Plugin command source 必须是 Markdown：" + commandName);
         commands.push(commandPath);
