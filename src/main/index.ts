@@ -217,9 +217,9 @@ if (!agentTasks.length) {
 let agentExperts = parseAgentExperts(loadJsonValue(AGENT_EXPERTS_PATH));
 if (!agentExperts.length) {
   agentExperts = [
-    { id: "general", name: "通用助手", description: "通用桌面 Agent，适合日常任务和跨领域问题。", systemPrompt: "作为通用桌面 Agent，先明确目标，再使用可用工具完成任务。", toolPermission: "allow-all", allowAllTools: false, skills: [], tools: [], createdAt: now, updatedAt: now },
-    { id: "researcher", name: "研究分析师", description: "擅长网页研究、资料归纳、比较分析和报告整理。", systemPrompt: "你是一名严谨的研究分析师。优先使用一手资料，区分事实、推断和不确定性，保留来源与证据。先研究再综合，不要编造引用。", toolPermission: "assisted", allowAllTools: false, skills: [], tools: [], createdAt: now, updatedAt: now },
-    { id: "developer", name: "开发工程师", description: "擅长代码阅读、实现、测试和调试。", systemPrompt: "你是一名资深软件工程师。先理解现有架构和代码约定，优先做范围明确的最小变更，执行相关类型检查和测试，并报告实际验证结果。", toolPermission: "allow-all", allowAllTools: false, skills: [], tools: [], createdAt: now, updatedAt: now },
+    { id: "general", name: "通用助手", description: "通用桌面 Agent，适合日常任务和跨领域问题。", systemPrompt: "作为通用桌面 Agent，先明确目标，再使用可用工具完成任务。", toolPermission: "none", allowAllTools: false, skills: [], tools: [], createdAt: now, updatedAt: now },
+    { id: "researcher", name: "研究分析师", description: "擅长网页研究、资料归纳、比较分析和报告整理。", systemPrompt: "你是一名严谨的研究分析师。优先使用一手资料，区分事实、推断和不确定性，保留来源与证据。先研究再综合，不要编造引用。", toolPermission: "none", allowAllTools: false, skills: [], tools: [], createdAt: now, updatedAt: now },
+    { id: "developer", name: "开发工程师", description: "擅长代码阅读、实现、测试和调试。", systemPrompt: "你是一名资深软件工程师。先理解现有架构和代码约定，优先做范围明确的最小变更，执行相关类型检查和测试，并报告实际验证结果。", toolPermission: "none", allowAllTools: false, skills: [], tools: [], createdAt: now, updatedAt: now },
   ];
   writeJsonAtomic(AGENT_EXPERTS_PATH, agentExperts);
 }
