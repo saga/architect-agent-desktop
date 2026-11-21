@@ -37,7 +37,7 @@ export interface MemoryDreamCursor {
 }
 export interface MemoryDreamRun {
   id: string; status: MemoryDreamStatus; summary: string; sourceCount: number;
-  maxSourceCreatedAt: number; cursorAfter: MemoryDreamCursor;
+  maxSourceCreatedAt: number; cursorBefore: MemoryDreamCursor; cursorAfter: MemoryDreamCursor;
   createdAt: number; startedAt: number; completedAt: number | null;
   evidence: StoredMemorySource[];
 }
@@ -173,6 +173,7 @@ export class AgentMemoryStore {
     this.ensureColumns("memory_dream_runs", {
       status: "TEXT NOT NULL DEFAULT 'completed'", started_at: "INTEGER NOT NULL DEFAULT 0",
       completed_at: "INTEGER", max_source_created_at: "INTEGER NOT NULL DEFAULT 0",
+      cursor_before_created_at: "INTEGER NOT NULL DEFAULT 0", cursor_before_session_id: "TEXT", cursor_before_message_id: "TEXT",
       cursor_after_session_id: "TEXT", cursor_after_message_id: "TEXT",
       evidence_manifest_json: "TEXT NOT NULL DEFAULT '[]'", rollback_reason: "TEXT",
       operation_count: "INTEGER NOT NULL DEFAULT 0",
@@ -402,9 +403,9 @@ export class AgentMemoryStore {
     this.database.exec("BEGIN IMMEDIATE");
     try{
       this.database.prepare(
-        "INSERT INTO memory_dream_runs(id,scope_key,status,summary,source_count,created_at,started_at,completed_at,max_source_created_at,cursor_after_session_id,cursor_after_message_id,evidence_manifest_json,rollback_reason,operation_count) "+
-        "VALUES(?,?,'prepared','',?,?,?,NULL,?,?,?,?,NULL,0)"
-      ).run({}, id,key,sources.length,now,now,maxSourceCreatedAt,cursorAfter.sessionId,cursorAfter.messageId,JSON.stringify(sources.map(source=>source.sourceId)));
+        "INSERT INTO memory_dream_runs(id,scope_key,status,summary,source_count,created_at,started_at,completed_at,max_source_created_at,cursor_before_created_at,cursor_before_session_id,cursor_before_message_id,cursor_after_session_id,cursor_after_message_id,evidence_manifest_json,rollback_reason,operation_count) "+
+        "VALUES(?,?,'prepared','',?,?,?,NULL,?,?,?,?,?,?,?,?,NULL,0)"
+      ).run({}, id,key,sources.length,now,now,maxSourceCreatedAt,cursor.createdAt,cursor.sessionId,cursor.messageId,cursorAfter.sessionId,cursorAfter.messageId,JSON.stringify(sources.map(source=>source.sourceId)));
       const insert=this.database.prepare("INSERT INTO memory_dream_sources(source_id,run_id,session_id,message_id,kind,content,content_hash,created_at) VALUES(?,?,?,?,?,?,?,?)");
       for(const source of sources)insert.run({}, source.sourceId,id,source.sessionId,source.messageId,source.kind,source.content,source.contentHash,source.createdAt);
       this.database.exec("COMMIT");
@@ -418,7 +419,7 @@ export class AgentMemoryStore {
     const sources=this.database.prepare("SELECT * FROM memory_dream_sources WHERE run_id=? ORDER BY created_at").all({}, id) as Record<string,unknown>[];
     return {
       id:String(row.id),status:row.status as MemoryDreamStatus,summary:String(row.summary??""),sourceCount:Number(row.source_count??0),
-      maxSourceCreatedAt:Number(row.max_source_created_at??0),cursorAfter:{createdAt:Number(row.max_source_created_at??0),sessionId:String(row.cursor_after_session_id??""),messageId:String(row.cursor_after_message_id??"")},createdAt:Number(row.created_at),startedAt:Number(row.started_at??row.created_at),
+      maxSourceCreatedAt:Number(row.max_source_created_at??0),cursorBefore:{createdAt:Number(row.cursor_before_created_at??0),sessionId:String(row.cursor_before_session_id??""),messageId:String(row.cursor_before_message_id??"")},cursorAfter:{createdAt:Number(row.max_source_created_at??0),sessionId:String(row.cursor_after_session_id??""),messageId:String(row.cursor_after_message_id??"")},createdAt:Number(row.created_at),startedAt:Number(row.started_at??row.created_at),
       completedAt:row.completed_at==null?null:Number(row.completed_at),evidence:sources.map(source=>this.toSource(source)),
     };
   }
@@ -474,6 +475,10 @@ export class AgentMemoryStore {
     try{
       const current=this.database.prepare("SELECT status FROM memory_dream_runs WHERE id=? AND scope_key=?").get({}, input.runId,scopeKey) as {status?:string}|undefined;
       if(current?.status!=="prepared")throw new Error("Dreaming Run 已被其他流程提交或修改。");
+      const actualCursor=this.getDreamCursor(input.scope ?? null);
+      if(canonicalJson(actualCursor)!==canonicalJson(run.cursorBefore)) {
+        throw new Error("Transcript cursor has changed since this Dreaming Run was prepared. Abandon it and prepare a new evidence batch.");
+      }
       let sequence=0;
       for(const operation of input.operations){
         sequence++;
@@ -631,6 +636,8 @@ export class AgentMemoryStore {
     const scopeKey=normalizeScope(scope);
     const run=this.database.prepare("SELECT * FROM memory_dream_runs WHERE id=? AND scope_key=?").get({}, runId,scopeKey) as Record<string,unknown>|undefined;
     if(!run||run.status!=="completed")throw new Error("只有 completed Dreaming Run 可以回滚。");
+    const prepared=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='prepared' LIMIT 1").get({},scopeKey) as {id?:string}|undefined;
+    if(prepared?.id)throw new Error("当前 Workspace 存在待提交的 Dreaming Run；请先 abandon 或 commit，再回滚上一批。");
     const latest=this.database.prepare("SELECT id FROM memory_dream_runs WHERE scope_key=? AND status='completed' ORDER BY completed_at DESC LIMIT 1").get({}, scopeKey) as {id?:string}|undefined;
     if(latest?.id!==runId)throw new Error("只能回滚当前 Workspace 最新一次 completed Dreaming Run。");
     const operations=this.database.prepare("SELECT * FROM memory_dream_operations WHERE run_id=? ORDER BY sequence DESC").all({}, runId) as Array<Record<string,unknown>>;
