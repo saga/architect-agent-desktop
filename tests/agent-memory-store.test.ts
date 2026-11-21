@@ -235,4 +235,25 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("scopes manual pin and archive operations to the selected Workspace", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const note = store.saveNote({
+      scope: "/workspace/alpha",
+      title: "Workspace Alpha convention",
+      content: "Alpha-specific rule.",
+    });
+    expect(() => store.setPinned(note.id, true, "/workspace/beta")).toThrow(/当前 Workspace/);
+    expect(() => store.archive(note.id, "/workspace/beta")).toThrow(/当前 Workspace/);
+    expect(store.getNote(note.id, "/workspace/alpha")?.pinned).toBe(false);
+
+    const pinned = store.setPinned(note.id, true, "/workspace/alpha");
+    expect(pinned.pinned).toBe(true);
+    expect(() => store.archive(note.id, "/workspace/alpha")).toThrow(/置顶/);
+    store.setPinned(note.id, false, "/workspace/alpha");
+    store.archive(note.id, "/workspace/alpha");
+    expect(store.getNote(note.id, "/workspace/alpha")).toBeNull();
+    expect(store.listNotes("/workspace/alpha", true).find(item => item.id === note.id)?.status).toBe("archived");
+    store.close();
+  });
+
 });
