@@ -38,6 +38,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+const BLOCKED_OPTION_KEYS = /^(on[a-z0-9_]*|html|customcontent|formatter|renderer|render|container|data|width|height|autofit|animation|plugin|callback)$/i;
+const UNSAFE_OPTION_TEXT = /javascript\\s*:|data\\s*:\\s*text\\/html|<\\s*(script|iframe|object|embed|foreignobject)\\b|\\bon[a-z]+\\s*=/i;
+
+function hasUnsafeChartOption(value: unknown, depth = 0): boolean {
+  if (depth > 8) return true;
+  if (typeof value === "string") return UNSAFE_OPTION_TEXT.test(value);
+  if (value === null || typeof value === "number" || typeof value === "boolean") return false;
+  if (Array.isArray(value)) return value.length > 500 || value.some(item => hasUnsafeChartOption(item, depth + 1));
+  if (!isRecord(value)) return true;
+  const entries = Object.entries(value);
+  return entries.length > 100 || entries.some(([key, item]) =>
+    BLOCKED_OPTION_KEYS.test(key) || hasUnsafeChartOption(item, depth + 1)
+  );
+}
+
 export default function FinanceChart(props: FinanceChartProps) {
   const config = useMemo(() => {
     if (!Array.isArray(props.data) || props.data.length > MAX_DATA_POINTS) {
@@ -51,10 +66,15 @@ export default function FinanceChart(props: FinanceChartProps) {
     const Component = chartComponents[props.chartType];
     if (!Component) return { error: "不支持的图表类型：" + props.chartType };
     const rawOptions = isRecord(props.options) ? props.options : {};
-    if (JSON.stringify(rawOptions).length > 32_000) return { error: "图表配置超过 32 KB。" };
-    const options = Object.fromEntries(Object.entries(rawOptions).filter(([key]) =>
-      !/^(on|data$|height$|width$|container$|autoFit$|animation$|renderer$)/i.test(key)
-    ));
+    let optionsJson = "";
+    try { optionsJson = JSON.stringify(rawOptions); } catch {
+      return { error: "图表配置无法序列化。" };
+    }
+    if (optionsJson.length > 32_000) return { error: "图表配置超过 32 KB。" };
+    if (hasUnsafeChartOption(rawOptions)) {
+      return { error: "图表配置含有 HTML、回调或不安全字段，已拒绝渲染。" };
+    }
+    const options = rawOptions;
     const height = Math.max(HEIGHT_MIN, Math.min(HEIGHT_MAX, Number(props.height) || 340));
     const base: Record<string, unknown> = {
       ...options,
