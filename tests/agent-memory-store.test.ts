@@ -337,7 +337,7 @@ describe("AgentMemoryStore", () => {
     });
     expect(recorded.externalVerification?.status).toBe("single_domain_sources_recorded");
     expect(() => store.confirmExternalVerification("/workspace/external-subdomains", note.id, recorded.version))
-      .toThrow(/两个不同 HTTPS 域名/);
+      .toThrow(/两个不同注册域名/);
 
     // Older versions counted arbitrary hostnames as independent domains.
     // Re-read must normalize their persisted status using registrable domains.
@@ -408,7 +408,7 @@ describe("AgentMemoryStore", () => {
     expect(first.externalVerification?.status).toBe("single_domain_sources_recorded");
     expect(first.validation).toBe("unverified");
     expect(() => store.confirmExternalVerification("/workspace/external-facts", note.id, first.version))
-      .toThrow(/两个不同 HTTPS 域名/);
+      .toThrow(/两个不同注册域名/);
 
     const recorded = store.recordExternalSources("/workspace/external-facts", {
       noteId: note.id,
