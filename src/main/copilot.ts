@@ -316,6 +316,14 @@ export class CopilotDesktopAgent {
    dreamRuns: this.memory.listDreamRuns(scope, 30),
   };
  }
+ setMemoryPinned(scope:string|null,noteId:string,pinned:boolean) {
+  if(this.active) throw new Error("Agent 正在运行，不能同时修改 Memory Note。");
+  return this.memory.setPinned(noteId,pinned,scope);
+ }
+ archiveMemoryNote(scope:string|null,noteId:string):void {
+  if(this.active) throw new Error("Agent 正在运行，不能同时归档 Memory Note。");
+  this.memory.archive(noteId,scope);
+ }
  getMemoryDreamRunDetail(scope: string | null, runId: string) {
   const run = this.memory.getDreamRun(runId, scope);
   if (!run) throw new Error("当前 Workspace 中不存在该 Dreaming Run。");
