@@ -476,9 +476,6 @@ export class AgentMemoryStore {
 
   listQualityReviewCandidates(scope:string|null,limit=30,now=Date.now()):AgentMemoryNote[]{
     const cutoff=now-30*24*60*60*1000;
-    const rows=this.database.prepare(
-      "SELECT * FROM memory_notes WHERE scope_key=? AND status='active' AND expires_at IS NULL OR 1=0"
-    );
     const candidates=this.database.prepare(
       "SELECT * FROM memory_notes WHERE scope_key=? AND status='active' "+
       "AND (expires_at IS NULL OR expires_at>?) "+
@@ -486,7 +483,6 @@ export class AgentMemoryStore {
       "AND source_refs_json<>'[]' "+
       "ORDER BY pinned DESC,importance DESC,COALESCE(last_quality_reviewed_at,created_at) ASC LIMIT ?"
     ).all({},normalizeScope(scope),now,cutoff,Math.max(1,Math.min(Math.floor(limit),80))) as Record<string,unknown>[];
-    void rows;
     return candidates.map(row=>this.toNote(row));
   }
 
@@ -538,7 +534,7 @@ export class AgentMemoryStore {
 
   listDreamRuns(scope:string|null,limit=10):Array<Record<string,unknown>>{
     return this.database.prepare(
-      "SELECT id,status,summary,source_count,max_source_created_at,created_at,started_at,completed_at,operation_count,rollback_reason "+
+      "SELECT id,status,purpose,summary,source_count,max_source_created_at,created_at,started_at,completed_at,operation_count,rollback_reason "+
       "FROM memory_dream_runs WHERE scope_key=? ORDER BY created_at DESC LIMIT ?"
     ).all({}, normalizeScope(scope),Math.max(1,Math.min(Math.floor(limit),30))) as Array<Record<string,unknown>>;
   }
@@ -569,6 +565,8 @@ export class AgentMemoryStore {
         for(const ref of refs)if(!allowedSources.has(ref))throw new Error("变更引用了当前 Dreaming Run 以外的证据："+ref);
         const reason=redactSecrets(operation.reason.trim(),500);
         if(!reason)throw new Error("每项 Dreaming 变更必须记录整理理由。");
+        if(run.purpose==="quality_review"&&operation.op==="review_note"&&operation.qualityScore===undefined)
+          throw new Error("Quality review must provide a qualityScore from 0 to 1.");
         if(operation.op==="upsert_note"){
           const result=this.dreamUpsertNote(scopeKey,input.runId,sequence,operation,refs,reason);
           (result.created?createdNoteIds:updatedNoteIds).push(result.id);
@@ -588,9 +586,13 @@ export class AgentMemoryStore {
       }
       const now=Date.now();
       const previous=this.database.prepare("SELECT * FROM memory_dream_cursors WHERE scope_key=?").get({}, scopeKey) as Record<string,unknown>|undefined;
-      const next={scope_key:scopeKey,max_source_created_at:run.cursorAfter.createdAt,last_source_session_id:run.cursorAfter.sessionId,last_source_message_id:run.cursorAfter.messageId,last_run_id:input.runId,updated_at:now};
-      this.recordDreamOperation(input.runId,sequence+1,"cursor",scopeKey,"advance_cursor",previous??null,next,"Advance the transcript cursor after a successful atomic commit.");
-      this.upsertCursor(next);
+      if(run.purpose==="transcript"){
+        const next={scope_key:scopeKey,max_source_created_at:run.cursorAfter.createdAt,
+          last_source_session_id:run.cursorAfter.sessionId,last_source_message_id:run.cursorAfter.messageId,
+          transcript_revision:run.cursorAfter.transcriptRevision,last_run_id:input.runId,updated_at:now};
+        this.recordDreamOperation(input.runId,sequence+1,"cursor",scopeKey,"advance_cursor",previous??null,next,"Advance the transcript revision cursor after a successful atomic commit.");
+        this.upsertCursor(next);
+      }
       this.database.prepare("UPDATE memory_dream_runs SET status='completed',summary=?,completed_at=?,operation_count=? WHERE id=? AND scope_key=? AND status='prepared'")
         .run({}, summary,now,sequence,input.runId,scopeKey);
       this.database.exec("COMMIT");
@@ -633,6 +635,8 @@ export class AgentMemoryStore {
     if(!isValidation(op.validation))throw new Error("Invalid validation state.");
     const now=Date.now(),after={
       ...before,validation:op.validation,confidence:clamp(op.confidence,0,1),
+      quality_score:op.qualityScore===undefined?(before.quality_score??null):clamp(op.qualityScore,0,1),
+      last_quality_reviewed_at:now,
       source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100)),
       last_verified_at:op.validation==="validated"?now:before.last_verified_at??null,last_dreamed_at:now,updated_at:now,version:Number(before.version)+1,
     };
@@ -843,9 +847,9 @@ export class AgentMemoryStore {
       "VALUES(?,?,?,?,?,?,?,?)").run({}, ...([row.id,row.scope_key,row.source_note_id,row.target_note_id,row.relationship,row.details,row.source_refs_json,row.created_at] as never[]));
   }
   private upsertCursor(row:Record<string,unknown>):void{
-    this.database.prepare("INSERT INTO memory_dream_cursors(scope_key,max_source_created_at,last_source_session_id,last_source_message_id,last_run_id,updated_at) VALUES(?,?,?,?,?,?) "+
-      "ON CONFLICT(scope_key) DO UPDATE SET max_source_created_at=excluded.max_source_created_at,last_source_session_id=excluded.last_source_session_id,last_source_message_id=excluded.last_source_message_id,last_run_id=excluded.last_run_id,updated_at=excluded.updated_at")
-      .run({}, ...([row.scope_key,row.max_source_created_at,row.last_source_session_id??"",row.last_source_message_id??"",row.last_run_id,row.updated_at] as never[]));
+    this.database.prepare("INSERT INTO memory_dream_cursors(scope_key,max_source_created_at,last_source_session_id,last_source_message_id,last_run_id,updated_at,transcript_revision) VALUES(?,?,?,?,?,?,?) "+
+      "ON CONFLICT(scope_key) DO UPDATE SET max_source_created_at=excluded.max_source_created_at,last_source_session_id=excluded.last_source_session_id,last_source_message_id=excluded.last_source_message_id,last_run_id=excluded.last_run_id,updated_at=excluded.updated_at,transcript_revision=excluded.transcript_revision")
+      .run({}, ...([row.scope_key,row.max_source_created_at,row.last_source_session_id??"",row.last_source_message_id??"",row.last_run_id,row.updated_at,row.transcript_revision??0] as never[]));
   }
   private saveVersion(scopeKey:string,entityType:string,entityId:string,version:number,snapshot:Record<string,unknown>|null,runId:string|null):void{
     if(!snapshot)return;
