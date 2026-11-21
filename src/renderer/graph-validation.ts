@@ -17,10 +17,10 @@ function graphId(value: unknown, fallback: string): string | null {
 }
 
 export function getKnowledgeGraphClickedNodeId(event: unknown, validNodeIds: ReadonlySet<string>): string | null {
-  if (!isRecord(event)) return null;
-  const target = event.target;
-  if (!isRecord(target)) return null;
-  const value = target.id;
+  if (!event || typeof event !== "object") return null;
+  const target = (event as { target?: unknown }).target;
+  if (!target || typeof target !== "object" || Array.isArray(target)) return null;
+  const value = (target as { id?: unknown }).id;
   if (typeof value !== "string" || !value.trim() || value.length > 120) return null;
   const id = value.trim();
   return validNodeIds.has(id) ? id : null;
