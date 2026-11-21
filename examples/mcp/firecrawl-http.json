@@ -1,0 +1,9 @@
+{
+  "id": "firecrawl-cloud",
+  "transport": "http",
+  "enabled": true,
+  "description": "Firecrawl 托管 Streamable HTTP MCP。无 API Key 时 search / scrape / parse 有限速免费访问；可通过 Authorization Bearer 环境变量配置 API Key。",
+  "url": "https://mcp.firecrawl.dev/v2/mcp",
+  "headers": {},
+  "timeout": 60000
+}
