@@ -1,17 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Descriptions, Drawer, Empty, Input, List, Spin, Statistic, Tabs, Tag, Typography } from "antd";
+import { Button, Checkbox, Empty, Input, List, Spin, Tabs, Tag, Typography } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import type { AgentSessionItem } from "../shared/types";
 import AgentTrajectory from "./AgentTrajectory";
 import { ContextDebugger, contextSessionsFromAgentEvents, type AgentTraceEventLike } from "./context-explorer";
+import { projectAgentTrajectory } from "./trajectory-projector";
 
 type TraceSession = {
   id: string;
+  taskId?: string;
+  taskTitle?: string;
+  expertName?: string;
   workspacePath?: string | null;
   createdAt?: string;
   updatedAt?: string;
   messageCount?: number;
   eventCount?: number;
+  lastMessagePreview?: string | null;
+  lastMessageKind?: string | null;
+  lastEventType?: string | null;
 };
 
 type TraceEvent = {
@@ -30,47 +37,78 @@ type TraceEvent = {
 };
 
 const { Text, Paragraph } = Typography;
+const VERBOSE_TYPES = new Set(["provider.message.delta", "provider.reasoning.delta", "provider.reasoning", "provider.codebuddy.event"]);
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function formatTime(value?: string | number): string {
+function formatTime(value?: string | number, dateStyle: "short" | "long" = "short"): string {
   if (value === undefined || value === null || value === "") return "—";
   const date = typeof value === "number" ? new Date(value) : new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleString(undefined, dateStyle === "long"
+      ? { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+      : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function workspaceName(value?: string | null): string {
+  if (!value) return "个人工作区";
+  return value.split(/[\\/]/).filter(Boolean).pop() || value;
+}
+
+function sessionTitle(item: TraceSession): string {
+  if (item.taskTitle?.trim()) return item.taskTitle;
+  return item.workspacePath ? workspaceName(item.workspacePath) + " · 历史会话" : "个人工作区 · 历史会话";
+}
+
+function eventLabel(type?: string | null): string {
+  if (!type) return "暂无活动";
+  const labels: Record<string, string> = {
+    "turn.started": "用户请求",
+    "turn.completed": "执行完成",
+    "turn.failed": "执行失败",
+    "turn.cancel.requested": "请求取消",
+    "schedule.started": "定时任务开始",
+    "schedule.completed": "定时任务完成",
+    "schedule.failed": "定时任务失败",
+    "provider.request": "模型请求",
+    "provider.response": "模型响应",
+    "tool.call": "工具调用",
+    "tool.result": "工具返回",
+    "tool.failed": "工具失败",
+    "session.loaded": "加载会话",
+    "session.saved": "保存会话",
+    "session.cleared": "清空会话",
+    "task.created": "创建 Task",
+    "task.activated": "切换 Task",
+  };
+  return labels[type] ?? type;
 }
 
 function eventTitle(event: TraceEvent): string {
   const data = record(event.data);
   if (typeof data.name === "string") return data.name;
   if (typeof data.toolName === "string") return data.toolName;
-  return event.type;
+  return eventLabel(event.type);
 }
 
 function eventPreview(event: TraceEvent): string {
   const data = record(event.data);
-  const value = data.prompt ?? data.text ?? data.error ?? data.name ?? data.result;
+  const value = data.prompt ?? data.text ?? data.error ?? data.name ?? data.result ?? data.itemCount;
   if (typeof value === "string") return value.slice(0, 220);
-  return JSON.stringify(event.data ?? {}).slice(0, 220);
+  if (typeof value === "number") return String(value);
+  try { return JSON.stringify(event.data ?? {}).slice(0, 220); }
+  catch { return ""; }
 }
 
-function elapsed(start?: string, end?: string): string {
-  if (!start || !end) return "未完成";
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  return Number.isFinite(ms) && ms >= 0 ? (ms < 1000 ? ms + " ms" : (ms / 1000).toFixed(2) + " s") : "—";
-}
-
-function tokenUsage(event?: TraceEvent): { input?: number; output?: number; total?: number } {
-  const data = record(event?.data);
-  const result = record(data.result);
-  const usage = record(data.usage ?? result.usage);
-  const read = (...values: unknown[]) => values.find((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
-  return {
-    input: read(usage.input_tokens, usage.inputTokens, usage.prompt_tokens, usage.promptTokens),
-    output: read(usage.output_tokens, usage.outputTokens, usage.completion_tokens, usage.completionTokens),
-    total: read(usage.total_tokens, usage.totalTokens),
-  };
+function statusColor(status?: string | null): string {
+  if (status === "failed" || status === "error") return "error";
+  if (status === "completed" || status === "success") return "success";
+  if (status === "running" || status === "started") return "processing";
+  if (status === "waiting" || status === "requested") return "warning";
+  return "default";
 }
 
 export default function SessionExplorer({
@@ -84,17 +122,18 @@ export default function SessionExplorer({
   const [messages, setMessages] = useState<AgentSessionItem[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [loadingEvents, setLoadingEvents] = useState(false);
-  const [search, setSearch] = useState("");
+  const [sessionSearch, setSessionSearch] = useState("");
+  const [contentSearch, setContentSearch] = useState("");
+  const [includeVerbose, setIncludeVerbose] = useState(false);
   const [error, setError] = useState("");
 
   const refreshSessions = async () => {
     setLoadingSessions(true);
     setError("");
     try {
-      const result = await window.browser.agentTraceListSessions();
-      const rows = result as TraceSession[];
+      const rows = await window.browser.agentTraceListSessions() as TraceSession[];
       setSessions(rows);
-      setSelectedId((current) => rows.some((item) => item.id === current) ? current : rows[0]?.id ?? "");
+      setSelectedId(current => rows.some(item => item.id === current) ? current : rows[0]?.id ?? "");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -114,34 +153,35 @@ export default function SessionExplorer({
     }
     let cancelled = false;
     setLoadingEvents(true);
-    void Promise.all([
-      window.browser.agentTraceQuery({ sessionId: selectedId, limit: 1000 }),
-      window.browser.agentTraceListSessionItems(selectedId),
-    ])
-      .then(([eventRows, messageRows]) => {
-        if (cancelled) return;
-        setEvents(eventRows as TraceEvent[]);
-        setMessages(messageRows);
-      })
-      .catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason)); })
-      .finally(() => { if (!cancelled) setLoadingEvents(false); });
-    const liveTimer = window.setInterval(() => {
-      void Promise.all([
+    const load = async () => {
+      const [eventRows, messageRows] = await Promise.all([
         window.browser.agentTraceQuery({ sessionId: selectedId, limit: 1000 }),
         window.browser.agentTraceListSessionItems(selectedId),
-      ]).then(([eventRows, messageRows]) => {
-        if (cancelled) return;
-        setEvents(eventRows as TraceEvent[]);
-        setMessages(messageRows);
-      }).catch((reason: unknown) => {
+      ]);
+      if (cancelled) return;
+      setEvents(eventRows as TraceEvent[]);
+      setMessages(messageRows);
+      setLoadingEvents(false);
+    };
+    void load().catch(reason => {
+      if (!cancelled) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+        setLoadingEvents(false);
+      }
+    });
+    const liveTimer = window.setInterval(() => {
+      void load().catch(reason => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
       });
-    }, 1500);
+    }, 2500);
     return () => { cancelled = true; window.clearInterval(liveTimer); };
   }, [open, selectedId]);
 
-  const selected = sessions.find((item) => item.id === selectedId);
-  const chronological = useMemo(() => [...events].reverse(), [events]);
+  const selected = sessions.find(item => item.id === selectedId);
+  const chronological = useMemo(
+    () => [...events].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp) || a.sequence - b.sequence),
+    [events],
+  );
   const traceContextEvents = useMemo<AgentTraceEventLike[]>(() => chronological.map(event => ({
     id: event.id,
     timestamp: event.timestamp,
@@ -159,185 +199,171 @@ export default function SessionExplorer({
     () => contextSessionsFromAgentEvents(traceContextEvents, { sessionId: selectedId })[0],
     [traceContextEvents, selectedId],
   );
-  const visibleEvents = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return chronological;
-    return chronological.filter((event) => (event.type + " " + eventTitle(event) + " " + eventPreview(event)).toLowerCase().includes(term));
-  }, [chronological, search]);
-  const toolRuns = useMemo(() => {
-    const pending = new Map<string, Array<{ call: TraceEvent; finish?: TraceEvent }>>();
-    const runs: Array<{ call: TraceEvent; finish?: TraceEvent }> = [];
-    for (const event of visibleEvents) {
-      if (!event.type.startsWith("tool.")) continue;
-      const name = eventTitle(event);
-      const key = event.traceId + ":" + name;
-      if (event.type === "tool.call") {
-        const run = { call: event };
-        runs.push(run);
-        const queue = pending.get(key) ?? [];
-        queue.push(run);
-        pending.set(key, queue);
-      } else if (event.type === "tool.result" || event.type === "tool.failed") {
-        const queue = pending.get(key);
-        const run = queue?.shift();
-        if (run) run.finish = event;
-        else runs.push({ call: event, finish: event });
-      }
-    }
-    return runs;
-  }, [visibleEvents]);
-  const modelRequests = visibleEvents.filter((event) => event.type === "provider.request");
-  const modelCalls = modelRequests.map((request) => {
-    const response = visibleEvents.find((event) => event.traceId === request.traceId && event.type === "provider.response" &&
-      new Date(event.timestamp).getTime() >= new Date(request.timestamp).getTime());
-    const data = record(request.data);
-    return { request, response, prompt: typeof data.prompt === "string" ? data.prompt : "", captureLevel: data.captureLevel, usage: tokenUsage(response) };
-  });
-  const usageCalls = modelCalls.filter((call) => call.usage.input !== undefined || call.usage.output !== undefined || call.usage.total !== undefined);
-  const inputTokens = modelCalls.reduce((sum, call) => sum + (call.usage.input ?? 0), 0);
-  const outputTokens = modelCalls.reduce((sum, call) => sum + (call.usage.output ?? 0), 0);
-  const totalTokens = modelCalls.reduce((sum, call) => sum + (call.usage.total ?? 0), 0);
-  const contextEvents = visibleEvents.filter((event) => event.type.startsWith("context.") || event.type === "provider.request");
-  const completedCalls = modelCalls.filter((call) => call.response).length;
+  const turns = useMemo(() => projectAgentTrajectory(traceContextEvents), [traceContextEvents]);
+  const toolCallCount = chronological.filter(event => event.type === "tool.call").length;
+  const verboseCount = chronological.filter(event => VERBOSE_TYPES.has(event.type)).length;
 
-  const transcript = <div className="session-explorer-list">
-    {loadingEvents ? <Spin /> : messages.length ? <List dataSource={messages} renderItem={(item) => <List.Item>
-      <div className={"session-message is-" + item.kind}>
-        <div className="session-message-heading">
-          <Text strong>{item.kind === "user" ? "用户" : item.kind === "assistant" ? "Agent" : item.kind === "thinking" ? "深度思考" : item.kind === "tool" ? item.toolName || "工具调用" : "错误"}</Text>
-          <Tag color={item.kind === "error" ? "red" : item.kind === "user" ? "blue" : item.kind === "thinking" ? "purple" : item.kind === "tool" ? "gold" : "default"}>{item.kind}</Tag>
-          <Text type="secondary">{formatTime(item.createdAt)}</Text>
+  const filteredSessions = useMemo(() => {
+    const term = sessionSearch.trim().toLocaleLowerCase();
+    if (!term) return sessions;
+    return sessions.filter(item => [
+      sessionTitle(item),
+      item.workspacePath ?? "",
+      item.expertName ?? "",
+      item.lastMessagePreview ?? "",
+      item.lastEventType ?? "",
+    ].join(" ").toLocaleLowerCase().includes(term));
+  }, [sessions, sessionSearch]);
+
+  const visibleEvents = useMemo(() => {
+    const term = contentSearch.trim().toLocaleLowerCase();
+    return chronological.filter(event => {
+      if (!includeVerbose && VERBOSE_TYPES.has(event.type)) return false;
+      if (!term) return true;
+      return (event.type + " " + eventTitle(event) + " " + eventPreview(event)).toLocaleLowerCase().includes(term);
+    });
+  }, [chronological, contentSearch, includeVerbose]);
+
+  const visibleMessages = useMemo(() => {
+    const term = contentSearch.trim().toLocaleLowerCase();
+    return term ? messages.filter(item => (item.kind + " " + item.toolName + " " + item.content).toLocaleLowerCase().includes(term)) : messages;
+  }, [messages, contentSearch]);
+
+  const transcript = <div className="se-content-list">
+    {loadingEvents ? <Spin /> : visibleMessages.length ? <List dataSource={visibleMessages} renderItem={item => <List.Item>
+      <article className={"se-message is-" + item.kind}>
+        <div className="se-message-heading">
+          <strong>{item.kind === "user" ? "You" : item.kind === "assistant" ? "Agent" : item.kind === "thinking" ? "Reasoning" : item.kind === "tool" ? item.toolName || "Tool" : "Error"}</strong>
+          <Tag color={item.kind === "user" ? "blue" : item.kind === "thinking" ? "purple" : item.kind === "tool" ? "gold" : item.kind === "error" ? "error" : "default"}>{item.kind}</Tag>
+          <time>{formatTime(item.createdAt)}</time>
         </div>
         <pre>{item.content}</pre>
+      </article>
+    </List.Item>} /> : <Empty description={messages.length ? "没有匹配的消息" : "这个 Session 没有持久化的对话消息"} />}
+  </div>;
+
+  const activity = <div className="se-activity">
+    <div className="se-activity-toolbar">
+      <div>
+        <strong>{visibleEvents.length} 条活动</strong>
+        <Text type="secondary">{chronological.length > 1000 ? "显示最近 1,000 条" : "按时间排序"}</Text>
       </div>
-    </List.Item>} /> : <Empty description="当前 Session 没有保存的消息" />}
-  </div>;
-
-  const timeline = <div className="session-explorer-list">
-    {loadingEvents ? <Spin /> : visibleEvents.length ? <List
-      dataSource={visibleEvents}
-      renderItem={(event) => <List.Item className="session-event-item">
-        <div className="session-event">
-          <div className="session-event-heading">
-            <Text strong>{eventTitle(event)}</Text>
-            <Tag color={event.status === "failed" || event.status === "error" ? "red" : event.status === "completed" ? "green" : "default"}>{event.status ?? event.type}</Tag>
-            <Text type="secondary">{formatTime(event.timestamp)}</Text>
-          </div>
-          <Text type="secondary" className="session-event-type">{event.type} · trace {event.traceId.slice(0, 8)} · #{event.sequence}</Text>
-          <Paragraph className="session-event-preview" ellipsis={{ rows: 2 }}>{eventPreview(event)}</Paragraph>
-          <details><summary>查看事件数据</summary><pre>{JSON.stringify(event.data ?? {}, null, 2)}</pre></details>
-          {event.payloadComplete === false && <Text type="warning">事件数据不完整：写入时触发了大小或序列化限制</Text>}
-        </div>
-      </List.Item>}
-    /> : <Empty description="没有匹配的事件" />}
-  </div>;
-
-  const tools = <div className="session-explorer-list">
-    {loadingEvents ? <Spin /> : toolRuns.length ? <List dataSource={toolRuns} renderItem={({ call, finish }) => <List.Item>
-      <div className="session-event">
-        <div className="session-event-heading">
-          <Text strong>{eventTitle(call)}</Text>
-          <Tag color={finish?.type === "tool.failed" ? "red" : finish?.type === "tool.result" ? "green" : "blue"}>
-            {finish?.type === "tool.failed" ? "失败" : finish?.type === "tool.result" ? "完成" : "执行中"}
-          </Tag>
-          <Text type="secondary">{elapsed(call.timestamp, finish?.timestamp)}</Text>
-        </div>
-        <Text type="secondary">{formatTime(call.timestamp)} · Trace {call.traceId}</Text>
-        <details><summary>查看调用参数</summary><pre>{JSON.stringify(call.data ?? {}, null, 2)}</pre></details>
-        {finish && finish !== call && <details><summary>查看执行结果</summary><pre>{JSON.stringify(finish.data ?? {}, null, 2)}</pre></details>}
-      </div>
-    </List.Item>} /> : <Empty description="当前 Session 没有工具调用记录" />}
-  </div>;
-
-  const models = <div className="session-explorer-content">
-    <div className="session-explorer-stats">
-      <Statistic title="模型请求" value={modelCalls.length} />
-      <Statistic title="已完成" value={completedCalls} />
-      <Statistic title="输入 Tokens" value={usageCalls.length ? inputTokens : "—"} />
-      <Statistic title="输出 Tokens" value={usageCalls.length ? outputTokens : "—"} />
-      <Statistic title="总 Tokens" value={usageCalls.length ? totalTokens : "—"} />
-      <Statistic title="未完成 / 缺少响应" value={modelCalls.length - completedCalls} />
+      <Checkbox checked={includeVerbose} onChange={event => setIncludeVerbose(event.target.checked)}>
+        显示流式事件{verboseCount ? "（" + verboseCount + "）" : ""}
+      </Checkbox>
     </div>
-    {modelCalls.length ? <List dataSource={modelCalls} renderItem={({ request, response, prompt, captureLevel, usage }) => <List.Item>
-      <div className="session-event">
-        <div className="session-event-heading">
-          <Text strong>{request.provider ?? "Provider"} · {request.model || "默认模型"}</Text>
-          <Tag color={response ? "green" : "default"}>{response ? "已返回" : "无可观察响应"}</Tag>
-          <Text type="secondary">{elapsed(request.timestamp, response?.timestamp)}</Text>
+    {loadingEvents ? <Spin /> : visibleEvents.length ? <List dataSource={[...visibleEvents].reverse()} renderItem={event => <List.Item>
+      <article className="se-activity-item">
+        <div className="se-activity-item-head">
+          <div><strong>{eventTitle(event)}</strong><span>{event.type}</span></div>
+          <div><Tag color={statusColor(event.status)}>{event.status ?? "记录"}</Tag><time>{formatTime(event.timestamp)}</time></div>
         </div>
-        <Text type="secondary">{formatTime(request.timestamp)} · Trace {request.traceId}</Text>
-        <Text type="secondary">输入采集级别：{String(captureLevel ?? "未标注")}</Text>
-        <Text type="secondary">Tokens：输入 {usage.input ?? "—"} · 输出 {usage.output ?? "—"} · 总计 {usage.total ?? "—"}</Text>
-        {prompt && <details><summary>查看提交给 SDK 的上下文</summary><pre>{prompt}</pre></details>}
-        {response && <details><summary>查看 SDK 响应</summary><pre>{JSON.stringify(response.data ?? {}, null, 2)}</pre></details>}
-      </div>
-    </List.Item>} /> : <Empty description="当前 Session 没有模型请求记录" />}
-    <Text type="secondary">Token 用量只有在 Provider / SDK 实际返回 usage 字段时才可展示；当前没有返回的 Token 数据不会估算或伪造。模型请求记录是 SDK 调用边界，不等同于底层网络请求。</Text>
-  </div>;
-
-  const context = <div className="session-explorer-list">
-    {contextEvents.length ? <List dataSource={contextEvents} renderItem={(event) => {
-      const data = record(event.data);
-      const prompt = typeof data.prompt === "string" ? data.prompt : "";
-      return <List.Item><div className="session-event">
-        <div className="session-event-heading"><Text strong>{event.type}</Text><Text type="secondary">{formatTime(event.timestamp)}</Text></div>
-        <Descriptions size="small" column={1} items={[
-          { key: "provider", label: "Provider", children: String(event.provider ?? "—") },
-          { key: "model", label: "Model", children: String(event.model ?? "—") },
-          { key: "capture", label: "采集级别", children: String(data.captureLevel ?? "—") },
-          { key: "complete", label: "完整性", children: data.providerPayloadComplete === false ? "SDK 调用边界数据，非完整底层请求" : event.payloadComplete === false ? "事件载荷不完整" : "按记录内容保存" },
-        ]} />
-        {prompt && <details><summary>上下文内容</summary><pre>{prompt}</pre></details>}
-      </div></List.Item>;
-    }} /> : <Empty description="当前 Session 没有上下文来源事件" />}
+        {eventPreview(event) && <Paragraph className="se-activity-preview" ellipsis={{ rows: 2 }}>{eventPreview(event)}</Paragraph>}
+        <div className="se-activity-meta">Trace {event.traceId.slice(0, 8)} · #{event.sequence}{event.provider ? " · " + event.provider : ""}{event.model ? " · " + event.model : ""}</div>
+        {event.payloadComplete === false && <Text type="warning">该事件的载荷经过截断或仅保存了 SDK 边界摘要。</Text>}
+        <details><summary>查看原始事件</summary><pre>{JSON.stringify(event.data ?? {}, null, 2)}</pre></details>
+      </article>
+    </List.Item>} /> : <Empty description="没有匹配的活动事件" />}
   </div>;
 
   const explorerBody = (
-        <div className="session-explorer">
-          <aside className="session-explorer-sidebar">
-            <div className="session-explorer-sidebar-title">Sessions <Text type="secondary">{sessions.length}</Text></div>
-            {loadingSessions ? <Spin /> : sessions.length ? <List dataSource={sessions} renderItem={(item) => <List.Item
-              className={"session-explorer-session" + (item.id === selectedId ? " selected" : "")}
-              onClick={() => setSelectedId(item.id)}>
-              <div>
-                <Text strong>{item.workspacePath?.split(/[\\/]/).filter(Boolean).pop() || "默认工作区"}</Text>
-                <div><Text type="secondary">{formatTime(item.updatedAt)}</Text></div>
-                <div className="session-explorer-counts">{item.messageCount ?? 0} 条消息 · {item.eventCount ?? 0} 个事件</div>
-              </div>
-            </List.Item>} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 Session" />}
-          </aside>
-          <main className="session-explorer-main">
-            {error && <Text type="danger">{error}</Text>}
-            {!selected ? <Empty description="选择一个 Session 查看记录" /> : <>
-              <div className="session-explorer-summary">
-                <Text strong>{selected.workspacePath ?? "默认工作区"}</Text>
-                <Text type="secondary">Session ID：{selected.id}</Text>
-                <Text type="secondary">更新时间：{formatTime(selected.updatedAt)} · {selected.messageCount ?? 0} 条消息 · {selected.eventCount ?? 0} 个事件</Text>
-              </div>
-              <Input.Search allowClear placeholder="搜索事件类型、工具名称或内容" value={search} onChange={(event) => setSearch(event.target.value)} />
-              <Tabs defaultActiveKey="trajectory" items={[
-                { key: "trajectory", label: "执行 Trajectory", children: <AgentTrajectory events={traceContextEvents} /> },
-                { key: "context-explorer", label: "Context Explorer", children: contextSession
-                  ? <ContextDebugger session={contextSession} />
-                  : <Empty description="当前 Session 暂无可检查的上下文事件" /> },
-                { key: "messages", label: "会话记录", children: transcript },
-                { key: "timeline", label: "事件时间线", children: timeline },
-                { key: "tools", label: "工具调用", children: tools },
-                { key: "models", label: "模型分析", children: models },
-                { key: "context", label: "采集来源", children: context },
-              ]} />
-              <Text type="secondary">事件时间线显示最近最多 1,000 个事件；会话消息从 SQLite session_messages 表完整读取。</Text>
-            </>}
-          </main>
+    <div className="session-explorer se-layout">
+      <aside className="session-explorer-sidebar se-sidebar">
+        <div className="se-sidebar-heading">
+          <div><strong>任务会话</strong><span>{sessions.length} 个 Session</span></div>
+          <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void refreshSessions()} loading={loadingSessions} aria-label="刷新 Session 列表" />
         </div>
+        <div className="se-sidebar-search">
+          <Input allowClear size="middle" placeholder="搜索任务、工作区或消息" value={sessionSearch} onChange={event => setSessionSearch(event.target.value)} />
+        </div>
+        {loadingSessions && !sessions.length ? <div className="se-sidebar-loading"><Spin /></div> : filteredSessions.length ? <div className="se-session-list">
+          {filteredSessions.map(item => {
+            const active = item.id === selectedId;
+            return <button
+              type="button"
+              key={item.id}
+              className={"se-session-card" + (active ? " active" : "")}
+              onClick={() => setSelectedId(item.id)}
+            >
+              <span className="se-session-title">{sessionTitle(item)}</span>
+              <span className="se-session-workspace">{workspaceName(item.workspacePath)}{item.expertName ? " · " + item.expertName : ""}</span>
+              <span className="se-session-preview">{item.lastMessagePreview?.trim() || eventLabel(item.lastEventType)}</span>
+              <span className="se-session-footer">
+                <span>{formatTime(item.updatedAt)}</span>
+                <span>{item.messageCount ?? 0} 消息 · {item.eventCount ?? 0} 事件</span>
+              </span>
+            </button>;
+          })}
+        </div> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={sessions.length ? "没有匹配的 Session" : "暂无任务会话"} />}
+      </aside>
+
+      <main className="session-explorer-main se-main">
+        {error && <div className="se-error">{error}</div>}
+        {!selected ? <Empty description="选择左侧任务会话查看记录" /> : <>
+          <header className="se-main-header">
+            <div className="se-title-block">
+              <div className="se-breadcrumb">{workspaceName(selected.workspacePath)}{selected.expertName ? " / " + selected.expertName : ""}</div>
+              <h2>{sessionTitle(selected)}</h2>
+              <div className="se-session-id">
+                <Text type="secondary">Session ID</Text>
+                <Text copyable={{ text: selected.id }}>{selected.id.slice(0, 8)}…{selected.id.slice(-6)}</Text>
+                <span>最近活动 {formatTime(selected.updatedAt)}</span>
+              </div>
+            </div>
+            <div className="se-header-actions">
+              <Tag color={turns.length ? "processing" : "default"}>{turns.length ? turns.length + " 次执行" : "尚无执行"}</Tag>
+              <Button icon={<ReloadOutlined />} onClick={() => {
+                void refreshSessions();
+                void Promise.all([
+                  window.browser.agentTraceQuery({ sessionId: selectedId, limit: 1000 }),
+                  window.browser.agentTraceListSessionItems(selectedId),
+                ]).then(([eventRows, messageRows]) => {
+                  setEvents(eventRows as TraceEvent[]);
+                  setMessages(messageRows);
+                }).catch(reason => setError(reason instanceof Error ? reason.message : String(reason)));
+              }} loading={loadingEvents}>刷新</Button>
+            </div>
+          </header>
+
+          <div className="se-summary-strip">
+            <div><strong>{messages.length}</strong><span>对话消息</span></div>
+            <div><strong>{turns.length}</strong><span>Agent 执行</span></div>
+            <div><strong>{toolCallCount}</strong><span>工具调用</span></div>
+            <div><strong>{chronological.length}</strong><span>活动事件</span></div>
+          </div>
+
+          <div className="se-content-search">
+            <Input allowClear placeholder="在当前 Session 中搜索消息、工具和事件" value={contentSearch} onChange={event => setContentSearch(event.target.value)} />
+          </div>
+
+          <Tabs className="se-tabs" defaultActiveKey="runs" items={[
+            { key: "runs", label: "执行记录", children: <AgentTrajectory events={traceContextEvents} /> },
+            { key: "messages", label: <span>会话 <small>{messages.length}</small></span>, children: transcript },
+            { key: "context", label: "Context Explorer", children: contextSession?.runs.length
+              ? <ContextDebugger session={contextSession} />
+              : <div className="se-empty-panel"><Empty description="没有可检查的模型上下文" /><p>只有发生模型请求后，才会在这里出现 Context Snapshot、LLM Calls 和 Context Diff。</p></div> },
+            { key: "events", label: <span>活动事件 <small>{chronological.length}</small></span>, children: activity },
+          ]} />
+        </>}
+      </main>
+    </div>
   );
 
   if (standalone) {
-    return <main className="session-explorer-window">
+    return <main className="session-explorer-window se-window">
       <header className="session-explorer-window-header">
-        <div><h1>Session Explorer</h1><p>执行轨迹、模型上下文和原始会话事件</p></div>
+        <div><h1>Session Explorer</h1><p>任务会话、Agent 执行、模型上下文和运行事件</p></div>
         <div className="session-explorer-window-actions">
-          <Button icon={<ReloadOutlined />} onClick={() => void refreshSessions()} loading={loadingSessions}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={() => {
+            void refreshSessions();
+            if (selectedId) void Promise.all([
+              window.browser.agentTraceQuery({ sessionId: selectedId, limit: 1000 }),
+              window.browser.agentTraceListSessionItems(selectedId),
+            ]).then(([eventRows, messageRows]) => {
+              setEvents(eventRows as TraceEvent[]);
+              setMessages(messageRows);
+            }).catch(reason => setError(reason instanceof Error ? reason.message : String(reason)));
+          }}>刷新</Button>
           <Button onClick={onClose}>关闭</Button>
         </div>
       </header>
@@ -345,8 +371,7 @@ export default function SessionExplorer({
     </main>;
   }
 
-  return <Drawer className="session-explorer-drawer" title="Session Explorer" open={open} onClose={onClose} width="min(1120px, 96vw)"
-    extra={<Button icon={<ReloadOutlined />} onClick={() => void refreshSessions()} loading={loadingSessions}>刷新</Button>}>
+  return <div className="session-explorer-drawer-wrap">
     {explorerBody}
-  </Drawer>;
+  </div>;
 }
