@@ -50,8 +50,8 @@ export type MemoryDreamOperation =
   | { op: "publish_knowledge"; slug: string; title: string; content: string; sourceNoteIds: string[]; sourceRefs: string[]; reason: string };
 
 const MAX_DREAM_SOURCES = 160;
-const MAX_SOURCE_CHARS = 8_000;
-const MAX_DREAM_EVIDENCE_CHARS = 1_000_000;
+const MAX_SOURCE_CHARS = 4_000;
+const MAX_DREAM_EVIDENCE_CHARS = 320_000;
 const MAX_DREAM_OPERATIONS = 80;
 const MAX_INJECTED_CONTEXT = 12_000;
 const SECRET_PATTERNS: RegExp[] = [
