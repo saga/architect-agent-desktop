@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Alert, Button, Card, Divider, Space, Statistic, Table, Typography } from "antd";
 import { XCard, registerCatalog } from "@ant-design/x-card";
 import type { ActionPayload, Catalog } from "@ant-design/x-card";
@@ -73,7 +73,7 @@ function DynamicTable({ columns, data, pageSize = 8 }: DynamicProps) {
 const components = {
   Column, Row, Card: DynamicCard, Text, Metric, FinancialChart: DynamicChart,
   DataTable: DynamicTable, Divider: () => <Divider style={{ margin: "6px 0" }} />,
-} as Record<string, (props: DynamicProps) => React.ReactNode>;
+} as Record<string, (props: DynamicProps) => ReactNode>;
 
 interface AgentA2UICardProps {
   content: string;
