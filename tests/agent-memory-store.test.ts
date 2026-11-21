@@ -289,4 +289,45 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+
+  it("prevents rollback while a later evidence batch is prepared", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const firstTime = Date.now();
+    const first = store.prepareDreaming("/workspace/pending-rollback", [{
+      sessionId: "session-a",
+      messageId: "message-1",
+      kind: "user",
+      content: "第一批已整理的证据。",
+      createdAt: firstTime,
+    }]);
+    store.commitDreaming({
+      scope: "/workspace/pending-rollback",
+      runId: first!.id,
+      summary: "提交第一批证据。",
+      operations: [{
+        op: "upsert_note",
+        title: "第一批记忆",
+        content: "第一批长期知识。",
+        sourceRefs: [first!.evidence[0]!.sourceId],
+        reason: "记录有来源的长期知识。",
+      }],
+    });
+
+    const second = store.prepareDreaming("/workspace/pending-rollback", [{
+      sessionId: "session-a",
+      messageId: "message-2",
+      kind: "assistant",
+      content: "第二批尚未提交的证据。",
+      createdAt: firstTime + 1,
+    }]);
+    expect(second?.status).toBe("prepared");
+    expect(() => store.rollbackDreaming("/workspace/pending-rollback", first!.id, "不应跨越待提交批次回滚"))
+      .toThrow(/存在待提交的 Dreaming Run/);
+    store.abandonDreaming("/workspace/pending-rollback", second!.id, "先放弃下一批");
+    expect(store.rollbackDreaming("/workspace/pending-rollback", first!.id, "放弃后可以安全回滚").rolledBackOperations)
+      .toBeGreaterThan(0);
+    expect(store.getDreamCursor("/workspace/pending-rollback").createdAt).toBe(0);
+    store.close();
+  });
+
 });
