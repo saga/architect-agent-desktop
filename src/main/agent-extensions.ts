@@ -240,7 +240,7 @@ export function resolveMcpServerConfigs(
         command: resolveValue(server.command ?? ""),
         args: (server.args ?? []).map(resolveValue),
         ...(server.env && Object.keys(server.env).length ? { env: Object.fromEntries(Object.entries(server.env).map(([key, value]) => [key, resolveValue(value)])) } : {}),
-        ...(server.cwd ? { cwd: resolveValue(server.cwd) } : {}),
+        ...(server.cwd ? (provider === "copilot" ? { workingDirectory: resolveValue(server.cwd) } : { cwd: resolveValue(server.cwd) }) : {}),
         timeout: server.timeout ?? 30000,
         tools: ["*"],
       };
