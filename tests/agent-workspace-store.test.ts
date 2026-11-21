@@ -4,6 +4,7 @@ import {
   nextScheduleRunAt,
   parseAgentExperts,
   parseAgentSchedules,
+  parseAgentScheduleRuns,
   parseAgentTasks,
   parseAgentWorkspacePreferences,
 } from "../src/main/agent-workspace-store";
@@ -52,5 +53,32 @@ describe("Agent workspace persistence", () => {
     expect(nextScheduleRunAt("2026-11-20T09:00:00.000Z", "daily", now)).toBe("2026-11-23T09:00:00.000Z");
     expect(nextScheduleRunAt("2026-11-20T09:00:00.000Z", "weekly", now)).toBe("2026-11-27T09:00:00.000Z");
     expect(nextScheduleRunAt("2026-11-20T09:00:00.000Z", "none", now)).toBeNull();
+  });
+
+  it("parses and sorts persisted Schedule run history", () => {
+    const runs = parseAgentScheduleRuns([
+      { id: "old", scheduleId: "s1", scheduleTitle: "Daily", trigger: "scheduled", scheduledAt: "2026-11-20T09:00:00.000Z", taskId: "task-1", startedAt: 100, finishedAt: 200, durationMs: 100, status: "success" },
+      { id: "new", scheduleId: "s1", scheduleTitle: "Daily", trigger: "manual", scheduledAt: "2026-11-21T09:00:00.000Z", taskId: null, startedAt: 300, status: "running" },
+      { id: "bad", scheduleId: "s1", scheduleTitle: "Daily", trigger: "other", scheduledAt: "invalid", taskId: null, startedAt: 400, status: "pending" },
+    ]);
+    expect(runs.map(run => run.id)).toEqual(["new", "old"]);
+    expect(runs[0].status).toBe("running");
+  });
+
+  it("supports interval schedules and skips missed intervals", () => {
+    const now = Date.parse("2026-11-22T10:30:00.000Z");
+    expect(nextScheduleRunAt("2026-11-20T09:00:00.000Z", "interval", now, { intervalMinutes: 60 })).toBe("2026-11-22T11:00:00.000Z");
+  });
+
+  it("supports selected weekdays, biweekly and monthly recurrence", () => {
+    const afterMonday = Date.parse("2026-11-24T10:00:00.000Z");
+    expect(nextScheduleRunAt("2026-11-23T09:00:00.000Z", "weekly", afterMonday, { weekdays: [1, 3, 5] })).toBe("2026-11-25T09:00:00.000Z");
+    expect(nextScheduleRunAt("2026-11-23T09:00:00.000Z", "biweekly", afterMonday, { weekdays: [1] })).toBe("2026-12-07T09:00:00.000Z");
+    expect(nextScheduleRunAt("2026-11-01T09:00:00.000Z", "monthly", Date.parse("2026-11-16T10:00:00.000Z"), { monthDays: [1, 15] })).toBe("2026-12-01T09:00:00.000Z");
+  });
+
+  it("supports yearly recurrence and schedule end dates", () => {
+    expect(nextScheduleRunAt("2026-12-15T09:00:00.000Z", "yearly", Date.parse("2027-01-01T10:00:00.000Z"))).toBe("2027-12-15T09:00:00.000Z");
+    expect(nextScheduleRunAt("2026-11-20T09:00:00.000Z", "daily", Date.parse("2026-11-22T10:00:00.000Z"), { endsAt: "2026-11-22T23:59:59.000Z" })).toBeNull();
   });
 });
