@@ -519,7 +519,9 @@ export class AgentMemoryStore {
   listQualityReviewCandidatesForRun(scope:string|null,runId:string,limit=80,now=Date.now()):Array<Record<string,unknown>>{
     const run=this.getDreamRun(runId,scope);
     if(!run||run.status!=="prepared"||run.purpose!=="quality_review")throw new Error("质量复查候选必须关联当前 Workspace 的 prepared quality_review Run。");
-    const runSourceByMessage=new Map(run.evidence.map(source=>[source.sessionId+"\\0"+source.messageId,source.sourceId]));
+    const runSourceByMessage=new Map<string,string>(run.evidence.map(source=>[
+      source.sessionId+"\\0"+source.messageId,source.sourceId,
+    ] as const));
     return this.listQualityReviewCandidates(scope,limit,now).flatMap(note=>{
       const mapped=new Set<string>();
       for(const oldSourceId of note.sourceRefs){
@@ -808,7 +810,8 @@ export class AgentMemoryStore {
         const after=parseJson<Record<string,unknown>|null>(operation.after_json,null);
         if(type==="cursor"){
           const current=this.database.prepare("SELECT * FROM memory_dream_cursors WHERE scope_key=?").get({}, id) as Record<string,unknown>|undefined;
-          if(canonicalJson(current??null)!==canonicalJson(after))throw new Error("Memory Dreaming cursor 已改变，停止回滚。");
+          if(canonicalJson(rollbackComparable("cursor",current))!==canonicalJson(rollbackComparable("cursor",after)))
+            throw new Error("Memory Dreaming cursor 已改变，停止回滚。");
           if(before)this.upsertCursor(before);else this.database.prepare("DELETE FROM memory_dream_cursors WHERE scope_key=?").run({}, id);
           continue;
         }
