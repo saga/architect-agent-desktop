@@ -300,6 +300,13 @@ describe("AgentMemoryStore", () => {
     expect(mapped).toBeDefined();
     expect(mapped?.qualityReviewSourceRefs).toContain(reviewRun!.evidence[0]!.sourceId);
     const currentNote = store.getNote(note, "/workspace/quality-review")!;
+    expect(() => store.commitDreaming({
+      scope: "/workspace/quality-review",
+      runId: reviewRun!.id,
+      summary: "An empty quality review is not a completed review.",
+      operations: [],
+    })).toThrow(/至少需要复核一条候选 Note/);
+    expect(store.getDreamRun(reviewRun!.id, "/workspace/quality-review")?.status).toBe("prepared");
     const result = store.commitDreaming({
       scope: "/workspace/quality-review",
       runId: reviewRun!.id,
@@ -326,6 +333,42 @@ describe("AgentMemoryStore", () => {
     expect(restored.qualityScore).toBeNull();
     expect(restored.lastQualityReviewedAt).toBeNull();
     expect(store.getDreamCursor("/workspace/quality-review")).toEqual(cursorBefore);
+    store.close();
+  });
+
+  it("does not mark ordinary transcript review as a quality review", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const run = store.prepareDreaming("/workspace/ordinary-review", [{
+      sessionId: "session-ordinary-review",
+      messageId: "message-ordinary-review",
+      kind: "user",
+      content: "The project naming rule uses lowercase snake_case.",
+      createdAt: Date.now(),
+    }]);
+    const note = store.saveNote({
+      scope: "/workspace/ordinary-review",
+      title: "Project naming rule",
+      content: "The project uses lowercase snake_case.",
+      sourceRefs: [run!.evidence[0]!.sourceId],
+    });
+    store.commitDreaming({
+      scope: "/workspace/ordinary-review",
+      runId: run!.id,
+      summary: "Reviewed the new project naming convention.",
+      operations: [{
+        op: "review_note",
+        id: note.id,
+        baseVersion: note.version,
+        validation: "validated",
+        confidence: 0.9,
+        sourceRefs: [run!.evidence[0]!.sourceId],
+        reason: "The latest transcript directly confirms the naming convention.",
+      }],
+    });
+    const reviewed = store.getNote(note.id, "/workspace/ordinary-review")!;
+    expect(reviewed.validation).toBe("validated");
+    expect(reviewed.qualityScore).toBeNull();
+    expect(reviewed.lastQualityReviewedAt).toBeNull();
     store.close();
   });
 
