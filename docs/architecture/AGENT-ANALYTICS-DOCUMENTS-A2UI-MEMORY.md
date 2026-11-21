@@ -187,9 +187,9 @@ completed / list / rollback
 - `archive_note`：归档重复或失效 Note；置顶条目不能直接归档。
 - `supersede_note`：将旧 Note 标记为被新 Note 替代，并建立关系。
 - `link_notes`：建立 supports、contradicts、refines、derived_from、related_to、supersedes 关系。
-- `publish_knowledge`：把多条活动 Note 整理成有来源的知识页。
+- `publish_knowledge`：把多条活动 Note 整理成有来源的知识页。新建时不需要版本号；更新已有知识页必须传入读取时的 `baseVersion`，避免覆盖并发修改。
 
-所有操作必须引用当前 Run 的 evidence source ID 并提供 reason。对现有 Note 的改动必须提供版本号；如果在准备后被其他操作更新，整个提交会失败回滚，不会覆盖更新后的内容。
+所有操作必须引用当前 Run 的 evidence source ID 并提供 reason。对现有 Note 的改动必须提供版本号；更新已有知识页也必须提供 `baseVersion`。如果在准备后被其他操作更新，整个提交会失败回滚，不会覆盖更新后的内容。
 
 **事务和审计**
 
@@ -213,17 +213,17 @@ Run 状态：
 
 对重要任务，系统提示要求 Agent 主动执行 prepare → evidence review → commit。整理目标不局限于失败记录，还包括成功流程、稳定的用户偏好、项目约定、业务定义、数据口径、重复出现的错误和已解决问题。模型必须区分事实、推测、冲突和时效性信息；证据不足时保持 unverified，矛盾并存时记录 contradicts 或 disputed，不为了减少 Note 数量而删除唯一知识。
 
-当前是 Agent 驱动的任务后整理，Settings → Memory & Dreaming 提供查看 Notes、知识页、关系和 Run 审计的管理界面，并允许手动启动整理、置顶/取消置顶 Note、归档 Note、放弃 prepared Run 或回滚最近一次提交。手动整理需要当前 Expert 开放长期记忆工具，且 Agent 工具权限至少为 assisted。也可以让 Agent 在重要任务结束时执行同样的完整工具链。当前不自动启动后台定时模型调用，避免未经用户配置就产生额外成本或静默修改。
+当前是 Agent 驱动的任务后整理，Settings → Memory & Dreaming 提供查看 Notes、知识页、关系和 Run 审计的管理界面，并允许手动启动整理、继续处理已有 prepared Run、置顶/取消置顶 Note、归档 Note、放弃 prepared Run 或回滚最近一次提交。手动整理需要当前 Expert 开放长期记忆工具，且 Agent 工具权限至少为 assisted。也可以让 Agent 在重要任务结束时执行同样的完整工具链。当前不自动启动后台定时模型调用，避免未经用户配置就产生额外成本或静默修改。
 
 ### Memory 生命周期
 
 Memory Note 除标题、正文和标签外，还带有 Workspace Scope、来源 Session/Trace、sourceRefs、创建/更新时间、访问次数、重要度、置顶、验证状态、置信度、过期时间、版本号和替代关系。内容发生实质变化时验证状态会重置为 unverified；来源不被丢弃。
 
-主题知识页通过来源 Note ID 和 sourceRefs 追溯。过期且未置顶的 Note 可由 `memory_prune_expired` 归档，保留历史版本而不物理删除。
+主题知识页通过来源 Note ID 和 sourceRefs 追溯。过期且未置顶的 Note 可由 `memory_prune_expired` 归档，归档在 SQLite 事务中完成，并保存归档前后的版本快照；不会物理删除原始记忆。
 
 ### 上下文注入原则
 
-每次会话只注入一个有硬上限的小型索引：优先置顶、高重要度和已验证内容，同时保留争议标记、版本和来源 ID。更长的 Note、关系和知识页通过检索工具按需读取。对时效性信息、外部产品行为、模型价格、监管要求等，记忆只能提供线索，不能替代实时核验。
+每次会话只注入一个有硬上限的小型索引：先按置顶、重要度、验证状态和最近使用情况选择 Note，确保关键记忆不会被知识页正文挤出预算；知识页只注入较短的主题索引和来源 Note ID。更长的 Note、关系和知识页通过检索工具按需读取。对时效性信息、外部产品行为、模型价格、监管要求等，记忆只能提供线索，不能替代实时核验。
 
 ## 权限与安全
 
