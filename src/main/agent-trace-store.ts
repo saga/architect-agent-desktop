@@ -243,6 +243,30 @@ export class AgentTraceStore {
     `).all(workspacePath, like, safeLimit) as Array<Record<string, unknown>>;
   }
 
+  listMemorySources(workspacePath: string | null, afterCreatedAt = 0, limit = 160): Array<{
+    sessionId: string; messageId: string; kind: string; content: string; createdAt: number;
+  }> {
+    if (!this.database) throw new Error("Agent trace store is closed.");
+    const safeLimit = Math.max(1, Math.min(160, Math.floor(limit)));
+    const rows = this.database.prepare(`
+      SELECT m.session_id AS sessionId, m.id AS messageId, m.kind,
+        substr(m.content, 1, 8000) AS content, m.created_at AS createdAt
+      FROM session_messages m
+      JOIN sessions s ON s.id=m.session_id
+      WHERE s.workspace_path IS ?
+        AND m.created_at > ?
+        AND m.kind IN ('user','assistant','error','tool','a2ui','a2ui-v1')
+      ORDER BY m.created_at ASC, m.rowid ASC
+      LIMIT ?
+    `).all(workspacePath, Math.max(0, Math.floor(afterCreatedAt)), safeLimit) as Array<{
+      sessionId: string; messageId: string; kind: string; content: string; createdAt: number;
+    }>;
+    return rows.map(row => ({
+      sessionId: String(row.sessionId), messageId: String(row.messageId),
+      kind: String(row.kind), content: String(row.content), createdAt: Number(row.createdAt),
+    }));
+  }
+
   saveSessionItems(sessionId: string, workspacePath: string | null, items: Array<{ id: string; kind: string; content: string; toolName?: string; toolState?: string; createdAt: number }>): void {
     if (!this.database) throw new Error("Agent trace store is closed.");
     const timestamp = new Date().toISOString();
