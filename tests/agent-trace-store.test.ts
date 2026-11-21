@@ -159,6 +159,36 @@ private-material
     store.close();
   });
 
+  it("re-surfaces an old Transcript message when its content is revised", () => {
+    const store = new AgentTraceStore(temporaryDirectory());
+    store.saveSessionItems("session-revision", "/workspace/revision", [
+      { id: "old-message", kind: "user", content: "Old project assumption.", createdAt: 100 },
+      { id: "later-message", kind: "assistant", content: "Initial answer.", createdAt: 200 },
+    ]);
+    const initial = store.listMemorySources("/workspace/revision", {
+      createdAt: 0, sessionId: "", messageId: "", transcriptRevision: 0,
+    }, 20);
+    const initialCursor = Math.max(...initial.map(item => item.revision));
+    expect(initial.map(item => item.messageId)).toEqual(["old-message", "later-message"]);
+
+    store.saveSessionItems("session-revision", "/workspace/revision", [
+      { id: "old-message", kind: "user", content: "Corrected project assumption with the approved rule.", createdAt: 100 },
+      { id: "later-message", kind: "assistant", content: "Initial answer.", createdAt: 200 },
+    ]);
+    const revised = store.listMemorySources("/workspace/revision", {
+      createdAt: 200, sessionId: "session-revision", messageId: "later-message", transcriptRevision: initialCursor,
+    }, 20);
+    expect(revised).toHaveLength(1);
+    expect(revised[0]).toMatchObject({
+      messageId: "old-message",
+      createdAt: 100,
+      changeType: "updated",
+    });
+    expect(revised[0]!.content).toContain("Corrected project assumption");
+    expect(revised[0]!.revision).toBeGreaterThan(initialCursor);
+    store.close();
+  });
+
   it("switches the active data directory without deleting the previous store", () => {
     const first = temporaryDirectory();
     const second = temporaryDirectory();
@@ -183,23 +213,19 @@ private-material
       { id: "surface-e", kind: "a2ui-v1", content: "[{\"version\":\"1.0\"}]", createdAt: 1002 },
     ]);
 
-    const cursor = { createdAt: 0, sessionId: "", messageId: "" };
+    const cursor = { createdAt: 0, sessionId: "", messageId: "", transcriptRevision: 0 };
     const first = store.listMemorySources("/workspace/evidence", cursor, 1);
     expect(first).toHaveLength(1);
-    expect(first[0]).toMatchObject({ messageId: "a-message", kind: "user" });
+    expect(first[0]).toMatchObject({ messageId: "a-message", kind: "user", changeType: "created" });
 
     const second = store.listMemorySources("/workspace/evidence", {
-      createdAt: first[0]!.createdAt,
-      sessionId: first[0]!.sessionId,
-      messageId: first[0]!.messageId,
+      ...cursor, transcriptRevision: first[0]!.revision,
     }, 1);
     expect(second).toHaveLength(1);
     expect(second[0]).toMatchObject({ messageId: "b-interaction", kind: "interaction" });
 
     const remaining = store.listMemorySources("/workspace/evidence", {
-      createdAt: second[0]!.createdAt,
-      sessionId: second[0]!.sessionId,
-      messageId: second[0]!.messageId,
+      ...cursor, transcriptRevision: second[0]!.revision,
     }, 10);
     expect(remaining.map(item => item.messageId)).toEqual(["c-message"]);
     expect(remaining.some(item => item.messageId === "empty-d" || item.messageId === "surface-e")).toBe(false);
