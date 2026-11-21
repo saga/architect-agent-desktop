@@ -90,7 +90,7 @@ function runFromEvent(event: AgentTraceEventLike, options: AgentTraceAdapterOpti
   const completed = response !== undefined || /completed|success|finished|fail|error|cancel|abort/i.test(event.status ?? '');
   const runStatus: ContextRun['status'] = /fail|error/i.test(event.status ?? '') ? 'failed' : /cancel/i.test(event.status ?? '') ? 'cancelled' : /abort/i.test(event.status ?? '') ? 'aborted' : completed ? 'completed' : 'running';
   const attempt = number(data.attempt);
-  const actualModel = snapshot.model ?? event.model;
+
   const requestId = string(data.requestId);
   return {
     id: string(data.runId ?? data.apiCallId ?? data.providerCallId) ?? event.id, sequence: event.sequence ?? 1,
