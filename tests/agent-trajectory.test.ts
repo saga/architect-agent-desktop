@@ -39,6 +39,25 @@ describe("Agent Trajectory projection", () => {
     expect(turn?.rows[2]?.output).toBe("README.md");
   });
 
+  it("does not turn standalone Session and Task lifecycle events into empty execution turns", () => {
+    const turns = projectAgentTrajectory([
+      event({ id: "saved-1", type: "session.saved", timestamp: "2026-11-21T01:00:00.000Z", sequence: 1, data: { itemCount: 0, storage: "sqlite-session-messages" } }),
+      event({ id: "cleared-1", type: "session.cleared", timestamp: "2026-11-21T01:00:01.000Z", sequence: 1, data: { previousItemCount: 0 } }),
+      event({ id: "saved-2", type: "session.saved", timestamp: "2026-11-21T01:00:02.000Z", sequence: 1, data: { itemCount: 0, storage: "sqlite-session-messages" } }),
+      event({ id: "task-opened", type: "task.activated", timestamp: "2026-11-21T01:00:03.000Z", sequence: 1, data: { taskId: "task-1" } }),
+    ]);
+    expect(turns).toEqual([]);
+  });
+
+  it("keeps older execution traces that have Provider calls but no turn.started marker", () => {
+    const turns = projectAgentTrajectory([
+      event({ id: "request", type: "provider.request", timestamp: "2026-11-21T01:00:00.000Z", sequence: 1, status: "started", data: { requestId: "legacy-request", prompt: "Continue an older session" } }),
+      event({ id: "response", type: "provider.response", timestamp: "2026-11-21T01:00:02.000Z", sequence: 2, status: "completed", data: { requestId: "legacy-request", text: "Done" } }),
+    ]);
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.rows.map(row => row.kind)).toEqual(["model"]);
+  });
+
   it("does not invent durations for still-running model and tool operations", () => {
     const rows = [
       event({ id: "request", type: "provider.request", timestamp: "2026-11-21T01:00:00.000Z", sequence: 1, status: "started", data: { requestId: "request-2", prompt: "Wait" } }),
