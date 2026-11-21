@@ -3,6 +3,7 @@ import { Button, Empty, Input, Tabs, Tooltip, message } from "antd";
 import { ArrowLeftOutlined, ArrowRightOutlined, FileOutlined, FolderOpenOutlined, GlobalOutlined, ReloadOutlined } from "@ant-design/icons";
 import XMarkdown from "@ant-design/x-markdown";
 import { markdownComponents } from "./MarkdownLink";
+import AgentA2UICard from "./components/AgentA2UICard";
 import type { AgentSessionItem, AgentWorkspaceRightTab, AgentWorkspaceSnapshot, BrowserState } from "../shared/types";
 
 interface PureAgentRightPanelProps {
@@ -106,7 +107,7 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
     void window.browser.navigate(currentTab.id, address.trim());
   };
 
-  const resultMessages = useMemo(() => messages.filter(item => item.kind === "assistant" || item.kind === "error").slice(-12), [messages]);
+  const resultMessages = useMemo(() => messages.filter(item => item.kind === "assistant" || item.kind === "error" || item.kind === "a2ui").slice(-12), [messages]);
 
   return <aside className="pure-right-panel">
     <header className="pure-right-header">
@@ -164,7 +165,7 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
     {activeTab === "results" && <div className="pure-results-list">
       {resultMessages.length ? resultMessages.map(item => <article className={"pure-result-item " + item.kind} key={item.id}>
         <div className="pure-result-meta">{item.kind === "error" ? "错误" : "Agent 结果"} · {new Date(item.createdAt).toLocaleString()}</div>
-        {item.kind === "assistant" ? <XMarkdown content={item.content} components={markdownComponents} escapeRawHtml /> : <pre>{item.content}</pre>}
+        {item.kind === "assistant" ? <XMarkdown content={item.content} components={markdownComponents} escapeRawHtml /> : item.kind === "a2ui" ? <AgentA2UICard content={item.content} /> : <pre>{item.content}</pre>}
       </article>) : <Empty description="完成任务后，Agent 的结果会显示在这里" />}
     </div>}
   </aside>;
