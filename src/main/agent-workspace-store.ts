@@ -79,6 +79,7 @@ const scheduleRunSchema = z.object({
   trigger: z.enum(["scheduled", "manual"]),
   scheduledAt: z.string().datetime({ offset: true }),
   taskId: z.string().min(1).max(100).nullable(),
+  previousTaskId: z.string().min(1).max(100).optional(),
   startedAt: z.number().finite(),
   finishedAt: z.number().finite().optional(),
   durationMs: z.number().finite().min(0).optional(),
