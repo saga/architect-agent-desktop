@@ -303,6 +303,28 @@ export class CopilotDesktopAgent {
  constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:(skills?:string[])=>string=()=>"",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string,payloadComplete?:boolean)=>void=()=>{},initialTaskContext:{systemPrompt:string;toolPermission:AgentToolPermission;allowAllTools:boolean;skills:string[];tools:string[]}|null=null,private getMcpServers:()=>McpServerConfig[]=()=>[],private searchTranscriptMessages:(workspacePath:string|null,query:string,limit:number)=>Array<Record<string,unknown>>=()=>[],private loadMemorySources:(workspacePath:string|null,cursor:MemoryDreamCursor,limit:number)=>MemorySourceEvidence[]=()=>[]){this.settings=settings;this.workspacePath=workspacePath;this.taskContext=initialTaskContext?{...initialTaskContext,allowAllTools:initialTaskContext.allowAllTools===true,skills:[...initialTaskContext.skills],tools:[...initialTaskContext.tools]}:null;}
  setApprovedFiles(paths: string[]): void { this.approvedFiles = new Set(paths.filter(value => typeof value === "string").slice(0, 20)); }
  setMemoryContext(sessionId: string | null, traceId: string | null): void { this.memorySessionId = sessionId; this.memoryTraceId = traceId; }
+ getMemorySnapshot(scope: string | null) {
+  return {
+   cursor: this.memory.getDreamCursor(scope),
+   notes: this.memory.listNotes(scope, true, 200),
+   relationships: this.memory.listRelationships(scope, [], 200),
+   knowledge: this.memory.getRepresentations(scope, 50),
+   dreamRuns: this.memory.listDreamRuns(scope, 30),
+  };
+ }
+ getMemoryDreamRunDetail(scope: string | null, runId: string) {
+  const run = this.memory.getDreamRun(runId, scope);
+  if (!run) throw new Error("当前 Workspace 中不存在该 Dreaming Run。");
+  return { run, operations: this.memory.getDreamOperations(runId, scope) };
+ }
+ abandonMemoryDreaming(scope: string | null, runId: string, reason: string): void {
+  this.memory.abandonDreaming(scope, runId, reason);
+ }
+ rollbackMemoryDreaming(scope: string | null, runId: string, reason: string) {
+  if (this.active) throw new Error("Agent 正在运行，不能同时回滚 Memory。");
+  return this.memory.rollbackDreaming(scope, runId, reason);
+ }
+
  private memoryScope(): string | null { return this.workspacePath; }
  private a2uiSessionScope(): string { return this.memorySessionId ?? "__default_agent_session__"; }
  private publishA2UIParts(parts: A2UIPart[]): void {
