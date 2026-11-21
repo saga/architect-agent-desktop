@@ -338,6 +338,20 @@ describe("AgentMemoryStore", () => {
     expect(recorded.externalVerification?.status).toBe("single_domain_sources_recorded");
     expect(() => store.confirmExternalVerification("/workspace/external-subdomains", note.id, recorded.version))
       .toThrow(/两个不同 HTTPS 域名/);
+
+    // Older versions counted arbitrary hostnames as independent domains.
+    // Re-read must normalize their persisted status using registrable domains.
+    const database = (store as unknown as { database: DatabaseSync }).database;
+    database.prepare("UPDATE memory_notes SET external_verification_json=? WHERE id=?").run(
+      {},
+      JSON.stringify({
+        ...recorded.externalVerification,
+        status: "multi_domain_sources_recorded",
+      }),
+      note.id,
+    );
+    const reread = store.listNotes("/workspace/external-subdomains", true).find(item => item.id === note.id);
+    expect(reread?.externalVerification?.status).toBe("single_domain_sources_recorded");
     store.abandonDreaming("/workspace/external-subdomains", run!.id, "test complete");
     store.close();
   });
