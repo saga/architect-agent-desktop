@@ -270,7 +270,7 @@ export class AgentMemoryStore {
 
   saveNote(input: {
     id?: string; scope?: string | null; title: string; content: string; tags?: unknown;
-    validation?: MemoryValidation; confidence?: number; pinned?: boolean; importance?: number;
+    claimType?: MemoryClaimType; validation?: MemoryValidation; confidence?: number; pinned?: boolean; importance?: number;
     expiresAt?: number | null; sourceSessionId?: string | null; sourceTraceId?: string | null; sourceRefs?: string[];
   }): AgentMemoryNote {
     const scopeKey = normalizeScope(input.scope);
@@ -284,8 +284,13 @@ export class AgentMemoryStore {
     const now = Date.now();
     const tags = safeTags(input.tags);
     const oldVersion = Number(before?.version ?? 0);
-    const unchanged = Boolean(before && String(before.content) === content && String(before.title) === title);
-    const validation: MemoryValidation = unchanged && isValidation(before?.validation) ? before.validation : input.validation === "disputed" ? "disputed" : "unverified";
+    const claimType = isClaimType(input.claimType) ? input.claimType :
+      (isClaimType(before?.claim_type) ? before.claim_type as MemoryClaimType : "unknown");
+    const unchanged = Boolean(before && String(before.content) === content && String(before.title) === title &&
+      String(before.claim_type ?? "unknown") === claimType);
+    const validation: MemoryValidation = unchanged && isValidation(before?.validation)
+      ? before.validation
+      : input.validation === "disputed" ? "disputed" : "unverified";
     const requestedSourceRefs = safeIds(input.sourceRefs);
     for (const ref of requestedSourceRefs) {
       if (!this.getSourceById(ref, input.scope)) {
@@ -293,31 +298,37 @@ export class AgentMemoryStore {
       }
     }
     const sourceRefs = [...new Set([...parseJson<string[]>(before?.source_refs_json, []), ...requestedSourceRefs])].slice(-100);
+    const evidenceProfile = validation === "validated"
+      ? this.requireValidationEvidence(input.scope ?? null, claimType, sourceRefs)
+      : unchanged ? parseJson<MemoryValidationEvidence | null>(before?.validation_evidence_json, null) : null;
     const source = sourceRefs.length ? this.getSourceById(sourceRefs[0]!, input.scope) : null;
     this.database.prepare(
       "INSERT INTO memory_notes(id,scope_key,title,content,tags_json,validation,confidence,pinned,status,source_session_id,source_trace_id," +
-      "created_at,updated_at,last_accessed_at,access_count,version,importance,expires_at,source_refs_json,last_verified_at,superseded_by_id,content_hash,last_dreamed_at,quality_score,last_quality_reviewed_at) " +
-      "VALUES(?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
+      "created_at,updated_at,last_accessed_at,access_count,version,importance,expires_at,source_refs_json,last_verified_at,superseded_by_id,content_hash,last_dreamed_at,quality_score,last_quality_reviewed_at,claim_type,validation_evidence_json) " +
+      "VALUES(?,?,?,?,?,?,?,?,'active',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
       "ON CONFLICT(id) DO UPDATE SET title=excluded.title,content=excluded.content,tags_json=excluded.tags_json,validation=excluded.validation," +
       "confidence=excluded.confidence,pinned=excluded.pinned,status='active',source_session_id=excluded.source_session_id," +
       "source_trace_id=excluded.source_trace_id,updated_at=excluded.updated_at,version=excluded.version,importance=excluded.importance," +
       "expires_at=excluded.expires_at,source_refs_json=excluded.source_refs_json,last_verified_at=excluded.last_verified_at," +
-      "superseded_by_id=NULL,content_hash=excluded.content_hash,quality_score=excluded.quality_score,last_quality_reviewed_at=excluded.last_quality_reviewed_at"
-    ).run({}, 
-      id,scopeKey,title,content,JSON.stringify(tags),validation,unchanged?Number(before?.confidence??0.5):0.5,
-      input.pinned===undefined?Number(before?.pinned??0):input.pinned?1:0,
-      input.sourceSessionId??source?.sessionId??(typeof before?.source_session_id==="string"?before.source_session_id:null),input.sourceTraceId??(typeof before?.source_trace_id==="string"?before.source_trace_id:null),
-      Number(before?.created_at??now),now,Number(before?.last_accessed_at??0),Number(before?.access_count??0),Math.max(1,oldVersion+1),
-      clamp(input.importance??Number(before?.importance??0.5),0,1),
-      input.expiresAt===undefined?(typeof before?.expires_at==="number"?before.expires_at:null):input.expiresAt,
-      JSON.stringify(sourceRefs),unchanged&&typeof before?.last_verified_at==="number"?before.last_verified_at:null,null,
-      createHash("sha256").update(content).digest("hex"),typeof before?.last_dreamed_at==="number"?before.last_dreamed_at:null,
-      unchanged&&before?.quality_score!=null?Number(before.quality_score):null,
-      unchanged&&typeof before?.last_quality_reviewed_at==="number"?before.last_quality_reviewed_at:null
+      "superseded_by_id=NULL,content_hash=excluded.content_hash,quality_score=excluded.quality_score,last_quality_reviewed_at=excluded.last_quality_reviewed_at," +
+      "claim_type=excluded.claim_type,validation_evidence_json=excluded.validation_evidence_json"
+    ).run({},
+      id, scopeKey, title, content, JSON.stringify(tags), validation, unchanged ? Number(before?.confidence ?? 0.5) : 0.5,
+      input.pinned === undefined ? Number(before?.pinned ?? 0) : input.pinned ? 1 : 0,
+      input.sourceSessionId ?? source?.sessionId ?? (typeof before?.source_session_id === "string" ? before.source_session_id : null),
+      input.sourceTraceId ?? (typeof before?.source_trace_id === "string" ? before.source_trace_id : null),
+      Number(before?.created_at ?? now), now, Number(before?.last_accessed_at ?? 0), Number(before?.access_count ?? 0), Math.max(1, oldVersion + 1),
+      clamp(input.importance ?? Number(before?.importance ?? 0.5), 0, 1),
+      input.expiresAt === undefined ? (typeof before?.expires_at === "number" ? before.expires_at : null) : input.expiresAt,
+      JSON.stringify(sourceRefs), unchanged && typeof before?.last_verified_at === "number" ? before.last_verified_at : null, null,
+      createHash("sha256").update(content).digest("hex"), typeof before?.last_dreamed_at === "number" ? before.last_dreamed_at : null,
+      unchanged && before?.quality_score != null ? Number(before.quality_score) : null,
+      unchanged && typeof before?.last_quality_reviewed_at === "number" ? before.last_quality_reviewed_at : null,
+      claimType, evidenceProfile ? JSON.stringify(evidenceProfile) : null
     );
-    const after=this.getNoteRow(id,scopeKey);
-    this.saveVersion(scopeKey,"note",id,Math.max(1,oldVersion+1),after,null);
-    return this.toNote(after as Record<string,unknown>);
+    const after = this.getNoteRow(id, scopeKey);
+    this.saveVersion(scopeKey, "note", id, Math.max(1, oldVersion + 1), after, null);
+    return this.toNote(after as Record<string, unknown>);
   }
 
   getNote(id: string, scope?: string | null): AgentMemoryNote | null {
