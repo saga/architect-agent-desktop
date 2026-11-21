@@ -135,7 +135,7 @@ export function projectAgentTrajectory(events: readonly AgentTraceEventLike[]): 
     // Provider request or an actual tool-loop event.
     const hasTurnBoundary = ordered.some(event => event.type === "turn.started" || event.type === "schedule.started");
     const hasExecutionEvidence = ordered.some(event =>
-      event.type === "provider.request" || event.type === "tool.call" || event.type === "provider.raw_tool_loop"
+      event.type === "provider.request" || event.type.startsWith("tool.") || event.type === "provider.raw_tool_loop"
     );
     if (!hasTurnBoundary && !hasExecutionEvidence) continue;
     const rows: TrajectoryRow[] = [];
