@@ -620,7 +620,7 @@ export class AgentMemoryStore {
     const before=this.getRepresentationRow(id,scopeKey);
     if(!before||before.status!=="active")throw new Error("只能归档当前 Workspace 中的活动知识页："+slug);
     if(Number(before.version)!==op.baseVersion)throw new Error("知识页版本已变化，请重新读取后再归档："+slug);
-    const after={...before,status:"archived",updated_at:Date.now(),version:Number(before.version)+1};
+    const after={...before,status:"archived",source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100)),updated_at:Date.now(),version:Number(before.version)+1};
     this.replaceRepresentationSnapshot(id,after);
     this.recordEntityChange(runId,sequence,"representation",id,before,this.getRepresentationRow(id,scopeKey),"archive_knowledge",reason);
   }
