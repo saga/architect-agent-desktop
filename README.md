@@ -84,7 +84,7 @@ Choose **打开工作区** in the main toolbar to select a local project directo
 
 除浏览器右侧 Sidepanel 外，可以切换到 Pure Agent 三栏工作区。左侧按 Workspace 文件夹组织多个 Task，并提供 Schedule、Expert 和配置入口；中间保留每个 Task 独立的 Agent 对话；右侧可选显示内置浏览器、Workspace 文件和任务结果。右侧默认关闭，三栏宽度可拖动调整。
 
-Task、对话、Expert、定时任务和运行记录均保存在本机。Expert 是可复用的任务工作模式，可绑定工作方法与输出约束、Plugin Skills、工具白名单和权限上限；它不提升模型本身的能力，也不能突破 Agent Settings 的全局工具权限。全局工具权限与 Expert 工具授权都默认 No tools；工具必须明确选择，或在 Expert 中主动开启 Allow all tools。定时任务支持一次、按间隔、每天、每周/双周、每月和每年执行，可编辑、暂停/恢复、立即运行，并查看每次运行结果与对应会话；本地调度器只在桌面应用运行期间工作，不保证应用退出或系统休眠时执行，也不会逐次补跑错过的周期。详细设计见 [Pure Agent 工作界面](docs/architecture/PURE-AGENT-WORKSPACE.md)。
+Task、对话、Expert、定时任务和运行记录均保存在本机。Expert 是可复用的任务工作模式，可绑定工作方法与输出约束、Plugin Skills、工具白名单和权限上限；它不提升模型本身的能力，也不能突破 Agent Settings 的全局工具权限。全局工具权限与 Expert 工具授权都默认 No tools；工具必须明确选择，或在 Expert 中主动开启 Allow all tools。 角色提示的研究证据和 Profile 设计建议见 [Expert 工作模式与角色提示研究](docs/architecture/EXPERT-WORK-MODES-AND-PERSONA-RESEARCH.md)。定时任务支持一次、按间隔、每天、每周/双周、每月和每年执行，可编辑、暂停/恢复、立即运行，并查看每次运行结果与对应会话；本地调度器只在桌面应用运行期间工作，不保证应用退出或系统休眠时执行，也不会逐次补跑错过的周期。详细设计见 [Pure Agent 工作界面](docs/architecture/PURE-AGENT-WORKSPACE.md)。
 
 ## Agent Data 与运行记录
 
