@@ -27,12 +27,13 @@ import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
 import { writeJsonAtomic } from "./json-store";
 import { exportPlugin, importPlugin, listPlugins, readEnabledPluginInstructions, removePlugin, setPluginEnabled } from "./plugins/plugin-registry";
+import { importAgentSkill, listAgentSkills, listMcpServers, readEnabledAgentSkillInstructions, removeAgentSkill, removeMcpServer, saveMcpServer, setAgentSkillEnabled, setMcpServerEnabled } from "./agent-extensions";
 import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./login-shell-env";
 import { calculateLayout } from "./layout/layout-engine";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { findPanel, setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
-import type { WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
+import type { WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject, McpServerConfig } from "../shared/types";
 import { parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel } from "../shared/workspace-document";
 import { parseAgentTasks, parseAgentExperts, parseAgentSchedules, parseAgentWorkspacePreferences, nextScheduleRunAt } from "./agent-workspace-store";
 import { listWorkspaceFiles, readWorkspaceFile } from "./workspace-files";
@@ -154,6 +155,9 @@ const WORKSPACE_DOCUMENT_PATH = path.join(app.getPath("userData"), "workspace-do
 const WINDOW_STATE_PATH = path.join(app.getPath("userData"), "window-state.json");
 const PLUGIN_ROOT = path.join(app.getPath("userData"), "plugins");
 const PLUGIN_REGISTRY_PATH = path.join(app.getPath("userData"), "plugins.json");
+const MCP_CONFIG_PATH = path.join(app.getPath("userData"), "mcp-servers.json");
+const AGENT_SKILL_ROOT = path.join(app.getPath("userData"), "skills");
+const AGENT_SKILL_REGISTRY_PATH = path.join(app.getPath("userData"), "skills.json");
 function loadWorkspaceProject(): WorkspaceProject {
   try {
     const raw = JSON.parse(readFileSync(WORKSPACE_PROJECT_PATH, "utf8")) as { path?: unknown };
@@ -383,7 +387,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const text=typeof result === "string" ? result : JSON.stringify(result);
     return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
-}, agentSettings, (skills) => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, expert?.tools.length ? expert.tools : undefined); }, workspaceProject.path, (type, data, status) => recordAgentTrace(type, data, status), (() => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return expert ? { systemPrompt: expert.systemPrompt, toolPermission: expert.toolPermission, skills: expert.skills, tools: expert.tools } : null; })());
+}, agentSettings, (skills) => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return [readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, expert?.tools.length ? expert.tools : undefined), readEnabledAgentSkillInstructions(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH)].filter(Boolean).join("\n\n"); }, workspaceProject.path, (type, data, status) => recordAgentTrace(type, data, status), (() => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return expert ? { systemPrompt: expert.systemPrompt, toolPermission: expert.toolPermission, skills: expert.skills, tools: expert.tools } : null; })(), () => listMcpServers(MCP_CONFIG_PATH));
 function persistAgentTasks(): void {
   agentTasks.sort((a, b) => b.updatedAt - a.updatedAt);
   writeJsonAtomic(AGENT_TASKS_PATH, agentTasks);
@@ -1400,10 +1404,10 @@ function openAgentSettingsWindow(): void {
     parent: mainWindow,
     modal: true,
     show: false,
-    width: 600,
-    height: 720,
-    minWidth: 540,
-    minHeight: 620,
+    width: 960,
+    height: 760,
+    minWidth: 820,
+    minHeight: 640,
     resizable: true,
     maximizable: false,
     minimizable: false,
@@ -1438,6 +1442,12 @@ function openAgentSettingsWindow(): void {
     console.error("Unable to open Agent settings window", error);
     if (!settingsWindow.isDestroyed()) settingsWindow.close();
   });
+}
+
+function assertAgentExtensionsIdle(): void {
+  if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    throw new Error("Agent 正在运行或切换 Task，请等待当前请求结束后再修改 MCP 和 Agent Skills。");
+  }
 }
 
 function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
@@ -1835,6 +1845,76 @@ function registerIpcHandlers(): void {
     const destination = exportPlugin(parsed.data, PLUGIN_ROOT, filePaths[0], PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", "export " + parsed.data);
     return destination;
+  });
+  ipcMain.handle("agent-mcp:list", (event) => {
+    assertTrustedSender(event);
+    return listMcpServers(MCP_CONFIG_PATH);
+  });
+  ipcMain.handle("agent-mcp:save", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    assertAgentExtensionsIdle();
+    await copilotAgent.resetConversation();
+    const servers = saveMcpServer(input, MCP_CONFIG_PATH);
+    const server = (input as Partial<McpServerConfig> | null)?.id;
+    recordOperation("agent-mcp", "save " + String(server ?? "server"));
+    return servers;
+  });
+  ipcMain.handle("agent-mcp:set-enabled", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    assertAgentExtensionsIdle();
+    const parsed = z.object({ id: z.string().min(2).max(64), enabled: z.boolean() }).safeParse(input);
+    if (!parsed.success) throw new Error("无效的 MCP Server 状态请求。");
+    await copilotAgent.resetConversation();
+    const servers = setMcpServerEnabled(parsed.data.id, parsed.data.enabled, MCP_CONFIG_PATH);
+    recordOperation("agent-mcp", (parsed.data.enabled ? "enable " : "disable ") + parsed.data.id);
+    return servers;
+  });
+  ipcMain.handle("agent-mcp:remove", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    assertAgentExtensionsIdle();
+    const parsed = z.string().min(2).max(64).safeParse(input);
+    if (!parsed.success) throw new Error("无效的 MCP Server ID。");
+    await copilotAgent.resetConversation();
+    const servers = removeMcpServer(parsed.data, MCP_CONFIG_PATH);
+    recordOperation("agent-mcp", "remove " + parsed.data);
+    return servers;
+  });
+  ipcMain.handle("agent-skill:list", (event) => {
+    assertTrustedSender(event);
+    return listAgentSkills(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+  });
+  ipcMain.handle("agent-skill:import", async (event) => {
+    assertTrustedSender(event);
+    assertAgentExtensionsIdle();
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "导入 Agent Skill 目录（包含 SKILL.md）",
+      properties: ["openDirectory"],
+    });
+    if (canceled || !filePaths[0]) return null;
+    await copilotAgent.resetConversation();
+    const skill = importAgentSkill(filePaths[0], AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    recordOperation("agent-skill", "import " + skill.id);
+    return skill;
+  });
+  ipcMain.handle("agent-skill:set-enabled", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    assertAgentExtensionsIdle();
+    const parsed = z.object({ id: z.string().min(1).max(64), enabled: z.boolean() }).safeParse(input);
+    if (!parsed.success) throw new Error("无效的 Agent Skill 状态请求。");
+    await copilotAgent.resetConversation();
+    const skills = setAgentSkillEnabled(parsed.data.id, parsed.data.enabled, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    recordOperation("agent-skill", (parsed.data.enabled ? "enable " : "disable ") + parsed.data.id);
+    return skills;
+  });
+  ipcMain.handle("agent-skill:remove", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    assertAgentExtensionsIdle();
+    const parsed = z.string().min(1).max(64).safeParse(input);
+    if (!parsed.success) throw new Error("无效的 Agent Skill ID。");
+    await copilotAgent.resetConversation();
+    const skills = removeAgentSkill(parsed.data, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    recordOperation("agent-skill", "remove " + parsed.data);
+    return skills;
   });
   ipcMain.handle("agent:open-settings", (event) => { assertTrustedSender(event); openAgentSettingsWindow(); });
   ipcMain.handle("agent:pick-files", async (event) => {
