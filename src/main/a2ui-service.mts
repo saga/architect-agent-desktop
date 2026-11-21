@@ -19,17 +19,17 @@ export interface A2UITurn {
 }
 
 function normalizeParts(parts: unknown[]): A2UIPart[] {
-  return parts.flatMap((raw) => {
-    if (!raw || typeof raw !== "object") return [];
+  const output: A2UIPart[] = [];
+  for (const raw of parts) {
+    if (!raw || typeof raw !== "object") continue;
     const part = raw as { type?: string; text?: string; a2ui?: AgentToRendererMessage[] };
     if (part.type === "text" && typeof part.text === "string") {
-      return [{ type: "text" as const, text: part.text }];
+      output.push({ type: "text", text: part.text });
+    } else if (part.type === "a2ui" && Array.isArray(part.a2ui)) {
+      output.push({ type: "a2ui", messages: part.a2ui });
     }
-    if (part.type === "a2ui" && Array.isArray(part.a2ui)) {
-      return [{ type: "a2ui" as const, messages: part.a2ui }];
-    }
-    return [];
-  }) as A2UIPart[];
+  }
+  return output;
 }
 
 /**
