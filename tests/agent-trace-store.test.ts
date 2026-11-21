@@ -142,6 +142,23 @@ private-material
     store.close();
   });
 
+  it("searches transcript history within the selected Workspace", () => {
+    const store = new AgentTraceStore(temporaryDirectory());
+    store.saveSessionItems("session-search-a", "/workspace/project-a", [
+      { id: "message-a1", kind: "user", content: "分析投资组合行业敞口和集中度", createdAt: 100 },
+      { id: "message-a2", kind: "assistant", content: "科技行业占组合市值的 35%。", createdAt: 200 },
+    ]);
+    store.saveSessionItems("session-search-b", "/workspace/project-b", [
+      { id: "message-b1", kind: "user", content: "分析投资组合行业敞口", createdAt: 300 },
+    ]);
+
+    const matches = store.searchSessionMessages("/workspace/project-a", "投资组合", 10);
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.every((item) => item.sessionId === "session-search-a")).toBe(true);
+    expect(store.searchSessionMessages("/workspace/project-b", "投资组合", 10).every((item) => item.sessionId === "session-search-b")).toBe(true);
+    store.close();
+  });
+
   it("switches the active data directory without deleting the previous store", () => {
     const first = temporaryDirectory();
     const second = temporaryDirectory();
