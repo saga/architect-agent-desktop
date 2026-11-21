@@ -383,7 +383,7 @@ export class AgentMemoryStore {
     return this.toNote(row);
   }
 
-  private requireValidationEvidence(scope: string | null, claimType: MemoryClaimType, sourceRefs: string[]): MemoryValidationEvidence {
+  private buildValidationEvidence(scope: string | null, claimType: MemoryClaimType, sourceRefs: string[]): MemoryValidationEvidence {
     const uniqueRefs = safeIds(sourceRefs, 100);
     const sources = uniqueRefs.map(ref => this.getSourceById(ref, scope)).filter((source): source is StoredMemorySource => source !== null);
     const sessions = new Set(sources.map(source => source.sessionId));
@@ -429,7 +429,7 @@ export class AgentMemoryStore {
   }
 
   private requireValidationEvidence(scope: string | null, claimType: MemoryClaimType, sourceRefs: string[]): MemoryValidationEvidence {
-    const profile = this.requireValidationEvidence(scope, claimType, sourceRefs);
+    const profile = this.buildValidationEvidence(scope, claimType, sourceRefs);
     if (!profile.eligible) {
       throw new Error("不能将该 Memory Note 标记为 validated：" + profile.reason);
     }
