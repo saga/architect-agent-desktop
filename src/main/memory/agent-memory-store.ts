@@ -957,6 +957,11 @@ export class AgentMemoryStore {
     };
   }
 
+  listAgentAccessibleNotes(scope:string|null,includeArchived=false,limit=100):AgentMemoryNote[]{
+    const notes=this.listNotes(scope,includeArchived,limit);
+    return scope===null?notes.filter(note=>isPersonalMemoryClaimType(note.claimType)):notes;
+  }
+
   listNotes(scope:string|null,includeArchived=false,limit=100):AgentMemoryNote[]{
     const rows=this.database.prepare(
       "SELECT * FROM memory_notes WHERE scope_key=? AND (?=1 OR status='active') "+
@@ -1365,16 +1370,16 @@ export class AgentMemoryStore {
   }
 
   getAgentAccessibleSource(sourceId:string,workspaceScope:string|null):StoredMemorySource|null{
-    const local=this.getSourceById(sourceId,workspaceScope);
-    if(local)return local;
-    if(workspaceScope===null)return null;
     const personalKey=normalizeScope(null);
     const rows=this.database.prepare(
       "SELECT source_refs_json FROM memory_notes WHERE scope_key=? AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
       "AND claim_type IN ('user_preference','user_intent')"
     ).all({},personalKey,Date.now()) as Array<{source_refs_json?:unknown}>;
-    const referenced=rows.some(row=>parseJson<string[]>(row.source_refs_json,[]).includes(sourceId));
-    return referenced?this.getSourceById(sourceId,null):null;
+    const personalReferenced=rows.some(row=>parseJson<string[]>(row.source_refs_json,[]).includes(sourceId));
+    if(workspaceScope===null)return personalReferenced?this.getSourceById(sourceId,null):null;
+    const local=this.getSourceById(sourceId,workspaceScope);
+    if(local)return local;
+    return personalReferenced?this.getSourceById(sourceId,null):null;
   }
 
   private getNoteRow(id:string,scopeKey:string):Record<string,unknown>|null{
