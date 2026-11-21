@@ -415,7 +415,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     }
     flushChain();
     return result;
-  }, [items]);
+  }, [items, send]);
 
   return <aside className="agent-panel">
     <header className="agent-panel-header">
