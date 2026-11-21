@@ -328,7 +328,7 @@ export class CopilotDesktopAgent {
   for(const provider of resolvedProviders) {
    for(const [method,fn] of Object.entries(provider.fns)) providerMethods.set(provider.name+"."+method,fn);
   }
-  if(permission==="allow-all") {
+  if(permission==="allow-all" && (this.taskContext===null || this.taskContext.allowAllTools || expertTools.includes("execute_code"))) {
    tools.push({
     name:"execute_code",
     description:createCodeModeDescription(resolvedProviders),
