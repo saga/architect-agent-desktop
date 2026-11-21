@@ -554,6 +554,39 @@ button { color: inherit; }
 .settings-window-header h1 { margin: 0; font-size: 18px; font-weight: 650; }
 .settings-window-header p { margin: 5px 0 0; color: #7b8492; font-size: 12px; }
 .settings-window-content { min-height: 0; flex: 1; overflow: auto; padding: 20px 26px; }
+.settings-window-content { min-height: 0; flex: 1; overflow: hidden; padding: 0; }
+.settings-layout { display: grid; grid-template-columns: 184px minmax(0, 1fr); width: 100%; height: 100%; min-height: 0; }
+.settings-sidebar { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 20px 12px; border-right: 1px solid #edf0f4; background: #fafbfc; }
+.settings-sidebar-label { padding: 2px 10px 8px; color: #9aa2ad; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+.settings-sidebar-label-spaced { margin-top: 18px; }
+.settings-nav-item.ant-btn { display: flex; align-items: center; justify-content: flex-start; width: 100%; height: 36px; padding-inline: 10px; border-radius: 7px; color: #525c69; font-size: 12px; text-align: left; }
+.settings-nav-item.ant-btn:hover { background: #f0f2f5; color: #20242b; }
+.settings-nav-item.ant-btn.active { background: #eaf1fb; color: #245da8; font-weight: 600; }
+.settings-main { min-width: 0; min-height: 0; overflow: auto; padding: 22px 28px; }
+.settings-main > .ant-form { max-width: 720px; }
+.settings-main > .plugin-manager { max-width: 840px; }
+.extension-settings { max-width: 900px; }
+.extension-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.extension-heading h2 { margin: 0; color: #20242b; font-size: 17px; font-weight: 650; }
+.extension-heading p { max-width: 620px; margin: 6px 0 0; color: #7b8492; font-size: 12px; line-height: 1.55; }
+.extension-list-summary { margin: 18px 0 5px; }
+.extension-list { margin-top: 8px; }
+.extension-list .ant-list-item { align-items: center; gap: 12px; padding-block: 15px; }
+.extension-list .ant-list-item-meta { min-width: 0; }
+.extension-list .ant-list-item-meta-title { font-size: 13px; }
+.extension-list .ant-list-item-meta-description { overflow-wrap: anywhere; font-size: 12px; }
+.extension-list .ant-list-item-action { display: flex; align-items: center; gap: 8px; margin-inline-start: 12px; }
+.extension-settings .ant-alert { margin-bottom: 12px; }
+.extension-settings .ant-alert-message { font-size: 12px; }
+.extension-settings .ant-alert-description { font-size: 11px; line-height: 1.55; }
+.extension-settings .ant-form-item { margin-bottom: 14px; }
+.extension-settings .ant-input-number { width: 100%; }
+@media (max-width: 720px) {
+  .settings-layout { grid-template-columns: 140px minmax(0, 1fr); }
+  .settings-main { padding: 18px 16px; }
+  .extension-heading { flex-direction: column; }
+}
+
 .settings-window-content .ant-form-item { margin-bottom: 18px; }
 .settings-window-content .ant-input,
 .settings-window-content .ant-select { width: 100%; }
