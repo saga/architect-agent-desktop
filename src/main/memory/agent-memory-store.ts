@@ -47,7 +47,8 @@ export type MemoryDreamOperation =
   | { op: "archive_note"; id: string; baseVersion: number; sourceRefs: string[]; reason: string }
   | { op: "supersede_note"; id: string; replacementId: string; baseVersion: number; sourceRefs: string[]; reason: string }
   | { op: "link_notes"; sourceId: string; targetId: string; relationship: MemoryRelationshipType; sourceRefs: string[]; reason: string }
-  | { op: "publish_knowledge"; slug: string; title: string; content: string; sourceNoteIds: string[]; baseVersion?: number; sourceRefs: string[]; reason: string };
+  | { op: "publish_knowledge"; slug: string; title: string; content: string; sourceNoteIds: string[]; baseVersion?: number; sourceRefs: string[]; reason: string }
+  | { op: "archive_knowledge"; slug: string; baseVersion: number; sourceRefs: string[]; reason: string };
 
 const MAX_DREAM_SOURCES = 160;
 const MAX_SOURCE_CHARS = 4_000;
@@ -505,6 +506,8 @@ export class AgentMemoryStore {
           this.dreamLinkNotes(scopeKey,input.runId,sequence,operation,refs,reason);
         }else if(operation.op==="publish_knowledge"){
           publishedKnowledgeIds.push(this.dreamPublishKnowledge(scopeKey,input.runId,sequence,operation,refs,reason));
+        }else if(operation.op==="archive_knowledge"){
+          this.dreamArchiveKnowledge(scopeKey,input.runId,sequence,operation,refs,reason);
         }
       }
       const now=Date.now();
@@ -606,6 +609,18 @@ export class AgentMemoryStore {
     this.replaceRepresentationSnapshot(id,after);
     this.recordEntityChange(runId,sequence,"representation",id,before,this.getRepresentationRow(id,scopeKey),"publish_knowledge",reason);
     return id;
+  }
+
+  private dreamArchiveKnowledge(scopeKey:string,runId:string,sequence:number,op:Extract<MemoryDreamOperation,{op:"archive_knowledge"}>,refs:string[],reason:string):void{
+    const slug=op.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,80);
+    if(!slug)throw new Error("archive_knowledge 必须提供有效的 slug。");
+    const id=createHash("sha256").update(scopeKey+":"+slug).digest("hex").slice(0,32);
+    const before=this.getRepresentationRow(id,scopeKey);
+    if(!before||before.status!=="active")throw new Error("只能归档当前 Workspace 中的活动知识页："+slug);
+    if(Number(before.version)!==op.baseVersion)throw new Error("知识页版本已变化，请重新读取后再归档："+slug);
+    const after={...before,status:"archived",updated_at:Date.now(),version:Number(before.version)+1};
+    this.replaceRepresentationSnapshot(id,after);
+    this.recordEntityChange(runId,sequence,"representation",id,before,this.getRepresentationRow(id,scopeKey),"archive_knowledge",reason);
   }
 
   private insertRelationship(runId:string,sequence:number,scopeKey:string,sourceId:string,targetId:string,relationship:MemoryRelationshipType,reason:string,refs:string[]):void{
