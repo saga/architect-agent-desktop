@@ -12,6 +12,8 @@ export interface AgentTraceInput {
   type: string;
   status?: string;
   data?: unknown;
+  /** False when the stored event is intentionally only an SDK-boundary summary, even if serialized without truncation. */
+  payloadComplete?: boolean;
   timestamp?: string;
 }
 
@@ -141,7 +143,7 @@ export class AgentTraceStore {
     const timestamp = input.timestamp ?? new Date().toISOString();
     const safe = redact(input.data ?? null);
     let serialized: string;
-    let payloadComplete = true;
+    let payloadComplete = input.payloadComplete !== false;
     try { serialized = JSON.stringify(safe) ?? "null"; }
     catch { serialized = JSON.stringify({ payloadOmitted: true, reason: "event payload could not be serialized" }); payloadComplete = false; }
     if (Buffer.byteLength(serialized, "utf8") > MAX_PAYLOAD_BYTES) {
