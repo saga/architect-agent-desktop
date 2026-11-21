@@ -208,7 +208,13 @@ export class AgentMemoryStore {
     const oldVersion = Number(before?.version ?? 0);
     const unchanged = Boolean(before && String(before.content) === content && String(before.title) === title);
     const validation: MemoryValidation = unchanged && isValidation(before?.validation) ? before.validation : input.validation === "disputed" ? "disputed" : "unverified";
-    const sourceRefs = [...new Set([...parseJson<string[]>(before?.source_refs_json, []), ...safeIds(input.sourceRefs)])].slice(-100);
+    const requestedSourceRefs = safeIds(input.sourceRefs);
+    for (const ref of requestedSourceRefs) {
+      if (!this.getSourceById(ref, input.scope)) {
+        throw new Error("Memory sourceRef 不存在或不属于当前 Workspace：" + ref);
+      }
+    }
+    const sourceRefs = [...new Set([...parseJson<string[]>(before?.source_refs_json, []), ...requestedSourceRefs])].slice(-100);
     const source = sourceRefs.length ? this.getSourceById(sourceRefs[0]!, input.scope) : null;
     this.database.prepare(
       "INSERT INTO memory_notes(id,scope_key,title,content,tags_json,validation,confidence,pinned,status,source_session_id,source_trace_id," +
