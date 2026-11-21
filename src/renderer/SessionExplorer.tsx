@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Checkbox, Empty, Input, List, Spin, Tabs, Tag, Typography } from "antd";
+import { Button, Checkbox, Drawer, Empty, Input, List, Spin, Tabs, Tag, Typography } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import type { AgentSessionItem } from "../shared/types";
 import AgentTrajectory from "./AgentTrajectory";
@@ -329,11 +329,11 @@ export default function SessionExplorer({
             <div><strong>{messages.length}</strong><span>对话消息</span></div>
             <div><strong>{turns.length}</strong><span>Agent 执行</span></div>
             <div><strong>{toolCallCount}</strong><span>工具调用</span></div>
-            <div><strong>{chronological.length}</strong><span>活动事件</span></div>
+            <div><strong>{selected.eventCount ?? chronological.length}</strong><span>活动事件</span></div>
           </div>
 
           <div className="se-content-search">
-            <Input allowClear placeholder="在当前 Session 中搜索消息、工具和事件" value={contentSearch} onChange={event => setContentSearch(event.target.value)} />
+            <Input allowClear placeholder="搜索当前 Session 的对话和运行事件" value={contentSearch} onChange={event => setContentSearch(event.target.value)} />
           </div>
 
           <Tabs className="se-tabs" defaultActiveKey="runs" items={[
@@ -371,7 +371,8 @@ export default function SessionExplorer({
     </main>;
   }
 
-  return <div className="session-explorer-drawer-wrap">
+  return <Drawer className="session-explorer-drawer" title="Session Explorer" open={open} onClose={onClose}
+    width="min(1280px, 98vw)" extra={<Button icon={<ReloadOutlined />} onClick={() => void refreshSessions()} loading={loadingSessions}>刷新</Button>}>
     {explorerBody}
-  </div>;
+  </Drawer>;
 }
