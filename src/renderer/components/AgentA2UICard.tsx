@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { Alert, Button, Card, Divider, Space, Statistic, Table, Typography } from "antd";
+import { Alert, Button, Card, Divider, Statistic, Table, Typography } from "antd";
 import { XCard, registerCatalog } from "@ant-design/x-card";
 import type { ActionPayload, Catalog } from "@ant-design/x-card";
 import FinancialChart from "./FinancialChart";
