@@ -645,18 +645,18 @@ export class AgentMemoryStore {
     this.database.prepare("DELETE FROM memory_representations WHERE id=?").run({}, id);
     if(!row)return;
     this.database.prepare("INSERT INTO memory_representations(id,scope_key,slug,title,content,source_note_ids_json,updated_at,version,status,source_refs_json) "+
-      "VALUES(?,?,?,?,?,?,?,?,?,?)").run({}, row.id,row.scope_key,row.slug,row.title,row.content,row.source_note_ids_json,row.updated_at,row.version,row.status,row.source_refs_json);
+      "VALUES(?,?,?,?,?,?,?,?,?,?)").run({}, ...([row.id,row.scope_key,row.slug,row.title,row.content,row.source_note_ids_json,row.updated_at,row.version,row.status,row.source_refs_json] as never[]));
   }
   private replaceRelationshipSnapshot(id:string,row:Record<string,unknown>|null):void{
     this.database.prepare("DELETE FROM memory_relationships WHERE id=?").run({}, id);
     if(!row)return;
     this.database.prepare("INSERT INTO memory_relationships(id,scope_key,source_note_id,target_note_id,relationship,details,source_refs_json,created_at) "+
-      "VALUES(?,?,?,?,?,?,?,?)").run({}, row.id,row.scope_key,row.source_note_id,row.target_note_id,row.relationship,row.details,row.source_refs_json,row.created_at);
+      "VALUES(?,?,?,?,?,?,?,?)").run({}, ...([row.id,row.scope_key,row.source_note_id,row.target_note_id,row.relationship,row.details,row.source_refs_json,row.created_at] as never[]));
   }
   private upsertCursor(row:Record<string,unknown>):void{
     this.database.prepare("INSERT INTO memory_dream_cursors(scope_key,max_source_created_at,last_source_session_id,last_source_message_id,last_run_id,updated_at) VALUES(?,?,?,?,?,?) "+
       "ON CONFLICT(scope_key) DO UPDATE SET max_source_created_at=excluded.max_source_created_at,last_source_session_id=excluded.last_source_session_id,last_source_message_id=excluded.last_source_message_id,last_run_id=excluded.last_run_id,updated_at=excluded.updated_at")
-      .run({}, row.scope_key,row.max_source_created_at,row.last_source_session_id??"",row.last_source_message_id??"",row.last_run_id,row.updated_at);
+      .run({}, ...([row.scope_key,row.max_source_created_at,row.last_source_session_id??"",row.last_source_message_id??"",row.last_run_id,row.updated_at] as never[]));
   }
   private saveVersion(scopeKey:string,entityType:string,entityId:string,version:number,snapshot:Record<string,unknown>|null,runId:string|null):void{
     if(!snapshot)return;
