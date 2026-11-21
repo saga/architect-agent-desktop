@@ -291,7 +291,7 @@ function readSkillZipEntries(archive: Buffer): ZipSkillEntry[] {
     const mode = externalAttributes >>> 16;
     const fileType = mode & 0o170000;
     const directory = name.endsWith("/") || fileType === 0o040000;
-    if (fileType === 0o120000 || (fileType !== 0 && fileType !== 0o040000 && fileType !== 0o100000)) {
+    if ((externalAttributes & 0x0400) !== 0 || fileType === 0o120000 || (fileType !== 0 && fileType !== 0o040000 && fileType !== 0o100000)) {
       throw new Error("Skill ZIP 不能包含符号链接或特殊文件：" + name);
     }
     if (directory) {
@@ -302,7 +302,7 @@ function readSkillZipEntries(archive: Buffer): ZipSkillEntry[] {
       const localExtraLength = archive.readUInt16LE(localOffset + 28);
       const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
       const dataEnd = dataOffset + compressedSize;
-      if (dataEnd > archive.length) throw new Error("ZIP 文件数据被截断：" + name);
+      if (dataEnd > archive.length || dataEnd > centralOffset) throw new Error("ZIP 文件数据被截断或与中央目录重叠：" + name);
       const compressed = archive.subarray(dataOffset, dataEnd);
       let data: Buffer;
       try {
