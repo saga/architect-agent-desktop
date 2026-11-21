@@ -25,6 +25,7 @@ const PEM_PRIVATE_KEY = /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----[
 const URL_CREDENTIALS = /(\bhttps?:\/\/)[^\s/@:]+:[^\s/@]+@/gi;
 const COMMON_TOKENS = /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:ant-)?[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b/g;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
+const MAX_TRANSCRIPT_REVISIONS_PER_MESSAGE = 12;
 
 function redactString(value: string): string {
   return value
@@ -125,6 +126,8 @@ export class AgentTraceStore {
       );
       CREATE INDEX IF NOT EXISTS idx_session_message_revisions_session_revision
         ON session_message_revisions(session_id, revision);
+      CREATE INDEX IF NOT EXISTS idx_session_message_revisions_message
+        ON session_message_revisions(session_id,message_id,revision DESC);
     `);
     // Seed an immutable baseline for transcripts written before revision tracking existed.
     this.database.exec(`
@@ -340,6 +343,14 @@ export class AgentTraceStore {
         INSERT INTO session_message_revisions(session_id,message_id,kind,content,created_at,changed_at,change_type)
         VALUES(?,?,?,?,?,?,?)
       `);
+      const pruneRevisions = this.database.prepare(`
+        DELETE FROM session_message_revisions
+        WHERE session_id=? AND message_id=? AND revision NOT IN (
+          SELECT revision FROM session_message_revisions
+          WHERE session_id=? AND message_id=?
+          ORDER BY revision DESC LIMIT ?
+        )
+      `);
       for (const item of items) {
         const safeContent = String(redact(item.content));
         const toolName = item.toolName ?? null;
@@ -352,6 +363,7 @@ export class AgentTraceStore {
         upsert.run(sessionId, item.id, item.kind, safeContent, toolName, toolState, item.createdAt, timestamp);
         if(changed){
           appendRevision.run(sessionId,item.id,item.kind,safeContent,item.createdAt,timestamp,previous?"updated":"created");
+          pruneRevisions.run(sessionId,item.id,sessionId,item.id,MAX_TRANSCRIPT_REVISIONS_PER_MESSAGE);
         }
       }
       this.database.exec("COMMIT");
