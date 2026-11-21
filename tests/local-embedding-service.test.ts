@@ -69,7 +69,7 @@ describe("LocalEmbeddingService", () => {
       provider: "ollama",
       baseUrl: "http://127.0.0.1:11434",
       model: "nomic-embed-text",
-    }, "invalid")).rejects.toThrow(/zero vector/);
+    }, "invalid")).rejects.toThrow(/零向量/);
   });
 
   it("rejects responses whose embedding count does not match the input batch", async () => {
