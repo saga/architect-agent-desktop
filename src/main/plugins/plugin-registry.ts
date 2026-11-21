@@ -149,16 +149,19 @@ function collectMarkdownFiles(root: string, entryPath: string, kind: "skill" | "
 function normalizeClaudePluginDirectory(root: string): ClaudePlugin {
   const pluginJsonPath = path.join(root, ".claude-plugin", "plugin.json");
   let raw: Record<string, unknown> = {};
-  if (existsSync(pluginJsonPath)) {
+  const hasManifest = existsSync(pluginJsonPath);
+  if (hasManifest) {
     const pluginJsonStat = lstatSync(pluginJsonPath);
     if (!pluginJsonStat.isFile() || pluginJsonStat.isSymbolicLink()) throw new Error("Claude Plugin manifest 必须是普通文件。");
     raw = parseJsonFile(pluginJsonPath, "Claude Plugin manifest");
   }
-  const name = typeof raw.name === "string" ? raw.name.trim() : path.basename(root);
+  if (hasManifest && (typeof raw.name !== "string" || !raw.name.trim())) {
+    throw new Error("Claude Code plugin.json 必须包含 name 字段。");
+  }
+  const name = hasManifest ? String(raw.name).trim() : path.basename(root);
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) || name.length > 100) {
     throw new Error("Claude Plugin 的 name 必须是 1–100 个字符的小写 kebab-case 标识；没有 plugin.json 时使用目录名。");
   }
-  const displayName = typeof raw.displayName === "string" && raw.displayName.trim() ? raw.displayName.trim() : name;
   const version = typeof raw.version === "string" && raw.version.trim() ? raw.version.trim().slice(0, 100) : "0.0.0";
   const description = typeof raw.description === "string" ? raw.description.slice(0, 500) : undefined;
 
@@ -216,7 +219,7 @@ function normalizeClaudePluginDirectory(root: string): ClaudePlugin {
 
   const manifest = normalizedClaudePluginSchema.parse({
     id: name,
-    name: displayName,
+    name,
     version,
     ...(description ? { description } : {}),
     skills: [...new Set(skills)].slice(0, 30),
