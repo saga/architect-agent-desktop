@@ -345,7 +345,7 @@ export class CopilotDesktopAgent {
       }
       return JSON.stringify({name:document.name,format:document.format,pageCount:document.pageCount,warnings:document.warnings,text:document.text.slice(0,30000)});
     })},
-    {name:"a2ui_render",description:"把金融分析结果渲染为 A2UI v0.9 原生交互卡片。commands 必须先 createSurface，然后 updateComponents；仅使用 Column、Row、Card、Text、Metric、FinancialChart、DataTable、Divider 目录组件。FinancialChart.option 为 ECharts option JSON。",schema:z.object({commands:z.array(z.record(z.string(),z.unknown())).min(1).max(100)}),handler:({commands}:{commands:Record<string,unknown>[]})=>report("Render A2UI card",async()=>{
+    {name:"a2ui_render",description:"把金融分析结果渲染为 A2UI v0.9 原生交互卡片。先 createSurface，再 updateComponents；Catalog ID 固定为 architect-agent-desktop://catalog/finance/v1；必须有 id=root 的根组件。仅使用 Column、Row、Card、Text、Metric、FinancialChart、DataTable、Divider、Button 白名单组件。Button 使用 action.event.name；FinancialChart.option 为 JSON ECharts option，不要使用 formatter。",schema:z.object({commands:z.array(z.record(z.string(),z.unknown())).min(1).max(100)}),handler:({commands}:{commands:Record<string,unknown>[]})=>report("Render A2UI card",async()=>{
       const validated=validateAgentA2UICommands(commands);
       this.publish({type:"a2ui",text:JSON.stringify(validated)});
       return "A2UI 卡片已发送到会话界面。";
