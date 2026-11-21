@@ -61,7 +61,9 @@ export default function PureAgentWorkspace({ browserState }: PureAgentWorkspaceP
 
   const preferences = snapshot?.preferences;
   const activeTask = useMemo(
-    () => snapshot?.tasks.find(task => task.id === snapshot.activeTaskId) ?? null,
+    () => snapshot?.tasks.find(task => task.id === snapshot.activeTaskId)
+      ?? snapshot?.scheduleRunTasks.find(task => task.id === snapshot.activeTaskId)
+      ?? null,
     [snapshot],
   );
   const activeExpert = useMemo(
