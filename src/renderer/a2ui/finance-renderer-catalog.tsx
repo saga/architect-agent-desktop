@@ -5,7 +5,6 @@ import type { KnowledgeGraphProps } from "../components/KnowledgeGraph";
 import type { WorkflowDiagramProps } from "../components/WorkflowDiagram";
 import { basicCatalog } from "@a2ui/web_core/catalogs/basic/v1";
 import { Catalog } from "@a2ui/web_core";
-import type { Catalog } from "@a2ui/web_core";
 import { FinanceChartApi, KnowledgeGraphApi, WorkflowDiagramApi, FINANCE_A2UI_CATALOG_ID } from "../../shared/a2ui-finance-catalog";
 import FinanceChart from "../components/FinanceChart";
 import KnowledgeGraph from "../components/KnowledgeGraph";
