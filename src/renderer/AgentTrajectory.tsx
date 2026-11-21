@@ -3,7 +3,7 @@ import { Collapse, Empty, Space, Tag, Typography } from "antd";
 import type { AgentTraceEventLike } from "./context-explorer/agent-trace-adapter";
 import { projectAgentTrajectory, type TrajectoryRow, type TrajectoryRowKind, type TrajectoryTurn } from "./trajectory-projector";
 
-const { Text, Paragraph } = Typography;
+const { Paragraph } = Typography;
 
 function json(value: unknown): string {
   try { return JSON.stringify(value, null, 2) ?? String(value); }
