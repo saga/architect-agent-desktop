@@ -204,7 +204,6 @@ describe("AgentMemoryStore", () => {
     database.prepare("INSERT INTO memory_note_embeddings(note_id,scope_key,provider,model,content_hash,dimensions,vector_json,updated_at) VALUES(?,?,?,?,?,?,?,?)")
       .run({},personalNote.id,personalRow.scope_key,"ollama","nomic-embed-text",personalRow.content_hash,8,JSON.stringify([1,0,0,0,0,0,0,0]),Date.now());
     expect(database.prepare("SELECT COUNT(*) AS count FROM memory_note_embeddings WHERE note_id=?").get({},personalNote.id)).toMatchObject({count:1});
-    store.abandonDreaming(null, personalRun!.id, "test complete");
     store.close();
 
     // Reopening the database runs the migration that physically removes vectors
