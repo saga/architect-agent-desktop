@@ -43,19 +43,24 @@ Workspace 文件预览通过 Main Process 的既有 workspace-files API 读取�
 
 ## Expert
 
-Expert 是本地角色预设，包含：
+Expert 是本地可复用的 **任务工作模式（Agent Profile）**，绑定到 Task。它不是模型能力开关，也不应只靠“你是一名资深律师/研究员/工程师”这类身份提示词来工作。
 
-- 名称和简介；
-- System Prompt；
-- 工具权限上限；
-- 可选 Plugin Skills；
-- 可选 Tool 范围。
+一个有效的 Expert 包含：
 
-Expert 绑定到 Task，而不是全局替换 Provider 配置。Expert 的权限只能收紧 Agent Settings 的全局权限，不能提升全局权限。例如全局为 Browser-only 时，Allow all Expert 仍不能获得文件或本机工具权限。
+- 工作方法与输出约束：任务适用范围、处理步骤、业务规则、可信来源、结果结构和检查标准；
+- 可选 Plugin Skills：将可复用的操作流程、知识说明和参考材料注入 Agent；
+- 工具白名单：明确允许当前任务使用的工具，或主动开启 Allow all tools；
+- 权限上限：No tools、Browser only、Assisted、Allow all，始终受全局 Agent Settings 限制。
 
-Copilot 与 CodeBuddy 都注入 Expert System Prompt 和选定的 Plugin Skills。Copilot 的自定义工具及 Code Mode Broker 按当前权限和 Expert Tool 范围过滤。CodeBuddy 的自定义 MCP Tools 与内置工具也按 Expert 范围限制；文件读写能力仍受当前 Workspace 和全局权限约束。
+**权限计算：** 全局 Agent Settings 是硬上限；Expert 的权限上限不能超过全局设置；Expert 默认 Allow all tools 关闭且 Tools 为空，因此实际不允许任何工具。关闭 Allow all tools 时只注册下方白名单中明确选择的工具；打开后才会允许当前全局权限范围内的全部工具。即使开启 Allow all tools，全局 No tools 也不会被提升。
 
-Expert 数据保存在 agent-experts.json。删除 Expert 会将关联 Task 和 Schedule 的 Expert 引用清空，不删除 Task 历史。
+对 CodeBuddy，内置 CLI 工具也采用同样的过滤：Expert 的显式工具选择决定是否开放对应的 Read/Glob/Grep 等能力；No tools 会禁用自定义 MCP 工具和所有内置工具。MCP Server 仅在全局 Allow all 且 Expert 明确开启 Allow all tools 时注册。
+
+Copilot 与 CodeBuddy 都注入 Expert 的工作方法、已选 Plugin Skills 和工具约束。Copilot 自定义工具、MCP 与 Code Mode Broker 按当前全局权限和 Expert 白名单过滤；CodeBuddy 的自定义 MCP Tools 与内置工具也按相同边界限制。工具白名单是实际 Provider 注册前的执行约束，不只是写在 System Prompt 中的约定。
+
+Expert 是否真的提高任务质量，应由同一模型、同一输入、同一工具权限下的对照测试验证。只添加身份或职业头衔，不应被当作能力提升；更值得固化的是模型原本拿不到的业务流程、领域规则、专用 Skills、可靠数据来源和可验证的输出标准。研究背景与当前功能边界见 README 中的研究说明。
+
+Expert 数据保存在 agent-experts.json。旧 Expert 若没有 allowAllTools 字段，迁移时按 false 处理；旧配置的空 Tools 列表不再被解释为允许全部工具。删除 Expert 会将关联 Task 和 Schedule 的 Expert 引用清空，不删除 Task 历史。
 
 ## 定时任务与运行记录
 
