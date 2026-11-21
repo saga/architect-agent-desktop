@@ -244,6 +244,129 @@ describe("AgentMemoryStore", () => {
     store.close();
   });
 
+  it("requires a human confirmation after recording distinct external source domains", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const run = store.prepareDreaming("/workspace/external-facts", [{
+      sessionId: "user-session",
+      messageId: "user-claim",
+      kind: "user",
+      content: "The reporting obligation applies to the portfolio under this regulation.",
+      createdAt: Date.now(),
+    }, {
+      sessionId: "official-source-session",
+      messageId: "official-source-result",
+      kind: "tool",
+      content: "Opened https://regulator.example.gov/notices/2026/42 and retrieved the official notice text.",
+      createdAt: Date.now() + 1,
+    }, {
+      sessionId: "independent-source-session",
+      messageId: "independent-source-result",
+      kind: "tool",
+      content: "Search result and article from https://industry-association.example.org/briefing-42 describing the same notice.",
+      createdAt: Date.now() + 2,
+    }]);
+    const userSource = run!.evidence.find(source => source.kind === "user")!;
+    const officialSource = run!.evidence.find(source => source.messageId === "official-source-result")!;
+    const independentSource = run!.evidence.find(source => source.messageId === "independent-source-result")!;
+    const note = store.saveNote({
+      scope: "/workspace/external-facts",
+      title: "Reporting obligation",
+      content: "The regulation establishes a reporting obligation for this portfolio.",
+      claimType: "external_fact",
+      sourceRefs: [userSource.sourceId],
+    });
+
+    expect(() => store.setValidation(
+      note.id, "validated", 0.99,
+      [userSource.sourceId, officialSource.sourceId, independentSource.sourceId],
+      "/workspace/external-facts",
+    )).toThrow(/External facts cannot be validated by Agent evidence alone/);
+
+    const first = store.recordExternalSources("/workspace/external-facts", {
+      noteId: note.id,
+      baseVersion: note.version,
+      sources: [{
+        sourceRef: officialSource.sourceId,
+        url: "https://regulator.example.gov/notices/2026/42",
+        publisher: "National Regulator",
+        publishedAt: "2026-11-20",
+      }],
+      note: "Official notice plus independent reporting.",
+    });
+    expect(first.externalVerification?.status).toBe("single_domain_sources_recorded");
+    expect(first.validation).toBe("unverified");
+    expect(() => store.confirmExternalVerification("/workspace/external-facts", note.id, first.version))
+      .toThrow(/two different HTTPS domain/);
+
+    const recorded = store.recordExternalSources("/workspace/external-facts", {
+      noteId: note.id,
+      baseVersion: first.version,
+      sources: [{
+        sourceRef: independentSource.sourceId,
+        url: "https://industry-association.example.org/briefing-42",
+        publisher: "Industry Association",
+        publishedAt: "2026-11-21",
+      }],
+      note: "Two separate source domains have been recorded; awaiting human review.",
+    });
+    expect(recorded.externalVerification?.status).toBe("multi_domain_sources_recorded");
+    expect(recorded.validation).toBe("unverified");
+
+    const confirmed = store.confirmExternalVerification("/workspace/external-facts", note.id, recorded.version);
+    expect(confirmed.validation).toBe("validated");
+    expect(confirmed.validationEvidence?.policy).toBe("human_confirmed_multi_domain_source_review");
+    expect(confirmed.validationEvidence?.eligible).toBe(true);
+    expect(confirmed.externalVerification?.sources.map(source => source.domain)).toEqual([
+      "regulator.example.gov",
+      "industry-association.example.org",
+    ]);
+    store.abandonDreaming("/workspace/external-facts", run!.id, "test complete");
+    store.close();
+  });
+
+  it("rejects external source records without same-Workspace tool evidence or public HTTPS URLs", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const run = store.prepareDreaming("/workspace/external-source-guard", [{
+      sessionId: "user-source-guard",
+      messageId: "claim",
+      kind: "user",
+      content: "Confirm this external regulatory statement.",
+      createdAt: Date.now(),
+    }, {
+      sessionId: "tool-source-guard",
+      messageId: "tool-result",
+      kind: "tool",
+      content: "Fetched https://regulator.example.gov/notice.",
+      createdAt: Date.now() + 1,
+    }]);
+    const userSource = run!.evidence.find(source => source.kind === "user")!;
+    const toolSource = run!.evidence.find(source => source.kind === "tool")!;
+    const note = store.saveNote({
+      scope: "/workspace/external-source-guard",
+      title: "External regulatory statement",
+      content: "The regulator published the notice.",
+      claimType: "external_fact",
+      sourceRefs: [userSource.sourceId],
+    });
+    expect(() => store.recordExternalSources("/workspace/external-source-guard", {
+      noteId: note.id, baseVersion: note.version,
+      sources: [{ sourceRef: userSource.sourceId, url: "https://regulator.example.gov/notice", publisher: "Regulator" }],
+      note: "",
+    })).toThrow(/tool evidence/);
+    expect(() => store.recordExternalSources("/workspace/external-source-guard", {
+      noteId: note.id, baseVersion: note.version,
+      sources: [{ sourceRef: toolSource.sourceId, url: "http://regulator.example.gov/notice", publisher: "Regulator" }],
+      note: "",
+    })).toThrow(/public HTTPS/);
+    expect(() => store.recordExternalSources("/workspace/external-source-guard", {
+      noteId: note.id, baseVersion: note.version,
+      sources: [{ sourceRef: toolSource.sourceId, url: "https://127.0.0.1/notice", publisher: "Regulator" }],
+      note: "",
+    })).toThrow(/public HTTPS/);
+    store.abandonDreaming("/workspace/external-source-guard", run!.id, "test complete");
+    store.close();
+  });
+
   it("marks evidence previews when a Transcript message exceeds the per-source limit", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const run = store.prepareDreaming("/workspace/truncated-source", [{
