@@ -2468,7 +2468,7 @@ function registerIpcHandlers(): void {
     const parsed = parseMemoryTaskInput(input, true);
     if (!parsed.success) throw new Error("Invalid Memory Dreaming request.");
     const task = taskForId(parsed.data.taskId);
-    return copilotAgent.getMemoryDreamRunDetail(task.workspacePath, parsed.data.runId!);
+    return copilotAgent.getMemoryDreamRunDetail(task.workspacePath, String(parsed.data.runId));
   });
   ipcMain.handle("agent:memory-abandon", async (event, input: unknown) => {
     assertTrustedSender(event);
