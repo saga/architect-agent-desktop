@@ -47,7 +47,7 @@ describe("A2UI 1.0 Agent message handling", () => {
         surfaceId: "portfolio-surface",
         context: {},
       },
-    }, "task-session-1")).rejects.toThrow(/Invalid action message/);
+    }, "task-session-1")).rejects.toThrow(/Invalid A2UI 1.0 Renderer-to-Agent message/);
   });
 
   it("does not allow an action from another Task session even when the Surface ID matches", async () => {
