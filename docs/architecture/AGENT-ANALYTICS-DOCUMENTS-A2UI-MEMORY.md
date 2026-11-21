@@ -174,7 +174,7 @@ completed / list / rollback
 
 **证据准备**
 
-`memory_dreaming_prepare` 从当前 Workspace 已保存的 Session Transcript 读取 cursor 之后的消息。每次最多处理 160 条（默认 80 条）、证据包不超过 320 KB；单条消息最多 4,000 字符，先做常见密钥/Token 模式脱敏，再保存 source hash、session/message ID、消息类型和时间。证据 ID 按 Run 生成，重试不会与已放弃 Run 的主键冲突。
+`memory_dreaming_prepare` 从当前 Workspace 已保存的 Session Transcript 读取 cursor 之后的消息。每次最多处理 160 条（默认 80 条）、证据包不超过 320 KB；单条消息最多 4,000 字符，先做常见密钥/Token 模式脱敏，再保存 source hash、session/message ID、消息类型和时间。超过单条上限时，证据正文会带 `[TRUNCATED]` 标记；Dreaming 必须先通过 `memory_search_history` 回查原始 Transcript，不能把预览片段当成完整证据。证据 ID 按 Run 生成，重试不会与已放弃 Run 的主键冲突。
 
 游标由 `createdAt + sessionId + messageId` 组成。相同毫秒时间戳的消息仍有稳定顺序，分批整理时不会仅按时间戳而漏掉同一批尾部消息。游标只在事务成功提交时前移。
 
