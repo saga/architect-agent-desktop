@@ -217,9 +217,9 @@ if (!agentTasks.length) {
 let agentExperts = parseAgentExperts(loadJsonValue(AGENT_EXPERTS_PATH));
 if (!agentExperts.length) {
   agentExperts = [
-    { id: "general", name: "通用助手", description: "通用桌面 Agent，适合日常任务和跨领域问题。", systemPrompt: "作为通用桌面 Agent，先明确目标，再使用可用工具完成任务。", toolPermission: "allow-all", skills: [], tools: [], createdAt: now, updatedAt: now },
-    { id: "researcher", name: "研究分析师", description: "擅长网页研究、资料归纳、比较分析和报告整理。", systemPrompt: "你是一名严谨的研究分析师。优先使用一手资料，区分事实、推断和不确定性，保留来源与证据。先研究再综合，不要编造引用。", toolPermission: "assisted", skills: [], tools: [], createdAt: now, updatedAt: now },
-    { id: "developer", name: "开发工程师", description: "擅长代码阅读、实现、测试和调试。", systemPrompt: "你是一名资深软件工程师。先理解现有架构和代码约定，优先做范围明确的最小变更，执行相关类型检查和测试，并报告实际验证结果。", toolPermission: "allow-all", skills: [], tools: [], createdAt: now, updatedAt: now },
+    { id: "general", name: "通用助手", description: "通用桌面 Agent，适合日常任务和跨领域问题。", systemPrompt: "作为通用桌面 Agent，先明确目标，再使用可用工具完成任务。", toolPermission: "allow-all", allowAllTools: false, skills: [], tools: [], createdAt: now, updatedAt: now },
+    { id: "researcher", name: "研究分析师", description: "擅长网页研究、资料归纳、比较分析和报告整理。", systemPrompt: "你是一名严谨的研究分析师。优先使用一手资料，区分事实、推断和不确定性，保留来源与证据。先研究再综合，不要编造引用。", toolPermission: "assisted", allowAllTools: false, skills: [], tools: [], createdAt: now, updatedAt: now },
+    { id: "developer", name: "开发工程师", description: "擅长代码阅读、实现、测试和调试。", systemPrompt: "你是一名资深软件工程师。先理解现有架构和代码约定，优先做范围明确的最小变更，执行相关类型检查和测试，并报告实际验证结果。", toolPermission: "allow-all", allowAllTools: false, skills: [], tools: [], createdAt: now, updatedAt: now },
   ];
   writeJsonAtomic(AGENT_EXPERTS_PATH, agentExperts);
 }
@@ -269,9 +269,9 @@ function loadWorkspaceDocument(): WorkspaceDocument {
   catch { return parseWorkspaceDocument(workspaceLayout); }
 }
 let workspaceDocument = loadWorkspaceDocument();
-const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", toolPermission: "browser-only", systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt." };
+const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", toolPermission: "none", systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt." };
 function loadAgentSettings(): AgentSettings {
-  try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" || raw.thinkingLevel === "xhigh" ? raw.thinkingLevel : "medium", toolPermission: raw.toolPermission === "assisted" || raw.toolPermission === "allow-all" ? raw.toolPermission : "browser-only", contextWindow: typeof raw.contextWindow === "number" && Number.isSafeInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined, copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? (raw.systemPrompt.trim() ? raw.systemPrompt.slice(0, 12000) : DEFAULT_SETTINGS.systemPrompt) : DEFAULT_SETTINGS.systemPrompt }; } catch { return { ...DEFAULT_SETTINGS }; }
+  try { const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf8")) as Partial<AgentSettings>; return { ...DEFAULT_SETTINGS, ...raw, provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot", thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" || raw.thinkingLevel === "xhigh" ? raw.thinkingLevel : "medium", toolPermission: raw.toolPermission === "none" || raw.toolPermission === "browser-only" || raw.toolPermission === "assisted" || raw.toolPermission === "allow-all" ? raw.toolPermission : "none", contextWindow: typeof raw.contextWindow === "number" && Number.isSafeInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined, copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "", codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "", systemPrompt: typeof raw.systemPrompt === "string" ? (raw.systemPrompt.trim() ? raw.systemPrompt.slice(0, 12000) : DEFAULT_SETTINGS.systemPrompt) : DEFAULT_SETTINGS.systemPrompt }; } catch { return { ...DEFAULT_SETTINGS }; }
 }
 function taskForId(taskId?: string): AgentTask {
   const task = agentTasks.find(item => item.id === (taskId ?? activeAgentTaskId));
@@ -412,7 +412,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const text=typeof result === "string" ? result : JSON.stringify(result);
     return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
-}, agentSettings, (skills) => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return [readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, expert?.tools.length ? expert.tools : undefined), readEnabledAgentSkillInstructions(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH)].filter(Boolean).join("\n\n"); }, workspaceProject.path, (type, data, status, payloadComplete) => recordAgentTrace(type, data, status, payloadComplete), (() => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return expert ? { systemPrompt: expert.systemPrompt, toolPermission: expert.toolPermission, skills: expert.skills, tools: expert.tools } : null; })(), () => listMcpServers(MCP_CONFIG_PATH));
+}, agentSettings, (skills) => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return [readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, expert?.tools.length ? expert.tools : undefined), readEnabledAgentSkillInstructions(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH)].filter(Boolean).join("\n\n"); }, workspaceProject.path, (type, data, status, payloadComplete) => recordAgentTrace(type, data, status, payloadComplete), (() => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return expert ? { systemPrompt: expert.systemPrompt, toolPermission: expert.toolPermission, allowAllTools: expert.allowAllTools, skills: expert.skills, tools: expert.tools } : null; })(), () => listMcpServers(MCP_CONFIG_PATH));
 function persistAgentTasks(): void {
   agentTasks.sort((a, b) => b.updatedAt - a.updatedAt);
   writeJsonAtomic(AGENT_TASKS_PATH, agentTasks);
@@ -503,6 +503,7 @@ async function activateAgentTask(taskId: string, publish = true, scheduled = fal
   await copilotAgent.setTaskContext(expert ? {
     systemPrompt: expert.systemPrompt,
     toolPermission: expert.toolPermission,
+      allowAllTools: expert.allowAllTools,
     skills: expert.skills,
     tools: expert.tools,
   } : null);
@@ -1832,7 +1833,8 @@ function registerIpcHandlers(): void {
       name: z.string().trim().min(1).max(80),
       description: z.string().max(500),
       systemPrompt: z.string().max(12000),
-      toolPermission: z.enum(["browser-only", "assisted", "allow-all"]),
+      toolPermission: z.enum(["none", "browser-only", "assisted", "allow-all"]),
+      allowAllTools: z.boolean().default(false),
       skills: z.array(z.string().min(1).max(200)).max(100),
       tools: z.array(z.string().min(1).max(100)).max(100),
     }).safeParse(input);
@@ -2320,7 +2322,7 @@ function registerIpcHandlers(): void {
       copilotModel: z.string().max(200),
       codebuddyModel: z.string().max(200),
       thinkingLevel: z.enum(["low", "medium", "high", "xhigh"]),
-      toolPermission: z.enum(["browser-only", "assisted", "allow-all"]),
+      toolPermission: z.enum(["none", "browser-only", "assisted", "allow-all"]),
       contextWindow: z.number().int().positive().optional(),
       systemPrompt: z.string().max(12000),
     }).safeParse(input);
