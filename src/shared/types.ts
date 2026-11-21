@@ -306,6 +306,7 @@ export interface BrowserApi {
   agentMemoryRollbackDreaming(taskId: string, runId: string, reason: string): Promise<void>;
   agentMemorySaveDreamSchedule(taskId: string, schedule: { enabled: boolean; intervalMinutes: number }): Promise<AgentMemoryDreamSchedule>;
   agentMemoryReindexEmbeddings(taskId: string, limit?: number): Promise<{ enabled: boolean; indexed: number; remaining: number; total?: number; model?: string; warning?: string; message?: string }>;
+  agentMemoryCheckEmbedding(config: { provider: "ollama"; baseUrl: string; model: string }): Promise<{ available: boolean; model: string; dimensions: number }>;
   agentMemoryRecordExternalSources(taskId: string, input: { noteId: string; baseVersion: number; sources: Array<{ sourceRef: string; url: string; publisher: string; publishedAt?: string | null }>; note: string }): Promise<AgentMemoryNoteView>;
   agentMemoryConfirmExternalVerification(taskId: string, noteId: string, baseVersion: number): Promise<AgentMemoryNoteView>;
   copilotCancel(): Promise<void>;
