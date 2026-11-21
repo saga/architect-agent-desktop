@@ -352,6 +352,13 @@ export class AgentMemoryStore {
     return row && row.status === "active" ? this.toNote(row) : null;
   }
 
+  getNoteForEmbedding(noteId:string,scope:string|null):{id:string;title:string;content:string;contentHash:string}|null{
+    const row=this.database.prepare(
+      "SELECT id,title,content,content_hash FROM memory_notes WHERE id=? AND scope_key=? AND status='active' AND (expires_at IS NULL OR expires_at>?)"
+    ).get({},noteId,normalizeScope(scope),Date.now()) as Record<string,unknown>|undefined;
+    return row?{id:String(row.id),title:String(row.title),content:String(row.content),contentHash:String(row.content_hash)}:null;
+  }
+
   upsertEmbedding(input:{noteId:string;scope:string|null;provider:string;model:string;contentHash:string;vector:number[]}):boolean{
     const scopeKey=normalizeScope(input.scope);
     const note=this.getNoteRow(input.noteId,scopeKey);
