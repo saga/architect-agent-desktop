@@ -165,10 +165,13 @@ export class AgentMemoryStore {
         SELECT n.* FROM memory_notes n
         JOIN memory_notes_fts ON memory_notes_fts.id = n.id
         WHERE n.scope_key = ? AND n.status = 'active' AND memory_notes_fts MATCH ?
-        ORDER BY n.pinned DESC, bm25(memory_notes_fts), n.updated_at DESC
+        ORDER BY n.pinned DESC, CASE n.validation WHEN 'validated' THEN 0 WHEN 'unverified' THEN 1 ELSE 2 END, bm25(memory_notes_fts), n.updated_at DESC
         LIMIT ?
       `).all(key, fts, Math.max(1, Math.min(limit, 30))) as Record<string, unknown>[];
     } catch {
+      rows = [];
+    }
+    if (!rows.length) {
       const like = "%" + term.replace(/[%_]/g, "") + "%";
       rows = this.database.prepare(`
         SELECT * FROM memory_notes
@@ -262,7 +265,7 @@ export class AgentMemoryStore {
     for (const item of representations) {
       lines.push("### Knowledge: " + item.title + " [" + item.slug + "]", item.content.slice(0, 2_000));
     }
-    const selected = notes.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.accessCount - a.accessCount || b.updatedAt - a.updatedAt);
+    const selected = notes.sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.validation === "validated") - Number(a.validation === "validated") || Number(a.validation === "disputed") - Number(b.validation === "disputed") || b.accessCount - a.accessCount || b.updatedAt - a.updatedAt);
     for (const note of selected) {
       const marker = note.validation === "validated" ? "validated" : note.validation === "disputed" ? "disputed" : "unverified";
       lines.push("- [" + marker + (note.pinned ? ", pinned" : "") + "] " + note.title + " (id: " + note.id + "): " + note.content.slice(0, 500));
