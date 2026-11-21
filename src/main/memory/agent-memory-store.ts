@@ -209,7 +209,7 @@ export class AgentMemoryStore {
     const unchanged = Boolean(before && String(before.content) === content && String(before.title) === title);
     const validation: MemoryValidation = unchanged && isValidation(before?.validation) ? before.validation : input.validation === "disputed" ? "disputed" : "unverified";
     const sourceRefs = [...new Set([...parseJson<string[]>(before?.source_refs_json, []), ...safeIds(input.sourceRefs)])].slice(-100);
-    const source = sourceRefs.length ? this.getSourceById(sourceRefs[0]!) : null;
+    const source = sourceRefs.length ? this.getSourceById(sourceRefs[0]!, input.scope) : null;
     this.database.prepare(
       "INSERT INTO memory_notes(id,scope_key,title,content,tags_json,validation,confidence,pinned,status,source_session_id,source_trace_id," +
       "created_at,updated_at,last_accessed_at,access_count,version,importance,expires_at,source_refs_json,last_verified_at,superseded_by_id,content_hash,last_dreamed_at) " +
@@ -274,39 +274,44 @@ export class AgentMemoryStore {
     return rows.map(row=>this.toNote(row));
   }
 
-  setPinned(id:string,pinned:boolean):AgentMemoryNote{
-    const existing=this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND status='active'").get({}, id) as Record<string,unknown>|undefined;
-    if(!existing)throw new Error("Memory note 不存在或已归档。");
+  setPinned(id:string,pinned:boolean,scope:string|null=null):AgentMemoryNote{
+    const scopeKey=normalizeScope(scope);
+    const existing=this.getNoteRow(id,scopeKey);
+    if(!existing||existing.status!=="active")throw new Error("当前 Workspace 中不存在该活动 Memory Note。");
     const version=Number(existing.version)+1;
-    this.database.prepare("UPDATE memory_notes SET pinned=?,updated_at=?,version=? WHERE id=?").run({}, pinned?1:0,Date.now(),version,id);
-    const row=this.database.prepare("SELECT * FROM memory_notes WHERE id=?").get({}, id) as Record<string,unknown>;
-    this.saveVersion(String(row.scope_key),"note",id,version,row,null);
+    this.database.prepare("UPDATE memory_notes SET pinned=?,updated_at=?,version=? WHERE id=? AND scope_key=?")
+      .run({},pinned?1:0,Date.now(),version,id,scopeKey);
+    const row=this.getNoteRow(id,scopeKey) as Record<string,unknown>;
+    this.saveVersion(scopeKey,"note",id,version,row,null);
     return this.toNote(row);
   }
 
-  setValidation(id:string,validation:MemoryValidation,confidence:number|undefined,sourceRefs:string[]):AgentMemoryNote{
+  setValidation(id:string,validation:MemoryValidation,confidence:number|undefined,sourceRefs:string[],scope:string|null=null):AgentMemoryNote{
+    const scopeKey=normalizeScope(scope);
     if(!isValidation(validation))throw new Error("Invalid Memory validation state.");
     if(!sourceRefs.length)throw new Error("修改 Memory 验证状态必须引用至少一条证据。");
-    for(const ref of sourceRefs)if(!this.getSourceById(ref))throw new Error("Memory 验证证据不存在："+ref);
-    const existing=this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND status='active'").get({}, id) as Record<string,unknown>|undefined;
-    if(!existing)throw new Error("Memory note 不存在或已归档。");
+    for(const ref of sourceRefs)if(!this.getSourceById(ref,scope))throw new Error("当前 Workspace 的 Memory 验证证据不存在："+ref);
+    const existing=this.getNoteRow(id,scopeKey);
+    if(!existing||existing.status!=="active")throw new Error("当前 Workspace 中不存在该活动 Memory Note。");
     const version=Number(existing.version)+1,now=Date.now();
     const refs=[...new Set([...parseJson<string[]>(existing.source_refs_json,[]),...sourceRefs])].slice(-100);
-    this.database.prepare("UPDATE memory_notes SET validation=?,confidence=?,last_verified_at=?,source_refs_json=?,updated_at=?,version=? WHERE id=?")
-      .run({}, validation,clamp(confidence??0.5,0,1),validation==="validated"?now:(typeof existing.last_verified_at==="number"?existing.last_verified_at:null),JSON.stringify(refs),now,version,id);
-    const row=this.database.prepare("SELECT * FROM memory_notes WHERE id=?").get({}, id) as Record<string,unknown>;
-    this.saveVersion(String(row.scope_key),"note",id,version,row,null);
+    this.database.prepare("UPDATE memory_notes SET validation=?,confidence=?,last_verified_at=?,source_refs_json=?,updated_at=?,version=? WHERE id=? AND scope_key=?")
+      .run({},validation,clamp(confidence??0.5,0,1),validation==="validated"?now:(typeof existing.last_verified_at==="number"?existing.last_verified_at:null),JSON.stringify(refs),now,version,id,scopeKey);
+    const row=this.getNoteRow(id,scopeKey) as Record<string,unknown>;
+    this.saveVersion(scopeKey,"note",id,version,row,null);
     return this.toNote(row);
   }
 
-  archive(id:string):void{
-    const existing=this.database.prepare("SELECT * FROM memory_notes WHERE id=? AND status='active'").get({}, id) as Record<string,unknown>|undefined;
-    if(!existing)throw new Error("Memory note 不存在或已归档。");
+  archive(id:string,scope:string|null=null):void{
+    const scopeKey=normalizeScope(scope);
+    const existing=this.getNoteRow(id,scopeKey);
+    if(!existing||existing.status!=="active")throw new Error("当前 Workspace 中不存在该活动 Memory Note。");
     if(Number(existing.pinned))throw new Error("置顶 Memory 必须先取消置顶才能归档。");
     const version=Number(existing.version)+1;
-    this.database.prepare("UPDATE memory_notes SET status='archived',pinned=0,updated_at=?,version=? WHERE id=?").run({}, Date.now(),version,id);
-    const row=this.database.prepare("SELECT * FROM memory_notes WHERE id=?").get({}, id) as Record<string,unknown>;
-    this.saveVersion(String(row.scope_key),"note",id,version,row,null);
+    this.database.prepare("UPDATE memory_notes SET status='archived',pinned=0,updated_at=?,version=? WHERE id=? AND scope_key=?")
+      .run({},Date.now(),version,id,scopeKey);
+    const row=this.getNoteRow(id,scopeKey) as Record<string,unknown>;
+    this.saveVersion(scopeKey,"note",id,version,row,null);
   }
 
   publishRepresentation(input:{scope?:string|null;slug:string;title:string;content:string;sourceNoteIds?:string[]}):AgentMemoryRepresentation{
@@ -649,8 +654,11 @@ export class AgentMemoryStore {
     return {archived:Number(result.changes)};
   }
 
-  getSourceById(sourceId:string):StoredMemorySource|null{
-    const row=this.database.prepare("SELECT * FROM memory_dream_sources WHERE source_id=? ORDER BY created_at DESC LIMIT 1").get({}, sourceId) as Record<string,unknown>|undefined;
+  getSourceById(sourceId:string,scope?:string|null):StoredMemorySource|null{
+    const row=scope===undefined
+      ? this.database.prepare("SELECT * FROM memory_dream_sources WHERE source_id=? ORDER BY created_at DESC LIMIT 1").get({},sourceId) as Record<string,unknown>|undefined
+      : this.database.prepare("SELECT s.* FROM memory_dream_sources s JOIN memory_dream_runs r ON r.id=s.run_id WHERE s.source_id=? AND r.scope_key=? ORDER BY s.created_at DESC LIMIT 1")
+        .get({},sourceId,normalizeScope(scope)) as Record<string,unknown>|undefined;
     return row?this.toSource(row):null;
   }
 
