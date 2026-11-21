@@ -117,8 +117,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeClaudePath(value: string): string {
   const withoutPrefix = value.startsWith("./") ? value.slice(2) : value;
+  if (withoutPrefix === ".") return ".";
   const normalized = withoutPrefix.replace(/\/+$/, "");
-  if (!normalized || normalized === ".") return ".";
+  if (!normalized) throw new Error("Claude Plugin 组件路径不能为空。");
   return resourcePath.parse(normalized);
 }
 
@@ -172,13 +173,25 @@ function normalizeClaudePluginDirectory(root: string): PluginManifest {
   const version = typeof raw.version === "string" && raw.version.trim() ? raw.version.trim().slice(0, 100) : "0.0.0";
   const description = typeof raw.description === "string" ? raw.description.slice(0, 500) : undefined;
 
-  const skills = manifestPaths(raw.skills, "skills", "skills")
-    .flatMap(entry => existsSync(path.resolve(root, ...entry.split("/"))) ? collectMarkdownFiles(root, entry, "skill") : []);
+  const skillPaths = manifestPaths(raw.skills, "skills", "skills");
+  const skills = skillPaths.flatMap(entry => {
+    const target = path.resolve(root, ...entry.split("/"));
+    if (!existsSync(target)) {
+      if (raw.skills !== undefined) throw new Error("Claude Plugin skills 路径不存在：" + entry);
+      return [];
+    }
+    if (!lstatSync(resolvePluginEntry(root, entry)).isDirectory()) throw new Error("Claude Plugin skills 必须指向目录：" + entry);
+    return collectMarkdownFiles(root, entry, "skill");
+  });
   const commands: string[] = [];
   const inlineCommands: Array<{ name: string; content: string }> = [];
   if (raw.commands === undefined || typeof raw.commands === "string" || Array.isArray(raw.commands)) {
     for (const entry of manifestPaths(raw.commands, "commands", "commands")) {
-      if (existsSync(path.resolve(root, ...entry.split("/")))) commands.push(...collectMarkdownFiles(root, entry, "markdown"));
+      if (!existsSync(path.resolve(root, ...entry.split("/")))) {
+        if (raw.commands !== undefined) throw new Error("Claude Plugin commands 路径不存在：" + entry);
+        continue;
+      }
+      commands.push(...collectMarkdownFiles(root, entry, "markdown"));
     }
   } else if (isRecord(raw.commands)) {
     for (const [commandName, commandValue] of Object.entries(raw.commands)) {
