@@ -188,7 +188,8 @@ export function projectAgentTrajectory(events: readonly AgentTraceEventLike[]): 
           row.events.push(event);
           const resultData = record(data.result);
           const nestedResultData = record(resultData.data);
-          const dataUsage = usage(data.usage ?? resultData.usage ?? nestedResultData.usage);
+          const snapshotUsage = usage(record(data.snapshot).usage);
+          const dataUsage = usage(data.usage ?? resultData.usage ?? nestedResultData.usage) ?? snapshotUsage;
           if (dataUsage) row.usage = dataUsage;
           const details = providerDetails([event]);
           row.provider = row.provider ?? details.provider;
