@@ -356,7 +356,7 @@ export default function MemoryManager() {
           note.externalVerification?.status === "multi_domain_sources_recorded" &&
           <Popconfirm
             title="确认已逐一打开并核对全部来源？"
-            description="点击确认表示你已亲自打开每个不同域名的来源，核对原文、日期和上下文。系统只记录这项人工声明，不会自动证明网页内容真实。"
+            description="点击确认表示你已亲自打开每个不同注册域名的来源，核对原文、日期和上下文；同一机构的不同子域名不算独立来源。系统只记录这项人工声明，不会自动证明网页内容真实。"
             okText="确认我已核对"
             cancelText="返回"
             onConfirm={() => void confirmExternalVerification(note)}
