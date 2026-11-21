@@ -392,7 +392,7 @@ export class AgentMemoryStore {
       const sourceId=createHash("sha256").update(runId+"\\0"+sessionId+"\\0"+messageId).digest("hex").slice(0,32);
       if(deduped.has(sourceId))continue;
       totalChars+=content.length;
-      if(totalChars>MAX_DREAM_EVIDENCE_CHARS)throw new Error("Dreaming 证据包超过 1 MB，请缩小来源数量或单条消息长度。");
+      if(totalChars>MAX_DREAM_EVIDENCE_CHARS)throw new Error("Dreaming 证据包超过 320 KB，请缩小来源数量或单条消息长度。");
       deduped.set(sourceId,{sourceId,sessionId,messageId,kind:String(source.kind??"message").slice(0,40),content,contentHash:createHash("sha256").update(content).digest("hex"),createdAt});
     }
     const sources=[...deduped.values()].sort((a,b)=>
