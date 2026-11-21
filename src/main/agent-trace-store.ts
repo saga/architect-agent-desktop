@@ -114,6 +114,30 @@ export class AgentTraceStore {
       );
       CREATE INDEX IF NOT EXISTS idx_session_messages_order ON session_messages(session_id, created_at, id);
     `);
+    try {
+      this.database.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS session_messages_fts USING fts5(
+          session_id UNINDEXED, id UNINDEXED, kind UNINDEXED, content
+        );
+        CREATE TRIGGER IF NOT EXISTS session_messages_ai AFTER INSERT ON session_messages BEGIN
+          INSERT INTO session_messages_fts(session_id, id, kind, content)
+          VALUES (new.session_id, new.id, new.kind, new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS session_messages_au AFTER UPDATE ON session_messages BEGIN
+          DELETE FROM session_messages_fts WHERE session_id=old.session_id AND id=old.id;
+          INSERT INTO session_messages_fts(session_id, id, kind, content)
+          VALUES (new.session_id, new.id, new.kind, new.content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS session_messages_ad AFTER DELETE ON session_messages BEGIN
+          DELETE FROM session_messages_fts WHERE session_id=old.session_id AND id=old.id;
+        END;
+        INSERT INTO session_messages_fts(session_id, id, kind, content)
+        SELECT m.session_id, m.id, m.kind, m.content FROM session_messages m
+        WHERE NOT EXISTS (
+          SELECT 1 FROM session_messages_fts f WHERE f.session_id=m.session_id AND f.id=m.id
+        );
+      `);
+    } catch { /* LIKE search remains available when FTS5 is unavailable. */ }
     if (!inMemory) try { chmodSync(filename, 0o600); } catch { /* Platform permissions may differ. */ }
   }
 
@@ -188,6 +212,35 @@ export class AgentTraceStore {
       (clauses.length ? "WHERE " + clauses.join(" AND ") + " " : "") + "ORDER BY timestamp DESC, sequence DESC LIMIT ?"
     ).all(...values, limit) as Array<Record<string, unknown>>;
     return rows.map((row) => ({ ...row, payloadComplete: row.payloadComplete === 1, data: JSON.parse(String(row.dataJson)), dataJson: undefined }));
+  }
+
+  searchSessionMessages(workspacePath: string | null, query: string, limit = 20): Array<Record<string, unknown>> {
+    if (!this.database) throw new Error("Agent trace store is closed.");
+    const safeLimit = Math.max(1, Math.min(50, Math.floor(limit)));
+    const term = query.trim().slice(0, 200);
+    if (!term) return [];
+    try {
+      const match = term.split(/\\s+/).filter(Boolean).map(token => '"' + token.replace(/"/g, '""') + '"').join(" AND ");
+      return this.database.prepare(`
+        SELECT m.session_id AS sessionId, m.id, m.kind,
+          snippet(session_messages_fts, 3, '[', ']', '…', 16) AS snippet,
+          m.content, m.created_at AS createdAt
+        FROM session_messages_fts
+        JOIN session_messages m ON m.session_id=session_messages_fts.session_id AND m.id=session_messages_fts.id
+        JOIN sessions s ON s.id=m.session_id
+        WHERE s.workspace_path IS ? AND session_messages_fts MATCH ?
+        ORDER BY bm25(session_messages_fts), m.created_at DESC LIMIT ?
+      `).all(workspacePath, match, safeLimit) as Array<Record<string, unknown>>;
+    } catch {
+      const like = "%" + term.replace(/[%_]/g, "") + "%";
+      return this.database.prepare(`
+        SELECT m.session_id AS sessionId, m.id, m.kind, substr(m.content, 1, 4000) AS snippet,
+          m.created_at AS createdAt
+        FROM session_messages m JOIN sessions s ON s.id=m.session_id
+        WHERE s.workspace_path IS ? AND m.content LIKE ?
+        ORDER BY m.created_at DESC LIMIT ?
+      `).all(workspacePath, like, safeLimit) as Array<Record<string, unknown>>;
+    }
   }
 
   saveSessionItems(sessionId: string, workspacePath: string | null, items: Array<{ id: string; kind: string; content: string; toolName?: string; toolState?: string; createdAt: number }>): void {
