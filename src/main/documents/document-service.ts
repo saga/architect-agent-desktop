@@ -114,7 +114,7 @@ async function parseWord(filePath: string, buffer: Buffer, extension: string): P
     };
   }
   const loaded = await import("word-extractor");
-  const WordExtractor = (loaded.default ?? loaded) as unknown as new () => { extract(input: string | Buffer): Promise<{ getBody(): string }> };
+  const WordExtractor = loaded.default;
   const extractor = new WordExtractor();
   const document = await extractor.extract(buffer);
   const text = document.getBody();
