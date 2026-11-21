@@ -224,7 +224,7 @@ export default function PureAgentWorkspace({ browserState }: PureAgentWorkspaceP
           rightPaneVisible={preferences.rightPanelVisible}
         />
       </>}
-      {section === "schedule" && <ScheduleManager snapshot={snapshot} onChanged={() => void refresh()} />}
+      {section === "schedule" && <ScheduleManager snapshot={snapshot} onChanged={() => void refresh()} onOpenTask={taskId => void activateTask(taskId)} />}
       {section === "expert" && <ExpertManager onChanged={() => void refresh()} />}
     </section>
     {preferences.rightPanelVisible && <>
