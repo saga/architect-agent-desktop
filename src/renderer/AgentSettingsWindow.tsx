@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Form, Input, Radio, Select, Spin, message, List, Switch, Popconfirm, Tag, Divider } from "antd";
-import { ApiOutlined, AppstoreOutlined, CodeOutlined, SettingOutlined } from "@ant-design/icons";
+import { ApiOutlined, AppstoreOutlined, CodeOutlined, DatabaseOutlined, SettingOutlined } from "@ant-design/icons";
+import MemoryManager from "./MemoryManager";
 import { AgentSkillsPanel, McpSettingsPanel } from "./AgentExtensionsSettings";
 import type { AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission, PluginSummary } from "../shared/types";
 
@@ -11,7 +12,7 @@ const DEFAULT_SETTINGS: AgentSettings = {
 
 export default function AgentSettingsWindow() {
   const [settings, setSettings] = useState<AgentSettings>(DEFAULT_SETTINGS);
-  const [activeSection, setActiveSection] = useState<"agent" | "mcp" | "skills" | "plugins">("agent");
+  const [activeSection, setActiveSection] = useState<"agent" | "mcp" | "skills" | "memory" | "plugins">("agent");
   const [models, setModels] = useState<AgentModelInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [inspecting, setInspecting] = useState(false);
@@ -133,6 +134,7 @@ export default function AgentSettingsWindow() {
           <Button type="text" className={"settings-nav-item" + (activeSection === "agent" ? " active" : "")} icon={<SettingOutlined />} onClick={() => setActiveSection("agent")}>Agent</Button>
           <Button type="text" className={"settings-nav-item" + (activeSection === "mcp" ? " active" : "")} icon={<ApiOutlined />} onClick={() => setActiveSection("mcp")}>MCP Servers</Button>
           <Button type="text" className={"settings-nav-item" + (activeSection === "skills" ? " active" : "")} icon={<CodeOutlined />} onClick={() => setActiveSection("skills")}>Agent Skills</Button>
+          <Button type="text" className={"settings-nav-item" + (activeSection === "memory" ? " active" : "")} icon={<DatabaseOutlined />} onClick={() => setActiveSection("memory")}>Memory & Dreaming</Button>
           <div className="settings-sidebar-label settings-sidebar-label-spaced">EXTENSIONS</div>
           <Button type="text" className={"settings-nav-item" + (activeSection === "plugins" ? " active" : "")} icon={<AppstoreOutlined />} onClick={() => setActiveSection("plugins")}>Plugins</Button>
         </nav>
@@ -217,6 +219,7 @@ export default function AgentSettingsWindow() {
       </>}
       {activeSection === "mcp" && <McpSettingsPanel />}
       {activeSection === "skills" && <AgentSkillsPanel />}
+      {activeSection === "memory" && <MemoryManager />}
       {activeSection === "plugins" && <section className="plugin-manager">
         <div className="plugin-manager-heading">
           <div><h2>插件管理</h2><p>目录中需要包含 manifest.json。可参考仓库 examples/plugins/research-assistant。插件只能提供 Skills、宿主工具引用、工作流和宿主视图声明，不能运行任意代码。</p></div>
