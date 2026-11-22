@@ -108,7 +108,6 @@ export interface AgentMemoryNoteView {
   validation: "unverified" | "validated" | "disputed";
   claimType: "user_preference" | "user_intent" | "decision" | "project_fact" | "workflow_pattern" | "external_fact" | "unknown";
   preference?: AgentStructuredPreference | null;
-  preference?: AgentStructuredPreference | null;
   validationEvidence: { claimType: string; sourceCount: number; independentSessions: number; directUserSources: number; toolObservations: number; eligible: boolean; policy: string; reason: string } | null;
   externalVerification: { status: "single_domain_sources_recorded" | "multi_domain_sources_recorded"; sources: Array<{ sourceRef: string; url: string; domain: string; publisher: string; publishedAt: string | null }>; recordedAt: number; note: string } | null;
   confidence: number;
