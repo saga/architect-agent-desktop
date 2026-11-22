@@ -37,14 +37,18 @@
 
 ## 验证清单
 
-- [ ] TypeScript typecheck
-- [ ] 全部 Vitest 单元测试
-- [ ] Layout Engine 独立测试
+- [x] TypeScript typecheck
+- [x] 全部 Vitest 单元测试
+- [x] Layout Engine 独立测试
 - [ ] CodeBuddy 真实运行验证：Expert 只授权 Workspace read 时，不能读取 Workspace 外文件
 - [ ] Copilot / CodeBuddy 各自的 Agent Run 期间切换 Tab 验证
 - [ ] Sidepanel：左右/上下停靠、隐藏、窗口缩放、Tab Group 切换、浮动/重新停靠
 - [ ] Pure Agent：右侧 Browser 显示/隐藏、切换 Files/Results、窗口缩放
 - [ ] macOS 与 Windows：UtilityProcess 取消/超时及孤儿进程验证
+
+## CI 更新记录
+
+- 2026-11-22：GitHub Actions Build run [44970135119](https://github.com/saga/architect-agent-desktop/actions/runs/44970135119) 的 `validate` job 已通过：npm ci、TypeScript typecheck、全部 Vitest、应用 build、Layout Engine 独立测试均成功。Windows/macOS 打包仍以该 run 最终 job 结论为准。
 
 ## 本轮完成定义
 
