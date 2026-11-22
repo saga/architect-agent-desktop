@@ -33,7 +33,10 @@ export function createRequestMemoryContext(prompt:string,candidates:readonly Age
  const selected:ScoredNote[]=[];
  for(const note of candidates){
   if(note.validation==="disputed"||note.status!=="active")continue;
-  const haystack=[note.title,note.content,...note.tags].join(" ").toLocaleLowerCase();
+  if(note.preference&&(note.preference.sensitivity==="sensitive"||
+    note.preference.validFrom>Date.now()||(note.preference.validUntil!==null&&note.preference.validUntil<=Date.now())))continue;
+  const preferenceMetadata=note.preference?[note.preference.domain,note.preference.key,note.preference.operator,note.preference.value,...note.preference.appliesTo].join(" "):"";
+  const haystack=[note.title,note.content,...note.tags,preferenceMetadata].join(" ").toLocaleLowerCase();
   const preference=note.claimType==="user_preference"||note.claimType==="user_intent";
   const matchesTopic=topicTerms.length>0&&containsAny(haystack,topicTerms);
   const matchesQuery=queryTerms.length>0&&containsAny(haystack,queryTerms);
@@ -45,7 +48,7 @@ export function createRequestMemoryContext(prompt:string,candidates:readonly Age
  selected.sort((a,b)=>b.score-a.score||b.note.updatedAt-a.note.updatedAt);
  const preferences=selected.filter(item=>item.preference).slice(0,4);
  const workspaceContext=selected.filter(item=>!item.preference).slice(0,4);
- const toPayload=(items:ScoredNote[])=>items.map(({note})=>({id:note.id,title:note.title,content:note.content.replace(/\s+/g," ").slice(0,420),status:note.validation,claimType:note.claimType,version:note.version}));
+ const toPayload=(items:ScoredNote[])=>items.map(({note})=>({id:note.id,title:note.title,content:note.content.replace(/\s+/g," ").slice(0,420),status:note.validation,claimType:note.claimType,version:note.version,...(note.preference?{preference:note.preference}:{})}));
  let payload={userPreferences:toPayload(preferences),workspaceContext:toPayload(workspaceContext)};
  let serialized=JSON.stringify(payload);
  const budget=Math.max(900,Math.min(8000,Math.floor(maxChars)));
