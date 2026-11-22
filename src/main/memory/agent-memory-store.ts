@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { AgentStructuredPreference, AgentPreferenceOperator, AgentPreferenceStrength, AgentPreferencePriority } from "../../shared/types.js";
+import type { AgentStructuredPreference, AgentPreferenceOperator, AgentPreferenceStrength, AgentPreferencePriority, AgentUserGoal, AgentUserGoalLevel, AgentUserGoalStatus } from "../../shared/types.js";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -254,7 +254,13 @@ export class AgentMemoryStore {
       "CREATE TABLE IF NOT EXISTS memory_relationships (" +
       "id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,source_note_id TEXT NOT NULL,target_note_id TEXT NOT NULL,relationship TEXT NOT NULL," +
       "details TEXT NOT NULL DEFAULT '',source_refs_json TEXT NOT NULL DEFAULT '[]',created_at INTEGER NOT NULL," +
-      "UNIQUE(scope_key,source_note_id,target_note_id,relationship));"
+      "UNIQUE(scope_key,source_note_id,target_note_id,relationship));" +
+      "CREATE TABLE IF NOT EXISTS agent_goals (" +
+      "id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,task_id TEXT,level TEXT NOT NULL,objective TEXT NOT NULL," +
+      "expected_outcome TEXT NOT NULL DEFAULT '',constraints_json TEXT NOT NULL DEFAULT '[]',acceptance_criteria_json TEXT NOT NULL DEFAULT '[]'," +
+      "status TEXT NOT NULL DEFAULT 'active',confidence REAL NOT NULL DEFAULT 0.5,evidence_json TEXT NOT NULL DEFAULT '[]'," +
+      "source_session_id TEXT,source_trace_id TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,version INTEGER NOT NULL DEFAULT 1);" +
+      "CREATE INDEX IF NOT EXISTS idx_agent_goals_scope_task_status ON agent_goals(scope_key,task_id,status,updated_at DESC);"
     );
   }
 
@@ -318,6 +324,91 @@ export class AgentMemoryStore {
         "WHERE NOT EXISTS(SELECT 1 FROM memory_notes_fts f WHERE f.id=n.id);"
       );
     } catch { /* LIKE search remains available without FTS5. */ }
+  }
+
+  listGoals(scope: string | null, taskId: string | null, includeInactive = false, limit = 12): AgentUserGoal[] {
+    const scopeKey = normalizeScope(scope);
+    const rows = this.database.prepare(
+      "SELECT * FROM agent_goals WHERE scope_key=? AND ((level='project' AND task_id IS NULL) OR (level='task' AND task_id=?)) " +
+      (includeInactive ? "" : "AND status IN ('active','blocked') ") +
+      "ORDER BY CASE WHEN level='task' THEN 0 ELSE 1 END,updated_at DESC LIMIT ?"
+    ).all({}, scopeKey, taskId, clamp(Math.floor(limit), 1, 40)) as Array<Record<string, unknown>>;
+    return rows.map(row => this.toGoal(row));
+  }
+
+  upsertGoal(input: {
+    id?: string | null;
+    baseVersion?: number;
+    scope: string | null;
+    taskId: string | null;
+    level: AgentUserGoalLevel;
+    objective: string;
+    expectedOutcome?: string;
+    constraints?: string[];
+    acceptanceCriteria?: string[];
+    status?: AgentUserGoalStatus;
+    confidence?: number;
+    evidence: string[];
+    sourceSessionId?: string | null;
+    sourceTraceId?: string | null;
+  }): AgentUserGoal {
+    if (input.level === "project" && !input.scope) throw new Error("没有选择 Workspace，不能创建项目级 Goal；请使用当前 Task Goal。");
+    if (input.level === "task" && !input.taskId) throw new Error("Task Goal 必须关联当前 Task。");
+    const scopeKey = normalizeScope(input.scope);
+    const id = input.id?.trim().slice(0, 100) || randomUUID();
+    const objective = redactSecrets(input.objective.trim(), 1000);
+    const expectedOutcome = redactSecrets((input.expectedOutcome ?? "").trim(), 1000);
+    const constraints = [...new Set((input.constraints ?? []).filter(value => typeof value === "string").map(value => redactSecrets(value.trim(), 500)).filter(Boolean))].slice(0, 20);
+    const acceptanceCriteria = [...new Set((input.acceptanceCriteria ?? []).filter(value => typeof value === "string").map(value => redactSecrets(value.trim(), 500)).filter(Boolean))].slice(0, 20);
+    const evidence = [...new Set((input.evidence ?? []).filter(value => typeof value === "string").map(value => redactSecrets(value.trim(), 500)).filter(Boolean))].slice(0, 8);
+    if (!id || !objective) throw new Error("Goal 必须包含稳定 ID 和明确 objective。");
+    if (!evidence.length) throw new Error("Goal 必须包含直接来自用户消息的原文证据。");
+    if (input.level === "project" && input.taskId !== null) throw new Error("Project Goal 不应绑定单个 Task。");
+    const existing = this.database.prepare("SELECT * FROM agent_goals WHERE id=?").get({}, id) as Record<string, unknown> | undefined;
+    if (existing && (String(existing.scope_key) !== scopeKey || String(existing.level) !== input.level ||
+      (existing.task_id == null ? null : String(existing.task_id)) !== input.taskId)) {
+      throw new Error("Goal ID 已属于其他 Workspace、Task 或层级。");
+    }
+    const now = Date.now();
+    const currentVersion = Number(existing?.version ?? 0);
+    if (existing && input.baseVersion !== undefined && input.baseVersion !== currentVersion) {
+      throw new Error("Goal 版本已变化；请重新读取当前 Goal 后再更新。");
+    }
+    if (!existing && input.baseVersion !== undefined) throw new Error("指定的 Goal 不存在，不能按旧版本更新。");
+    const status: AgentUserGoalStatus = input.status ?? (existing?.status === "blocked" ? "blocked" : "active");
+    const validStatuses: AgentUserGoalStatus[] = ["active", "blocked", "completed", "cancelled"];
+    if (!validStatuses.includes(status)) throw new Error("不支持的 Goal 状态。");
+    this.database.prepare(
+      "INSERT INTO agent_goals(id,scope_key,task_id,level,objective,expected_outcome,constraints_json,acceptance_criteria_json,status,confidence,evidence_json,source_session_id,source_trace_id,created_at,updated_at,version) " +
+      "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
+      "ON CONFLICT(id) DO UPDATE SET objective=excluded.objective,expected_outcome=excluded.expected_outcome," +
+      "constraints_json=excluded.constraints_json,acceptance_criteria_json=excluded.acceptance_criteria_json,status=excluded.status," +
+      "confidence=excluded.confidence,evidence_json=excluded.evidence_json,source_session_id=excluded.source_session_id," +
+      "source_trace_id=excluded.source_trace_id,updated_at=excluded.updated_at,version=excluded.version"
+    ).run({}, id, scopeKey, input.taskId, input.level, objective, expectedOutcome, JSON.stringify(constraints),
+      JSON.stringify(acceptanceCriteria), status, clamp(input.confidence ?? 0.7, 0, 1), JSON.stringify(evidence),
+      input.sourceSessionId ?? null, input.sourceTraceId ?? null, Number(existing?.created_at ?? now), now, currentVersion + 1);
+    const row = this.database.prepare("SELECT * FROM agent_goals WHERE id=? AND scope_key=?").get({}, id, scopeKey) as Record<string, unknown> | undefined;
+    if (!row) throw new Error("Goal 保存失败。");
+    return this.toGoal(row);
+  }
+
+  setGoalStatus(scope: string | null, taskId: string | null, id: string, status: AgentUserGoalStatus, reason: string, evidence: string[] = []): AgentUserGoal {
+    const scopeKey = normalizeScope(scope);
+    const row = this.database.prepare("SELECT * FROM agent_goals WHERE id=? AND scope_key=?").get({}, id, scopeKey) as Record<string, unknown> | undefined;
+    if (!row || (row.level === "task" && String(row.task_id) !== String(taskId ?? ""))) {
+      throw new Error("当前 Workspace / Task 中不存在该 Goal。");
+    }
+    const validStatuses: AgentUserGoalStatus[] = ["active", "blocked", "completed", "cancelled"];
+    if (!validStatuses.includes(status)) throw new Error("不支持的 Goal 状态。");
+    const directEvidence = [...new Set(evidence.filter(value => typeof value === "string").map(value => redactSecrets(value.trim(), 500)).filter(Boolean))].slice(0, 8);
+    if (status === "cancelled" && !directEvidence.length) throw new Error("取消 Goal 必须提供用户明确取消目标的原文证据。");
+    const previousEvidence = parseJson<string[]>(row.evidence_json, []);
+    const nextEvidence = [...new Set([...previousEvidence, ...directEvidence])].slice(-12);
+    this.database.prepare("UPDATE agent_goals SET status=?,evidence_json=?,updated_at=?,version=version+1 WHERE id=? AND scope_key=?")
+      .run({}, status, JSON.stringify(nextEvidence), Date.now(), id, scopeKey);
+    const updated = this.database.prepare("SELECT * FROM agent_goals WHERE id=? AND scope_key=?").get({}, id, scopeKey) as Record<string, unknown>;
+    return this.toGoal(updated);
   }
 
   saveNote(input: {
@@ -1524,6 +1615,19 @@ export class AgentMemoryStore {
     this.database.prepare("INSERT OR IGNORE INTO memory_versions(id,scope_key,entity_type,entity_id,version,snapshot_json,run_id,created_at) VALUES(?,?,?,?,?,?,?,?)")
       .run({}, id,scopeKey,entityType,entityId,version,JSON.stringify(snapshot),runId,Date.now());
   }
+  private toGoal(row: Record<string, unknown>): AgentUserGoal {
+    const level = row.level === "project" ? "project" : "task";
+    const status = row.status === "blocked" || row.status === "completed" || row.status === "cancelled" ? row.status : "active";
+    return {
+      id: String(row.id), level, objective: String(row.objective), expectedOutcome: String(row.expected_outcome ?? ""),
+      constraints: parseJson<string[]>(row.constraints_json, []), acceptanceCriteria: parseJson<string[]>(row.acceptance_criteria_json, []),
+      status, confidence: Number(row.confidence ?? 0.5), evidence: parseJson<string[]>(row.evidence_json, []),
+      sourceSessionId: typeof row.source_session_id === "string" ? row.source_session_id : null,
+      sourceTraceId: typeof row.source_trace_id === "string" ? row.source_trace_id : null,
+      createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), version: Number(row.version ?? 1),
+    };
+  }
+
   private toSource(row:Record<string,unknown>):StoredMemorySource{
     const kind=String(row.kind);
     return {sourceId:String(row.source_id),sessionId:String(row.session_id),messageId:String(row.message_id),kind,
