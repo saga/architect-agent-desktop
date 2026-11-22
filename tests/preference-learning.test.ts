@@ -31,6 +31,10 @@ describe("Preference learning",()=>{
   expect(candidate).toMatchObject({priority:"high",autoPersist:true});
   expect(preferenceCandidateInstruction(candidate!)).toContain("save it immediately");
  });
+ it("does not confuse a memory recall question with a save request",()=>{
+  expect(detectPreferenceCandidate("Do you remember the Mermaid format?")).toBeNull();
+  expect(detectPreferenceCandidate("Never mind, create a Mermaid diagram for this request.")).toBeNull();
+ });
  it("does not treat a one-off recipe request as a durable preference",()=>{
   expect(detectPreferenceCandidate("Give me a recipe with no added sugar.")).toBeNull();
  });
