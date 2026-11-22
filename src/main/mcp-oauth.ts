@@ -27,7 +27,7 @@ interface TokenResponse {
   access_token?: unknown; token_type?: unknown; expires_in?: unknown;
   refresh_token?: unknown; error?: unknown; error_description?: unknown;
 }
-interface CachedToken { refreshToken: string; scopes: string[]; }
+interface CachedToken { refreshToken: string; scopes: string[]; resource: string; }
 interface LoopbackCallback { redirectUri: string; waitForCode(): Promise<string>; close(): Promise<void>; }
 
 const ENTRA_LOGIN_HOSTS = new Set(["login.microsoftonline.com", "login.microsoftonline.us", "login.chinacloudapi.cn"]);
@@ -66,6 +66,24 @@ function parseResourceMetadata(raw: string | undefined): Record<string, unknown>
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("MCP Protected Resource Metadata 格式无效。");
   return parsed as Record<string, unknown>;
 }
+export function resolveMcpOAuthResource(resourceMetadataJson: string | undefined, serverUrl: string): { resource: string; supportedScopes: string[] } {
+  const metadata = parseResourceMetadata(resourceMetadataJson);
+  if (typeof metadata.resource !== "string") throw new Error("MCP Protected Resource Metadata 缺少 resource URI。");
+  let resource: URL, endpoint: URL;
+  try { resource = new URL(metadata.resource); endpoint = new URL(serverUrl); }
+  catch { throw new Error("MCP Protected Resource Metadata 的 resource URI 无效。"); }
+  const isLoopback = (url: URL) => ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (resource.username || resource.password || resource.hash ||
+      (resource.protocol !== "https:" && !(resource.protocol === "http:" && isLoopback(resource))) ||
+      resource.origin !== endpoint.origin || resource.origin !== resource.origin.toLowerCase()) {
+    throw new Error("MCP Protected Resource Metadata 的 resource URI 与目标 MCP Server 不匹配。");
+  }
+  const supportedScopes = Array.isArray(metadata.scopes_supported)
+    ? parseOAuthScopes(metadata.scopes_supported.filter((value): value is string => typeof value === "string").join(" "))
+    : [];
+  return { resource: resource.toString(), supportedScopes };
+}
+
 export function resolveEntraOpenIdConfigurationUrl(resourceMetadataJson: string | undefined, tenantId: string): string {
   const metadata = parseResourceMetadata(resourceMetadataJson);
   const servers = metadata.authorization_servers;
@@ -90,7 +108,7 @@ export function resolveEntraOpenIdConfigurationUrl(resourceMetadataJson: string 
   const authorityUrl = new URL("/" + encodeURIComponent(tenantId) + "/v2.0", authority.origin);
   return new URL(".well-known/openid-configuration", authorityUrl.toString() + "/").toString();
 }
-function validateEntraEndpoints(metadata: Record<string, unknown>, origin: string) {
+function validateEntraEndpoints(metadata: Record<string, unknown>, origin: string, tenantId: string) {
   const endpoint = (value: unknown, name: string): string => {
     if (typeof value !== "string") throw new Error("Entra OpenID metadata 缺少 " + name + "。");
     let url: URL;
@@ -100,6 +118,11 @@ function validateEntraEndpoints(metadata: Record<string, unknown>, origin: strin
     }
     return url.toString();
   };
+  const issuer = endpoint(metadata.issuer, "issuer");
+  const expectedIssuer = new URL("/" + encodeURIComponent(tenantId) + "/v2.0", origin).toString().replace(/\\/$/, "");
+  if (issuer.replace(/\\/$/, "") !== expectedIssuer) {
+    throw new Error("Entra OpenID issuer 与 MCP_OAUTH_TENANT_ID 不匹配。");
+  }
   return {
     authorizationEndpoint: endpoint(metadata.authorization_endpoint, "authorization_endpoint"),
     tokenEndpoint: endpoint(metadata.token_endpoint, "token_endpoint"),
@@ -211,27 +234,29 @@ export class EntraMcpOAuthProvider {
     if (!this.config.tenantId || !this.config.clientId) throw new Error("请在 .env 中配置 MCP_OAUTH_TENANT_ID 和 MCP_OAUTH_CLIENT_ID。");
     validateMcpUrl(request.serverUrl);
     const suffix = request.serverName.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-    const scopes = parseOAuthScopes(request.wwwAuthenticateParams?.scope);
-    const requiredScopes = scopes.length ? scopes : this.config.serverScopes[suffix] ?? this.config.defaultScopes;
-    if (requiredScopes.length === 0) throw new Error("MCP Server 未提供 OAuth scope。请设置 MCP_OAUTH_SCOPES 或 MCP_OAUTH_SCOPES_<SERVER_ID>。");
+    const target = resolveMcpOAuthResource(request.resourceMetadata, request.serverUrl);
+    const challengeScopes = parseOAuthScopes(request.wwwAuthenticateParams?.scope);
+    const configuredScopes = this.config.serverScopes[suffix] ?? this.config.defaultScopes;
+    const requiredScopes = challengeScopes.length ? challengeScopes : target.supportedScopes.length ? target.supportedScopes : configuredScopes;
+    if (requiredScopes.length === 0) throw new Error("MCP Server 未提供 OAuth scope。请在 Protected Resource Metadata 中配置 scopes_supported，或设置 MCP_OAUTH_SCOPES / MCP_OAUTH_SCOPES_<SERVER_ID>。");
     const effectiveScopes = [...new Set([...requiredScopes, "offline_access"])];
     const metadataUrl = resolveEntraOpenIdConfigurationUrl(request.resourceMetadata, this.config.tenantId);
     const fetcher = this.options.fetcher ?? fetch;
     const oidc = await fetchJson(metadataUrl, "Entra OpenID Configuration", fetcher);
-    const endpoints = validateEntraEndpoints(oidc, new URL(metadataUrl).origin);
+    const endpoints = validateEntraEndpoints(oidc, new URL(metadataUrl).origin, this.config.tenantId);
 
     await this.loadTokenStore();
     const cached = this.tokens.get(request.serverName);
-    if (cached?.refreshToken) {
+    if (cached?.refreshToken && cached.resource === target.resource && cached.scopes.join(" ") === effectiveScopes.join(" ")) {
       try {
         const refreshed = await this.exchangeToken(endpoints.tokenEndpoint, {
           grant_type: "refresh_token", refresh_token: cached.refreshToken,
-          client_id: this.config.clientId, scope: effectiveScopes.join(" "),
+          client_id: this.config.clientId, scope: effectiveScopes.join(" "), resource: target.resource,
         }, fetcher);
         const token = this.toMcpToken(refreshed);
         await this.saveToken(request.serverName, {
           refreshToken: typeof refreshed.refresh_token === "string" ? refreshed.refresh_token : cached.refreshToken,
-          scopes: effectiveScopes,
+          scopes: effectiveScopes, resource: target.resource,
         });
         return token;
       } catch (error) {
@@ -241,15 +266,15 @@ export class EntraMcpOAuthProvider {
         await this.persistTokenStore();
       }
     }
-    const acquired = await this.acquireInteractiveToken(endpoints.authorizationEndpoint, endpoints.tokenEndpoint, effectiveScopes, fetcher);
+    const acquired = await this.acquireInteractiveToken(endpoints.authorizationEndpoint, endpoints.tokenEndpoint, effectiveScopes, target.resource, fetcher);
     const token = this.toMcpToken(acquired);
     if (typeof acquired.refresh_token === "string" && acquired.refresh_token) {
-      await this.saveToken(request.serverName, { refreshToken: acquired.refresh_token, scopes: effectiveScopes });
+      await this.saveToken(request.serverName, { refreshToken: acquired.refresh_token, scopes: effectiveScopes, resource: target.resource });
     }
     return token;
   }
 
-  private async acquireInteractiveToken(authorizationEndpoint: string, tokenEndpoint: string, scopes: string[], fetcher: typeof fetch): Promise<TokenResponse> {
+  private async acquireInteractiveToken(authorizationEndpoint: string, tokenEndpoint: string, scopes: string[], resource: string, fetcher: typeof fetch): Promise<TokenResponse> {
     const state = randomBytes(32).toString("base64url");
     const verifier = randomBytes(48).toString("base64url");
     const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -261,6 +286,7 @@ export class EntraMcpOAuthProvider {
       url.searchParams.set("redirect_uri", callback.redirectUri);
       url.searchParams.set("response_mode", "query");
       url.searchParams.set("scope", scopes.join(" "));
+      url.searchParams.set("resource", resource);
       url.searchParams.set("state", state);
       url.searchParams.set("code_challenge", challenge);
       url.searchParams.set("code_challenge_method", "S256");
@@ -268,7 +294,7 @@ export class EntraMcpOAuthProvider {
       const code = await callback.waitForCode();
       return this.exchangeToken(tokenEndpoint, {
         grant_type: "authorization_code", code, redirect_uri: callback.redirectUri,
-        client_id: this.config.clientId, code_verifier: verifier, scope: scopes.join(" "),
+        client_id: this.config.clientId, code_verifier: verifier, scope: scopes.join(" "), resource,
       }, fetcher);
     } finally { await callback.close(); }
   }
@@ -308,8 +334,8 @@ export class EntraMcpOAuthProvider {
         if (typeof encrypted !== "string") continue;
         try {
           const token = JSON.parse(this.options.secureStorage.decryptString(Buffer.from(encrypted, "base64"))) as CachedToken;
-          if (typeof token.refreshToken === "string" && Array.isArray(token.scopes)) {
-            this.tokens.set(name, { refreshToken: token.refreshToken, scopes: token.scopes.filter((scope): scope is string => typeof scope === "string") });
+          if (typeof token.refreshToken === "string" && typeof token.resource === "string" && Array.isArray(token.scopes)) {
+            this.tokens.set(name, { refreshToken: token.refreshToken, resource: token.resource, scopes: token.scopes.filter((scope): scope is string => typeof scope === "string") });
           }
         } catch { /* inaccessible credentials require a new sign-in */ }
       }
