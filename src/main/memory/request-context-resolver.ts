@@ -20,6 +20,17 @@ function significantTokens(value:string):string[]{
 }
 function containsAny(text:string,terms:readonly string[]):boolean{return terms.some(term=>text.includes(term.toLocaleLowerCase()));}
 function detectedTopics(prompt:string):TopicRule[]{return TOPIC_RULES.filter(rule=>rule.pattern.test(prompt));}
+const APPLIES_TO_PROMPT:Array<{scopes:string[];pattern:RegExp}>= [
+ {scopes:["recipes","meal_plans","food_recommendations"],pattern:/recipe|meal|menu|cook|food|食谱|菜谱|饮食|烹饪|食材/iu},
+ {scopes:["architecture_diagrams","flowcharts","technical_documentation"],pattern:/diagram|flowchart|architecture|system design|架构|图示|流程图|时序图/iu},
+ {scopes:["articles","reports","translation","documentation"],pattern:/write|writing|article|report|document|translation|translate|写作|文章|报告|文档|翻译/iu},
+ {scopes:["code_generation","code_review","tests"],pattern:/code|coding|implement|program|debug|refactor|test|review|编程|代码|实现|开发|测试|调试|重构|审查/iu},
+ {scopes:["agent_workflow","tool_execution","task_management"],pattern:/agent|tool|task|workflow|commit|merge|branch|pull request|execute|run|实施|任务|工作流|提交|合并|工具|执行/iu},
+];
+function appliesToCurrentTask(prompt:string,appliesTo:readonly string[]):boolean{
+ if(appliesTo.includes("all_responses")||appliesTo.includes("all_tasks"))return true;
+ return APPLIES_TO_PROMPT.some(rule=>rule.scopes.some(scope=>appliesTo.includes(scope))&&rule.pattern.test(prompt));
+}
 export function buildRequestMemorySearchQuery(prompt:string):string{
  const input=prompt.trim();if(!input)return "";
  const hints=detectedTopics(input).flatMap(topic=>topic.terms);
@@ -41,8 +52,7 @@ export function createRequestMemoryContext(prompt:string,candidates:readonly Age
   const matchesTopic=topicTerms.length>0&&containsAny(haystack,topicTerms);
   const matchesQuery=queryTerms.length>0&&containsAny(haystack,queryTerms);
   const appliesTo=note.preference?.appliesTo??[];
-  const appliesGlobally=appliesTo.includes("all_responses")||appliesTo.includes("all_tasks");
-  const highPriority=preference&&note.preference?.priority==="high"&&(appliesGlobally||matchesTopic||matchesQuery||GLOBAL_STYLE_PREFERENCE.test(haystack));
+  const highPriority=preference&&note.preference?.priority==="high"&&(appliesToCurrentTask(prompt,appliesTo)||matchesTopic||matchesQuery||GLOBAL_STYLE_PREFERENCE.test(haystack));
   const globalStyle=preference&&GLOBAL_STYLE_PREFERENCE.test(haystack);
   if(!matchesTopic&&!matchesQuery&&!globalStyle&&!highPriority)continue;
   const score=(highPriority?10_000:0)+(matchesTopic?100:0)+(globalStyle?65:0)+(matchesQuery?40:0)+(note.validation==="validated"?20:0)+(preference?10:0)+(note.pinned?5:0)+Math.max(0,Math.min(1,note.importance))*5;
