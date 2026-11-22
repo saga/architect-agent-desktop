@@ -430,7 +430,7 @@ export class AgentMemoryStore {
         claimType:"user_preference",sourceSessionId:input.sourceSessionId,sourceTraceId:input.sourceTraceId,
         sourceRefs:[sourceId],importance:0.8,
       preference:{
-        domain:input.category,key:input.category,
+        domain:input.category,key:this.preferenceKey(input.category,content),
         operator:/\\b(?:don't|do not|never|avoid|not|dislike|cannot|can't)\\b|不吃|不要|别再|避免|不能|不得|不喜欢/iu.test(content)?"avoid":
           /\\b(?:prefer|like|love)\\b|喜欢|偏好|更愿意/iu.test(content)?"prefer":"instruction",
         value:content,strength:input.strength,
@@ -1153,6 +1153,7 @@ export class AgentMemoryStore {
       quality_score:same?(before?.quality_score??null):null,
       last_quality_reviewed_at:same?(before?.last_quality_reviewed_at??null):null,
       external_verification_json:same?(before?.external_verification_json??null):null,
+      preference_json:claimType==="user_preference"?(before?.preference_json??null):null,
     };
     this.replaceNoteSnapshot(id,snapshot);
     this.recordEntityChange(runId,sequence,"note",id,before,this.getNoteRow(id,scopeKey),"upsert_note",reason);
@@ -1548,6 +1549,29 @@ export class AgentMemoryStore {
     return {domain,key,operator:input.operator as AgentPreferenceOperator,value:content,strength:input.strength as AgentPreferenceStrength,appliesTo,scope,
       validFrom:Number.isFinite(validFrom)?validFrom:Date.now(),validUntil:validUntil!==null&&Number.isFinite(validUntil)?validUntil:null,
       sensitivity:input.sensitivity==="sensitive"?"sensitive":"normal"};
+  }
+  private preferenceKey(category:string,content:string):string{
+    if(category==="food"){
+      if(/added sugar|sugar|糖|蔗糖|糖浆/iu.test(content))return "added_sugar";
+      if(/sweetener|甜味剂/iu.test(content))return "sweetener";
+      if(/vegetarian|vegan|素食/iu.test(content))return "diet_type";
+      if(/gluten|麸质/iu.test(content))return "gluten";
+      return "dietary_restriction";
+    }
+    if(category==="communication"){
+      if(/concise|brief|verbose|verbosity|简洁|简短|详细|冗长/iu.test(content))return "verbosity";
+      if(/language|中文|日文|英文|英语|日语/iu.test(content))return "output_language";
+      if(/emoji|emoticon|表情/iu.test(content))return "emoji_usage";
+      return "response_style";
+    }
+    if(category==="diagrams")return "diagram_format";
+    if(category==="writing")return "writing_style";
+    if(category==="coding"){
+      if(/typescript|javascript|python|rust|sql|c\+\+/iu.test(content))return "programming_language";
+      return "code_style";
+    }
+    if(category==="workflow")return "change_workflow";
+    return category;
   }
   private preferenceAppliesTo(category:string):string[]{
     const mapping:Record<string,string[]>={food:["recipes","meal_plans","food_recommendations"],communication:["all_responses","explanations","summaries"],
