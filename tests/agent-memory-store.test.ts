@@ -1389,3 +1389,53 @@ describe("AgentMemoryStore", () => {
   });
 
 });
+
+
+describe("Confirmed preference Memory", () => {
+  it("stores the original user statement as direct evidence without self-validating it", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const before = store.getDreamCursor("/workspace/preferences");
+    const note = store.saveConfirmedPreference({
+      id: "confirmed-preference-1",
+      scope: "/workspace/preferences",
+      title: "Communication preference",
+      content: "Please keep architecture reviews concise and state the important trade-offs.",
+      category: "communication",
+      sourceSessionId: "session-preference",
+      sourceTraceId: "trace-preference",
+      createdAt: Date.now(),
+      crossWorkspaceConfirmed: false,
+      strength: "explicit",
+    });
+
+    expect(note.claimType).toBe("user_preference");
+    expect(note.validation).toBe("unverified");
+    expect(note.preference).toMatchObject({ domain: "communication", key: "communication", operator: "instruction", strength: "explicit", scope: "/workspace/preferences", sensitivity: "normal" });
+    expect(note.preference?.appliesTo).toContain("all_responses");
+    expect(note.sourceRefs).toHaveLength(1);
+    expect(store.getSourceById(note.sourceRefs[0]!, "/workspace/preferences")?.evidenceClass).toBe("direct_user");
+    expect(store.getDreamCursor("/workspace/preferences")).toEqual(before);
+    store.close();
+  });
+
+  it("requires explicit cross-Workspace confirmation before writing Personal Memory", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const input = {
+      id: "personal-preference-1",
+      scope: null,
+      title: "Global communication preference",
+      content: "Prefer concise answers across all projects.",
+      category: "communication",
+      sourceSessionId: "session-personal-preference",
+      sourceTraceId: "trace-personal-preference",
+      createdAt: Date.now(),
+      crossWorkspaceConfirmed: false,
+      strength: "explicit" as const,
+    };
+    expect(() => store.saveConfirmedPreference(input)).toThrow(/跨项目确认/);
+    const note = store.saveConfirmedPreference({ ...input, crossWorkspaceConfirmed: true });
+    expect(note.claimType).toBe("user_preference");
+    expect(note.validation).toBe("unverified");
+    store.close();
+  });
+});
