@@ -152,7 +152,7 @@ function ingestProactiveTrace(type:string,data:unknown,traceId:string,scope:stri
   const eventType=proactiveEventType(type,data);if(!eventType)return;
   const payload=data&&typeof data==="object"&&!Array.isArray(data)?{...(data as Record<string,unknown>)}:{value:data};
   if(eventType==="agent.tool.failed"&&!payload.toolName&&typeof payload.name==="string")payload.toolName=payload.name;
-  const identity=String(payload.toolCallId??payload.requestId??payload.statement??payload.category??type).slice(0,160);
+  const identity=String(payload.toolCallId??payload.requestId??payload.category??type).slice(0,120);
   try{
     proactiveEngine.ingest({eventId:traceId+":"+eventType+":"+identity,type:eventType,occurredAt:Date.now(),scope,taskId,sessionId,sourceRef:traceId,payload});
   }catch(error){recordOperation("proactive","event ingestion failed ("+eventType+"): "+(error instanceof Error?error.message:String(error)));}
