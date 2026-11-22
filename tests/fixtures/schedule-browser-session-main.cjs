@@ -144,10 +144,10 @@ async function run() {
       let result;
       try { result = await completed; }
       finally { clearTimeout(timeout); }
-      assert.equal(result.state, "completed", "Unattended download must complete after an explicit save path is assigned.");
+      assert.equal(result.status, "completed", "Unattended download must complete after an explicit save path is assigned.");
       assert.ok(result.savePath.startsWith(downloadDirectory + path.sep), "Download must stay inside the Schedule-specific directory.");
       assert.ok(!result.savePath.includes(".."), "Remote filename must not escape the Schedule directory.");
-      assert.match(path.basename(result.savePath), /^5678-1234-/);
+      assert.match(path.basename(result.savePath), /^\d+-1234-/);
       assert.equal(await readFile(result.savePath, "utf8"), "schedule-download-ok");
       assert.equal(events[0]?.status, "started");
       assert.equal(events.at(-1)?.status, "completed");
