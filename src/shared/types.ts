@@ -66,6 +66,20 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
 
 export interface CopilotEvent { type: "status" | "delta" | "thinking" | "message" | "error" | "done" | "tool" | "a2ui" | "a2ui-v1" | "interaction"; taskId?: string; status?: string; text?: string; streaming?: boolean; interactionId?: string; timestamp?: number; toolId?: string; toolName?: string; toolDetail?: string; toolState?: "running" | "done" | "error"; }
 
+export type AgentPreferenceStrength = "explicit" | "strong_signal" | "repeated_correction";
+export type AgentPreferenceOperator = "prefer" | "avoid" | "require" | "exclude" | "format" | "tone" | "instruction";
+export interface AgentStructuredPreference {
+  domain: string;
+  key: string;
+  operator: AgentPreferenceOperator;
+  value: string;
+  strength: AgentPreferenceStrength;
+  appliesTo: string[];
+  scope: string | null;
+  validFrom: number;
+  validUntil: number | null;
+  sensitivity: "normal" | "sensitive";
+}
 export interface AgentMemoryNoteView {
   id: string;
   title: string;
@@ -73,6 +87,8 @@ export interface AgentMemoryNoteView {
   tags: string[];
   validation: "unverified" | "validated" | "disputed";
   claimType: "user_preference" | "user_intent" | "decision" | "project_fact" | "workflow_pattern" | "external_fact" | "unknown";
+  preference?: AgentStructuredPreference | null;
+  preference?: AgentStructuredPreference | null;
   validationEvidence: { claimType: string; sourceCount: number; independentSessions: number; directUserSources: number; toolObservations: number; eligible: boolean; policy: string; reason: string } | null;
   externalVerification: { status: "single_domain_sources_recorded" | "multi_domain_sources_recorded"; sources: Array<{ sourceRef: string; url: string; domain: string; publisher: string; publishedAt: string | null }>; recordedAt: number; note: string } | null;
   confidence: number;
@@ -205,6 +221,61 @@ export interface AgentWorkspacePreferences {
   rightPanelVisible: boolean;
   rightPanelTab: AgentWorkspaceRightTab;
 }
+export type ProactiveCategory = "preference_confirmation" | "follow_up_confirmation" | "follow_up_due" | "repeated_tool_failure" | "blocker";
+export type ProactiveFeedbackAction = "accept" | "dismiss" | "irrelevant" | "snooze" | "acted";
+export type ProactiveCandidateStatus = "pending" | "accepted" | "rejected" | "expired";
+export type AgentProactiveStatus = "new" | "presented" | "pending_confirmation" | "scheduled" | "accepted" | "snoozed" | "dismissed" | "acted" | "expired";
+
+export interface AgentProactiveOpportunity {
+  id: string;
+  scope: string | null;
+  taskId: string | null;
+  category: ProactiveCategory;
+  title: string;
+  explanation: string;
+  suggestedAction: string;
+  sourceRefs: string[];
+  confidence: number;
+  impact: number;
+  urgency: number;
+  rankScore: number;
+  status: AgentProactiveStatus;
+  dedupeKey: string;
+  payload: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number | null;
+  dueAt: number | null;
+  snoozedUntil: number | null;
+  lastPresentedAt: number | null;
+}
+
+export interface AgentMemoryCandidate {
+  id: string;
+  scope: string | null;
+  taskId: string | null;
+  sessionId: string | null;
+  category: string;
+  strength: "explicit" | "strong_signal" | "repeated_correction";
+  statement: string;
+  status: ProactiveCandidateStatus;
+  sourceRef: string | null;
+  createdAt: number;
+  updatedAt: number;
+  expiresAt: number;
+  acceptedNoteId: string | null;
+}
+
+export interface AgentProactiveSettings {
+  enabled: boolean;
+  quietMode: boolean;
+  maxPerDay: number;
+  cooldownHours: number;
+  categories: Record<ProactiveCategory, boolean>;
+}
+export type AgentProactiveSettingsPatch = Omit<Partial<AgentProactiveSettings>, "categories"> & {
+  categories?: Partial<Record<ProactiveCategory, boolean>>;
+};
 export interface AgentWorkspaceSnapshot {
   tasks: AgentTask[];
   scheduleRunTasks: AgentTask[];
@@ -214,6 +285,9 @@ export interface AgentWorkspaceSnapshot {
   schedules: AgentSchedule[];
   scheduleRuns: AgentScheduleRun[];
   preferences: AgentWorkspacePreferences;
+  proactiveOpportunities?: AgentProactiveOpportunity[];
+  memoryCandidates?: AgentMemoryCandidate[];
+  proactiveSettings?: AgentProactiveSettings;
 }
 
 export interface WorkspaceProject { path: string | null; name: string | null; }
@@ -251,6 +325,9 @@ export interface BrowserApi {
   saveAgentSchedule(schedule: Omit<AgentSchedule, "createdAt" | "updatedAt"> & Partial<Pick<AgentSchedule, "createdAt" | "updatedAt">>): Promise<AgentSchedule[]>;
   deleteAgentSchedule(id: string): Promise<AgentSchedule[]>;
   runAgentScheduleNow(id: string): Promise<void>;
+  agentProactiveFeedback(taskId: string, opportunityId: string, action: ProactiveFeedbackAction): Promise<{ noteId?: string }>;
+  agentMemoryCandidateFeedback(taskId: string, candidateId: string, action: "accept" | "reject"): Promise<{ noteId?: string }>;
+  agentProactiveSaveSettings(settings: AgentProactiveSettingsPatch): Promise<AgentProactiveSettings>;
   saveAgentWorkspacePreferences(preferences: AgentWorkspacePreferences): Promise<AgentWorkspacePreferences>;
   getWorkspaceLayout(): Promise<WorkspaceLayoutState>;
   saveWorkspaceLayout(layout: WorkspaceLayoutState): Promise<WorkspaceLayoutState>;
