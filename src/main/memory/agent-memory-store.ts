@@ -344,8 +344,9 @@ export class AgentMemoryStore {
     const unchanged = Boolean(before && String(before.content) === content && String(before.title) === title &&
       String(before.claim_type ?? "unknown") === claimType);
     if(input.preference!=null&&claimType!=="user_preference")throw new Error("Structured Preference metadata can only be attached to user_preference Notes.");
-    const priorPreference=unchanged?parseJson<AgentStructuredPreference|null>(before?.preference_json,null):null;
-    const preference=claimType==="user_preference" ? this.normalizeStructuredPreference(input.preference===undefined?priorPreference:input.preference,input.scope??null) : null;
+    const priorPreference=parseJson<AgentStructuredPreference|null>(before?.preference_json,null);
+    const inheritedPreference=priorPreference?{...priorPreference,value:content,scope:input.scope??null}:null;
+    const preference=claimType==="user_preference" ? this.normalizeStructuredPreference(input.preference===undefined?inheritedPreference:input.preference,input.scope??null) : null;
     const validation: MemoryValidation = unchanged && isValidation(before?.validation) &&
       (before?.validation !== "validated" || Boolean(before?.validation_evidence_json))
       ? before.validation
