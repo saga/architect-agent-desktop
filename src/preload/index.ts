@@ -71,6 +71,7 @@ const api: BrowserApi = {
   pluginList: (): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:list"),
   pluginImport: (): Promise<PluginSummary | null> => ipcRenderer.invoke("plugin:import"),
   pluginSetEnabled: (id: string, enabled: boolean): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:set-enabled", { id, enabled }),
+  pluginSetRuntimeApproved: (id: string, approved: boolean): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:set-runtime-approved", { id, approved }),
   pluginRemove: (id: string): Promise<PluginSummary[]> => ipcRenderer.invoke("plugin:remove", id),
   pluginExport: (id: string): Promise<string | null> => ipcRenderer.invoke("plugin:export", id),
   agentMcpList: (): Promise<McpServerConfig[]> => ipcRenderer.invoke("agent-mcp:list"),

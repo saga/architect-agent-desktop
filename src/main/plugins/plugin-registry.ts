@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pluginContentFingerprint } from "./plugin-content";
 import {
   cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync,
   renameSync, rmSync, writeFileSync,
@@ -28,22 +29,53 @@ export const normalizedClaudePluginSchema = z.object({
 }).strict();
 
 export type ClaudePlugin = z.infer<typeof normalizedClaudePluginSchema>;
-export interface PluginSummary extends ClaudePlugin {
-  enabled: boolean;
+export type PluginNativeComponents = Partial<Record<string, readonly ("skills" | "commands" | "agents")[]>>;
+export interface PluginRuntimeCapabilities { hookEvents: string[]; mcpServers: string[]; lspServers: string[]; scriptFiles: number; mods: boolean; }
+export interface ApprovedPluginRuntimeEntry extends PluginRuntimeEntry { skills: string[]; }
+export interface PluginSummary extends ClaudePlugin { enabled: boolean; runtimeApproved: boolean; runtime: PluginRuntimeCapabilities; }
+interface RegistryState {
+  version: 3;
+  enabled: Record<string, boolean>;
+  runtimeApproved: Record<string, boolean>;
+  runtimeApprovalHashes: Record<string, string>;
 }
-interface RegistryState { version: 1; enabled: Record<string, boolean>; }
-
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
 const MAX_SKILL_CONTEXT = 40_000;
+const SCRIPT_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".sh", ".bash", ".py", ".ps1", ".cmd", ".bat"]);
+
+function isBooleanRecord(value: unknown): value is Record<string, boolean> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+    && Object.values(value as Record<string, unknown>).every(item => typeof item === "boolean");
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+    && Object.values(value as Record<string, unknown>).every(item => typeof item === "string");
+}
 
 function readRegistry(registryPath: string): RegistryState {
   try {
-    const value = JSON.parse(readFileSync(registryPath, "utf8")) as RegistryState;
-    if (value.version === 1 && value.enabled && typeof value.enabled === "object" && !Array.isArray(value.enabled)) return value;
+    const value = JSON.parse(readFileSync(registryPath, "utf8")) as {
+      version?: unknown; enabled?: unknown; runtimeApproved?: unknown; runtimeApprovalHashes?: unknown;
+    };
+    if (value.version === 3 && isBooleanRecord(value.enabled)) {
+      return {
+        version: 3,
+        enabled: value.enabled,
+        runtimeApproved: isBooleanRecord(value.runtimeApproved) ? value.runtimeApproved : {},
+        runtimeApprovalHashes: isStringRecord(value.runtimeApprovalHashes) ? value.runtimeApprovalHashes : {},
+      };
+    }
+    // Versions 1 and 2 predate content-bound approvals. Preserve enablement,
+    // but never migrate an old boolean approval into executable trust.
+    if ((value.version === 1 || value.version === 2) && isBooleanRecord(value.enabled)) {
+      return { version: 3, enabled: value.enabled, runtimeApproved: {}, runtimeApprovalHashes: {} };
+    }
   } catch { /* first run or invalid registry: use defaults */ }
-  return { version: 1, enabled: {} };
+  return { version: 3, enabled: {}, runtimeApproved: {}, runtimeApprovalHashes: {} };
 }
+
 
 function writeRegistry(registryPath: string, state: RegistryState): void {
   mkdirSync(path.dirname(registryPath), { recursive: true });
@@ -117,6 +149,66 @@ function manifestPaths(value: unknown, fallback: string, field: string): string[
     : Array.isArray(value) && value.every(item => typeof item === "string") ? value as string[] : null;
   if (!values) throw new Error("Claude Plugin 的 " + field + " 必须是路径或路径数组。");
   return [...new Set(values.map(item => normalizeClaudePath(item, field)))];
+}
+
+function loadDeclaredJsonConfig(root: string, value: unknown, fallbackPath: string, field: string): Record<string, unknown> {
+  if (value === undefined) {
+    const fallback = path.join(root, fallbackPath);
+    return existsSync(fallback) ? parseJsonFile(fallback, "Claude Plugin " + field) : {};
+  }
+  if (Array.isArray(value)) {
+    const merged: Record<string, unknown> = {};
+    for (const item of value) {
+      const next = loadDeclaredJsonConfig(root, item, fallbackPath, field);
+      for (const [key, itemValue] of Object.entries(next)) {
+        if (isRecord(merged[key]) && isRecord(itemValue)) merged[key] = { ...(merged[key] as Record<string, unknown>), ...itemValue };
+        else if (Array.isArray(merged[key]) && Array.isArray(itemValue)) merged[key] = [...(merged[key] as unknown[]), ...itemValue];
+        else merged[key] = itemValue;
+      }
+    }
+    return merged;
+  }
+  if (typeof value === "string") {
+    const relative = normalizeClaudePath(value, field);
+    const file = resolveResource(root, relative);
+    if (path.extname(file).toLowerCase() !== ".json") throw new Error("Claude Plugin 的 " + field + " 配置必须是 JSON 文件：" + relative);
+    return parseJsonFile(file, "Claude Plugin " + field);
+  }
+  if (isRecord(value)) return value;
+  throw new Error("Claude Plugin 的 " + field + " 必须是 JSON 路径或内联对象。");
+}
+
+function countPluginScripts(root: string): number {
+  let count = 0;
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(fullPath);
+      else if (entry.isFile() && (SCRIPT_EXTENSIONS.has(path.extname(entry.name).toLowerCase()) || path.basename(directory) === "bin")) count += 1;
+    }
+  };
+  visit(root);
+  return count;
+}
+
+export function inspectPluginRuntimeCapabilities(root: string): PluginRuntimeCapabilities {
+  const pluginJsonPath = path.join(root, ".claude-plugin", "plugin.json");
+  const raw = existsSync(pluginJsonPath) ? parseJsonFile(pluginJsonPath, "Claude Plugin manifest") : {};
+  const hooksConfig = loadDeclaredJsonConfig(root, raw.hooks, "hooks/hooks.json", "hooks");
+  const hooksRoot = isRecord(hooksConfig.hooks) ? hooksConfig.hooks : hooksConfig;
+  const hookEvents = Object.entries(hooksRoot).filter(([key, value]) => key !== "modules" && Array.isArray(value)).map(([key]) => key).sort();
+  const mcpConfig = loadDeclaredJsonConfig(root, raw.mcpServers, ".mcp.json", "mcpServers");
+  const lspConfig = loadDeclaredJsonConfig(root, raw.lspServers, ".lsp.json", "lspServers");
+  const mcpRoot = isRecord(mcpConfig.mcpServers) ? mcpConfig.mcpServers : mcpConfig;
+  const lspRoot = isRecord(lspConfig.lspServers) ? lspConfig.lspServers : lspConfig;
+  const hasModModules = Array.isArray(hooksConfig.modules) || (isRecord(hooksConfig.hooks) && Array.isArray(hooksConfig.hooks.modules));
+  return { hookEvents, mcpServers: Object.keys(mcpRoot).sort(), lspServers: Object.keys(lspRoot).sort(),
+    scriptFiles: countPluginScripts(root), mods: hasModModules || existsSync(path.join(root, "hooks", "register.ts")) };
+}
+
+function hasRuntimeCapabilities(runtime: PluginRuntimeCapabilities): boolean {
+  return runtime.hookEvents.length > 0 || runtime.mcpServers.length > 0 || runtime.lspServers.length > 0
+    || runtime.scriptFiles > 0 || runtime.mods;
 }
 
 function collectMarkdownFiles(root: string, entryPath: string, kind: "skill" | "markdown"): string[] {
@@ -234,8 +326,9 @@ export function validatePluginDirectory(directory: string): ClaudePlugin {
   const root = path.resolve(directory);
   assertSafeTree(root);
   const manifest = normalizeClaudePluginDirectory(root);
-  if (manifest.skills.length + manifest.commands.length + manifest.agents.length + manifest.inlineCommands.length === 0) {
-    throw new Error("此目录不包含可加载的 Claude Code Skills、Commands 或 Agents；项目自有 manifest.json 插件格式不受支持。");
+  const runtime = inspectPluginRuntimeCapabilities(root);
+  if (manifest.skills.length + manifest.commands.length + manifest.agents.length + manifest.inlineCommands.length === 0 && !hasRuntimeCapabilities(runtime)) {
+    throw new Error("此目录不包含可加载的 Claude Code Skills、Commands、Agents、Hooks、MCP 或 LSP 运行组件；项目自有 manifest.json 插件格式不受支持。");
   }
   const paths = [...manifest.skills, ...manifest.commands, ...manifest.agents];
   if (new Set(paths).size !== paths.length) throw new Error("插件资源路径不能重复。");
@@ -257,7 +350,16 @@ export function listPlugins(pluginRoot: string, registryPath: string): PluginSum
       try {
         const manifest = validatePluginDirectory(path.join(pluginRoot, entry.name));
         if (manifest.id !== entry.name) return [];
-        return [{ ...manifest, enabled: registry.enabled[manifest.id] === true }];
+        const directory = path.join(pluginRoot, entry.name);
+        let currentFingerprint: string | null = null;
+        try { currentFingerprint = pluginContentFingerprint(directory); }
+        catch { /* Keep the installed plugin visible, but never trust an unsafe tree. */ }
+        const runtimeApproved = currentFingerprint !== null
+          && registry.runtimeApproved[manifest.id] === true
+          && registry.runtimeApprovalHashes[manifest.id] === currentFingerprint;
+        return [{ ...manifest, enabled: registry.enabled[manifest.id] === true,
+          runtimeApproved,
+          runtime: inspectPluginRuntimeCapabilities(directory) }];
       } catch { return []; }
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -277,13 +379,15 @@ export function importPlugin(sourceDirectory: string, pluginRoot: string, regist
     destinationCreated = true;
     const registry = readRegistry(registryPath);
     registry.enabled[manifest.id] = true;
+    registry.runtimeApproved[manifest.id] = false;
+    delete registry.runtimeApprovalHashes[manifest.id];
     writeRegistry(registryPath, registry);
   } catch (error) {
     rmSync(temporary, { recursive: true, force: true });
     if (destinationCreated) rmSync(destination, { recursive: true, force: true });
     throw error;
   }
-  return { ...manifest, enabled: true };
+  return listPlugins(pluginRoot, registryPath).find(plugin => plugin.id === manifest.id)!;
 }
 
 export function setPluginEnabled(pluginId: string, enabled: boolean, pluginRoot: string, registryPath: string): PluginSummary[] {
@@ -291,8 +395,38 @@ export function setPluginEnabled(pluginId: string, enabled: boolean, pluginRoot:
   if (!plugins.some(plugin => plugin.id === pluginId)) throw new Error("找不到插件：" + pluginId);
   const registry = readRegistry(registryPath);
   registry.enabled[pluginId] = enabled;
+  if (!enabled) {
+    registry.runtimeApproved[pluginId] = false;
+    delete registry.runtimeApprovalHashes[pluginId];
+  }
   writeRegistry(registryPath, registry);
   return listPlugins(pluginRoot, registryPath);
+}
+
+export function setPluginRuntimeApproved(pluginId: string, approved: boolean, pluginRoot: string, registryPath: string): PluginSummary[] {
+  const plugin = listPlugins(pluginRoot, registryPath).find(item => item.id === pluginId);
+  if (!plugin) throw new Error("找不到插件：" + pluginId);
+  if (approved && !plugin.enabled) throw new Error("请先启用插件，再单独授权其运行时代码。");
+  if (approved && !hasRuntimeCapabilities(plugin.runtime)) throw new Error("该插件没有需要授权的运行时组件。");
+  const registry = readRegistry(registryPath);
+  registry.runtimeApproved[pluginId] = approved;
+  if (approved) registry.runtimeApprovalHashes[pluginId] = pluginContentFingerprint(path.join(pluginRoot, pluginId));
+  else delete registry.runtimeApprovalHashes[pluginId];
+  writeRegistry(registryPath, registry);
+  return listPlugins(pluginRoot, registryPath);
+}
+
+export function listApprovedPluginRuntimeEntries(pluginRoot: string, registryPath: string): ApprovedPluginRuntimeEntry[] {
+  return listPlugins(pluginRoot, registryPath)
+    .filter(plugin => plugin.enabled && plugin.runtimeApproved && hasRuntimeCapabilities(plugin.runtime))
+    .map(plugin => {
+      const directory = path.resolve(pluginRoot, plugin.id);
+      return { id: plugin.id, directory, skills: [...plugin.skills], fingerprint: pluginContentFingerprint(directory) };
+    });
+}
+
+export function listApprovedPluginDirectories(pluginRoot: string, registryPath: string): string[] {
+  return listApprovedPluginRuntimeEntries(pluginRoot, registryPath).map(entry => entry.directory);
 }
 
 export function removePlugin(pluginId: string, pluginRoot: string, registryPath: string): PluginSummary[] {
@@ -302,6 +436,8 @@ export function removePlugin(pluginId: string, pluginRoot: string, registryPath:
   rmSync(target, { recursive: true, force: false });
   const registry = readRegistry(registryPath);
   delete registry.enabled[pluginId];
+  delete registry.runtimeApproved[pluginId];
+  delete registry.runtimeApprovalHashes[pluginId];
   writeRegistry(registryPath, registry);
   return listPlugins(pluginRoot, registryPath);
 }
@@ -316,16 +452,22 @@ export function exportPlugin(pluginId: string, pluginRoot: string, destinationDi
   return destination;
 }
 
-export function readEnabledPluginInstructions(pluginRoot: string, registryPath: string, selectedSkills?: string[]): string {
+export function readEnabledPluginInstructions(
+  pluginRoot: string,
+  registryPath: string,
+  selectedSkills?: string[],
+  nativeComponentsByPlugin: PluginNativeComponents = {},
+): string {
   const chunks: string[] = [];
   let remaining = MAX_SKILL_CONTEXT;
   for (const plugin of listPlugins(pluginRoot, registryPath).filter(item => item.enabled)) {
+    const native = new Set(nativeComponentsByPlugin[plugin.id] ?? []);
     const resources = [
       ...plugin.skills
-        .filter(resource => selectedSkills === undefined || selectedSkills.includes(plugin.id + ":" + resource))
+        .filter(resource => !native.has("skills") && (selectedSkills === undefined || selectedSkills.includes(plugin.id + ":" + resource)))
         .map(resource => ({ kind: "Skill", path: resource })),
-      ...plugin.commands.map(resource => ({ kind: "Claude Code Command", path: resource })),
-      ...plugin.agents.map(resource => ({ kind: "Claude Code Agent", path: resource })),
+      ...plugin.commands.filter(() => !native.has("commands")).map(resource => ({ kind: "Claude Code Command", path: resource })),
+      ...plugin.agents.filter(() => !native.has("agents")).map(resource => ({ kind: "Claude Code Agent", path: resource })),
     ];
     for (const resource of resources) {
       if (remaining <= 0) break;
@@ -338,7 +480,7 @@ export function readEnabledPluginInstructions(pluginRoot: string, registryPath: 
         remaining -= chunk.length;
       } catch { /* a changed or missing resource is ignored, never executed */ }
     }
-    for (const command of plugin.inlineCommands) {
+    for (const command of plugin.inlineCommands.filter(() => !native.has("commands"))) {
       if (remaining <= 0) break;
       const chunk = "### " + plugin.name + " / Claude Code Command / " + command.name + "\n" + command.content.slice(0, Math.min(16_000, remaining)).trim();
       chunks.push(chunk);

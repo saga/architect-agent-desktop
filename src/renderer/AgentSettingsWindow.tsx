@@ -92,6 +92,17 @@ export default function AgentSettingsWindow() {
     catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
   };
 
+  const togglePluginRuntime = async (plugin: PluginSummary, approved: boolean) => {
+    try {
+      setPlugins(await window.browser.pluginSetRuntimeApproved(plugin.id, approved));
+      message.success(approved ? "已授权此插件的本机运行时。" : "已撤销此插件的运行时授权。");
+    } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
+  };
+
+  const hasPluginRuntime = (plugin: PluginSummary) =>
+    plugin.runtime.hookEvents.length > 0 || plugin.runtime.mcpServers.length > 0
+    || plugin.runtime.lspServers.length > 0 || plugin.runtime.scriptFiles > 0 || plugin.runtime.mods;
+
   const exportPlugin = async (plugin: PluginSummary) => {
     setPluginBusy(true);
     try {
@@ -271,14 +282,17 @@ export default function AgentSettingsWindow() {
             <Button type="primary" loading={pluginBusy} onClick={() => void importPlugin()}>导入 Claude Plugin 目录</Button>
           </Space>
         </div>
-        <Alert type="info" showIcon message="从 Claude Marketplace 获取插件"
-          description="在 Claude Marketplace 中选择 Works with: Claude Code 的插件，获取其源码目录后导入。当前读取并加载 Markdown Skills、Commands 和 Agents；不会执行 Hooks、MCP/LSP 服务、Mod 或插件脚本。需要这些运行时能力的插件不会完整生效。" />
+        <Alert type="warning" showIcon message="插件运行时需要单独授权"
+          description="Copilot SDK 和 CodeBuddy 都接入各自原生的 --plugin-dir 插件运行时。获准后可原生加载 Skills、Commands、Agents、Hooks、插件 MCP、LSP 与脚本；CodeBuddy 另外支持 Mods。只有插件已启用、单独开启“允许本机运行”、SHA-256 指纹未变化、全局 Agent 权限为 Allow all，且 Expert 没有收紧权限时，才会把经验证的临时目录交给当前 Provider。Copilot 仅在获准 Session 开放 Bash、Skill、Task，Skill loader 同时启用；Bash、插件 Hooks、MCP 与 LSP 请求使用 Session sandbox 且不能请求绕过。CodeBuddy 在 macOS/Linux 为 Bash 启用沙箱并禁止 unsandboxed command。沙箱不代表所有 Hook/MCP/LSP 子进程都绝对隔离；Copilot 需要受支持的 CLI/runtime sandbox，CodeBuddy 的 Bash 沙箱在 Windows 不可用。只授权你信任来源的插件。" />
         <List
           loading={pluginsLoading}
           dataSource={plugins}
           locale={{ emptyText: "尚未安装插件。可从 Claude Marketplace 选择 Claude Code 插件后导入源码目录。" }}
           renderItem={(plugin) => <List.Item actions={[
             <Switch key="enabled" checked={plugin.enabled} checkedChildren="启用" unCheckedChildren="停用" onChange={(value) => void togglePlugin(plugin, value)} />,
+            <Switch key="runtime" disabled={!plugin.enabled || !hasPluginRuntime(plugin)}
+              checked={plugin.runtimeApproved} checkedChildren="允许运行" unCheckedChildren="运行未授权"
+              onChange={(value) => void togglePluginRuntime(plugin, value)} />,
             <Button key="export" size="small" disabled={pluginBusy} onClick={() => void exportPlugin(plugin)}>导出</Button>,
             <Popconfirm key="remove" title="删除此插件？" description="插件目录和本地启用状态将被删除。" okText="删除" cancelText="取消" onConfirm={() => void removePlugin(plugin)}>
               <Button size="small" danger>删除</Button>
@@ -289,6 +303,8 @@ export default function AgentSettingsWindow() {
               description={<>
                 <div>{plugin.description || plugin.id}</div>
                 <div className="settings-field-help">Skills {plugin.skills.length} · Commands {plugin.commands.length + plugin.inlineCommands.length} · Agents {plugin.agents.length}</div>
+                <div className="settings-field-help">Hooks {plugin.runtime.hookEvents.length} · MCP {plugin.runtime.mcpServers.length} · LSP {plugin.runtime.lspServers.length} · Scripts {plugin.runtime.scriptFiles} · Mods {plugin.runtime.mods ? "有" : "无"}</div>
+                {hasPluginRuntime(plugin) && <div className="settings-field-help">{plugin.runtimeApproved ? "已单独授权运行；实际加载仍受当前 Provider、全局 Agent 权限和 Expert 权限上限约束。" : "含可执行运行时组件，默认不会执行。开启“允许运行”后，符合权限条件时才会交给当前 Provider 加载。"}</div>}
               </>}
             />
           </List.Item>}

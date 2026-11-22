@@ -220,7 +220,13 @@ export interface WorkspaceProject { path: string | null; name: string | null; }
 export interface WorkspaceLayoutState { version: 1; agentPanelWidth: number; agentPanelVisible: boolean; agentPanelPosition: "left" | "right" | "top" | "bottom"; }
 export interface WorkspaceDocument { version: 2; root: import("./workspace-document").WorkspaceDocument["root"]; tabGroups: import("./workspace-document").WorkspaceTabGroup[]; floating: import("./workspace-document").FloatingPanelRoot[]; activePanelId: string; }
 
-export interface PluginSummary { id: string; name: string; version: string; description?: string; skills: string[]; commands: string[]; agents: string[]; inlineCommands: Array<{ name: string; content: string }>; enabled: boolean; }
+export interface PluginRuntimeCapabilities { hookEvents: string[]; mcpServers: string[]; lspServers: string[]; scriptFiles: number; mods: boolean; }
+export interface PluginSummary {
+  id: string; name: string; version: string; description?: string;
+  skills: string[]; commands: string[]; agents: string[];
+  inlineCommands: Array<{ name: string; content: string }>;
+  enabled: boolean; runtimeApproved: boolean; runtime: PluginRuntimeCapabilities;
+}
 
 export type McpServerConfig =
   | { id: string; transport: "stdio"; enabled: boolean; description?: string; command: string; args: string[]; env: Record<string, string>; cwd?: string; timeout?: number }
@@ -279,6 +285,7 @@ export interface BrowserApi {
   pluginList(): Promise<PluginSummary[]>;
   pluginImport(): Promise<PluginSummary | null>;
   pluginSetEnabled(id: string, enabled: boolean): Promise<PluginSummary[]>;
+  pluginSetRuntimeApproved(id: string, approved: boolean): Promise<PluginSummary[]>;
   pluginRemove(id: string): Promise<PluginSummary[]>;
   pluginExport(id: string): Promise<string | null>;
   agentMcpList(): Promise<McpServerConfig[]>;

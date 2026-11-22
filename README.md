@@ -15,7 +15,7 @@ A cross-platform Electron desktop application. The first milestone is a built-in
 - Per-session permission prompts for media, screen capture, geolocation, notifications and clipboard read.
 - Isolated browser processes: remote pages do not receive Node.js access.
 - Local project workspaces: select a directory from the toolbar, restore it on launch, and keep Agent conversations separate per project. CodeBuddy uses the selected directory as its working directory; Copilot exposes permission-gated workspace file tools.
-- Claude Code Plugins: import, validate, enable/disable, export and remove standard Claude Code Plugin directories. Supported Markdown Skills, Commands and Agents are included in Agent instructions; plugin scripts and hooks are not executed.
+- Claude Code Plugins: import and manage official Claude Code Plugin directories. Both Copilot SDK and CodeBuddy use their native `--plugin-dir` plugin runtime for Skills, Commands, Agents, Hooks, MCP and LSP; both also support bundled scripts, while CodeBuddy additionally supports Mods. Runtime code requires separate per-plugin approval, a matching SHA-256 content fingerprint, global Allow all and an Expert that does not narrow the permission ceiling.
 - Agent Data: persist Session snapshots, request lifecycle, provider events and tool call inputs/results in a local SQLite trace store. The data directory defaults to userData/agent-data and can be changed in Agent settings.
 
 This is the browser foundation, not a complete replacement for Chrome, Edge or Firefox. Browser extensions, cross-device sync, password import, bookmark management and advanced privacy controls are not included yet.
@@ -73,7 +73,7 @@ Unsigned builds may trigger the operating system's normal security warnings. Pro
 - **Renderer:** local React UI for the tab strip, navigation toolbar, address bar, project workspace selection and Agent/plugin settings.
 - **Project workspace:** stores the selected local project directory independently from the Layout Engine and maintains a separate Agent transcript for each workspace.
 - **Agent Data:** stores runtime events and Session evidence separately from project files. SQLite trace storage can be queried by Session, Trace and event type; the user can change its local directory.
-- **Plugin host:** stores Claude Code Plugin directories under the application user-data directory and validates the Claude Code layout and referenced Markdown resources. Plugin content is untrusted instruction data, never executable code.
+- **Plugin host:** stores and validates Claude Code Plugin directories under the application user-data directory. Markdown is instruction data; native Copilot SDK and CodeBuddy plugin runtimes receive only separately approved plugin directories and only while global Allow all and the active Expert permission ceiling permit it. Copilot receives a temporary compatibility projection for its root legacy manifest and LSP filename; imported source files remain unchanged.
 
 Remote pages run with nodeIntegration: false, contextIsolation: true and sandbox: true. The renderer is not allowed to send arbitrary IPC messages; only the methods in the preload API are exposed.
 
@@ -122,14 +122,19 @@ Agent 支持从系统文件选择器读取 PDF、Word、Excel、CSV、TSV、JSON
 
 ## Claude Code Plugins
 
-The plugin manager supports only the **Claude Code Plugin directory format**. When present, its manifest is `.claude-plugin/plugin.json`; the Claude Code convention also permits omitting the manifest and using the plugin directory name. Markdown components are discovered from `skills/`, `commands/`, and `agents/`. The repository example at `examples/plugins/research-assistant` uses this format.
+The plugin manager imports the official **Claude Code Plugin directory format**. The manifest is `.claude-plugin/plugin.json`; standard directories and files such as `skills/`, `commands/`, `agents/`, `hooks/hooks.json`, `.mcp.json`, `.lsp.json` and `bin/` remain in the imported package.
 
-Browse [Claude Marketplace](https://claude.com/marketplace/plugins), select plugins marked **Works with: Claude Code**, obtain the plugin source directory, then choose **Agent 与插件配置 → Plugins → 导入 Claude Plugin 目录**. Import the plugin root directory containing the Claude Code components (and `.claude-plugin/plugin.json` when the plugin supplies a manifest), not the marketplace website or the repository's marketplace catalog folder.
+Browse [Claude Marketplace](https://claude.com/marketplace/plugins), select plugins marked **Works with: Claude Code**, obtain the plugin source directory, then choose **Agent 与插件配置 → Plugins → 导入 Claude Plugin 目录**. Import the plugin root directory, not the marketplace catalog folder.
 
-The current host loads Markdown Skills, Commands, and Agent definitions as Agent instructions. It does not execute Claude Code Hooks, Mod JavaScript, plugin scripts, or automatically start the plugin's `.mcp.json` / LSP servers. Plugins that require those runtime components will only work partially; configure required MCP services separately in **MCP Servers**. Plugin files are treated as untrusted input and are not executed during import.
+Both Copilot SDK and CodeBuddy load approved plugin packages through their native repeated `--plugin-dir` arguments. Both providers support Skills, Commands, Agents, Hooks, bundled MCP and LSP servers, and plugin scripts. CodeBuddy additionally supports TypeScript Mods; Copilot does not implement CodeBuddy Mods. Copilot Legacy Plugin consumes the root `plugin.json`, `hooks.json`, `.mcp.json` and `lsp.json` layout. The app stages a temporary compatibility copy for Copilot (including the root manifest and Hooks/LSP configuration aliases); it does not change the imported package.
 
-Imported plugins are stored locally under the application's user-data directory. Enable/disable state is local to this installation. Export writes a copy of the plugin directory to a folder you choose.
+Importing or enabling a plugin never executes code. Runtime loading requires all of: the plugin is enabled, its own “允许运行” approval is on, the approved SHA-256 fingerprint still matches the complete plugin directory, global Agent permission is **Allow all**, and the selected Expert does not narrow that permission or its Skill allowlist. A content change invalidates the previous approval. Each provider receives a verified session snapshot instead of the mutable installation directory.
 
+The app never evaluates plugin JavaScript in the Electron main or renderer. For Copilot, an approved session exposes only the Bash, Skill and Task built-ins required for plugin scripts, Skill invocation and custom-agent dispatch; it enables Skill loading, scopes the working directory to the selected Workspace (or the app's private Copilot session folder), and requests sandboxing before plugin MCP/LSP startup with bypass disabled. In the temporary runtime copy, Claude's `CLAUDE_PLUGIN_ROOT` references are translated to Copilot's `PLUGIN_ROOT`; `CLAUDE_PLUGIN_DATA` is retained because Copilot supports that alias. CodeBuddy receives the same kind of hash-verified session snapshot and uses its native plugin runtime. On macOS/Linux, approved CodeBuddy sessions enable its Bash sandbox and reject unsandboxed commands.
+
+These controls are not a claim that every plugin side effect is fully isolated. Copilot sandboxing depends on a compatible CLI/runtime and platform. CodeBuddy's Bash sandbox is not available on Windows, and its Bash sandbox does not prove that every Hook/MCP/LSP/Mod child process is isolated. Only approve plugins from sources you trust. The app does not set CodeBuddy's high-risk `CODEBUDDY_IS_SANDBOX` full-pass environment variable.
+
+Import rejects symbolic links, limits package/file size and validates configured JSON paths. Runtime approval is stored separately from plugin enablement; disabling or removing a plugin revokes its approval and fingerprint. The plugin manager stores packages under the application's user-data directory. Export writes a copy of the plugin directory to a folder you choose.
 ## 本地数据分析、可视化与长期记忆
 
 Agent 可以通过系统文件选择器分析 PDF、Word（DOC/DOCX）、Excel（XLS/XLSX/XLSM）、CSV、TSV、JSON 和文本文件。Excel/CSV 等结构化数据会导入当前 Workspace 对应的本地 DuckDB，Agent 使用受限只读 SQL 做分析。

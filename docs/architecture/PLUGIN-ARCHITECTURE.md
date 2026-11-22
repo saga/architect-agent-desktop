@@ -1,111 +1,149 @@
-# 插件架构设计
+# Claude Code Plugin Host 与运行时设计
 
-**状态：** 第一版已实现；后续能力按实际需求迭代  
-**适用范围：** 本地单用户桌面应用；仅定义架构
+**状态：** Claude Plugin 导入、Copilot SDK / CodeBuddy 原生运行时接入
+**插件格式：** 官方 Claude Code Plugin 目录结构
+**应用范围：** 本地单用户 Electron Agent Desktop
 
-## 1. 目标
+## 1. 设计目标
 
-支持不同团队和个人采用不同的工作方式，而不需要为每个团队维护独立的应用构建版本，也不需要在核心应用中加入大量团队专属分支。
+应用负责插件导入、结构校验、启用状态、独立运行授权和权限边界；Provider 原生插件运行时负责加载 Hooks、MCP、LSP、Skills、Commands、Agents 与插件脚本。Electron 主进程和 Renderer 不直接加载第三方插件代码。
 
-设计应保持简单：
+- 导入、启用和运行授权是不同状态。导入或启用不会执行代码。
+- Copilot SDK 和 CodeBuddy 都使用各自原生的 --plugin-dir 参数。
+- 插件必须启用、单独获准、全局权限为 Allow all，且 Expert 未收紧权限，才会进入 Provider。
+- 运行授权绑定插件目录的 SHA-256 内容指纹；任一文件变化都会令旧授权失效。
+- Provider 只接收通过指纹校验的会话临时快照，不直接运行可变安装目录。
+- 插件脚本、Hook、MCP 响应均为不可信输入；不能覆盖宿主权限、IPC 校验或高风险操作策略。
 
-- **宿主应用（Host）**负责 Electron 生命周期、可信 IPC、存储、布局和执行边界。
-- **插件（Plugin）**是可安装的声明式能力包及其配置。
-- **插件管理器**负责本机插件的导入、启用、停用、导出和删除。
-- 具体操作仍由应用现有的宿主服务执行，并由宿主服务落实权限检查。
+## 2. 组件覆盖
 
-这是本地扩展机制，不是通用插件平台或插件市场。
-
-## 2. 什么是插件
-
-第一版插件采用目录形式，包含一个清单文件（Manifest）和可选资源文件。插件只允许提供以下四类内容：
-
-| 提供内容 | 含义 | 示例 |
+| Claude Plugin 组件 | Copilot SDK | CodeBuddy |
 |---|---|---|
-| Skill（技能） | 指令、领域知识和工作约定 | 研究报告规范 |
-| Tool 引用 | 对宿主应用已实现工具的标识引用 | 搜索本地文档 |
-| Workflow（工作流） | 可复用的任务模板或步骤定义 | 生成研究简报 |
-| View 声明 | 引用宿主应用已支持的面板或视图 | Browser 或 Agent 面板 |
+| Skills | 原生 Skill loader | 原生 Skill loader |
+| Commands | 原生 Legacy Plugin loader | 原生命令 loader |
+| Agents | 原生 Agent loader | 原生 Agent loader |
+| Hooks | 原生 Hook runtime | 原生 Hook runtime |
+| MCP Servers | 原生插件 MCP loader | 原生插件 MCP loader |
+| LSP Servers | 原生 LSP loader | 原生 LSP loader |
+| Scripts / bin | Bash 与 Hook 插件脚本链路 | 原生脚本及 bin/ PATH |
+| Mods | 不支持 CodeBuddy Mods | 原生 TypeScript Mod runtime |
 
-Agent 由宿主应用根据指令、已选 Skills 和可用 Tools 组合而成，不作为独立的插件运行时。Context 应放在 Skill 或其引用的资源中。Provider 和模型配置属于应用或用户设置。外部系统集成通过宿主应用支持的工具进行配置。
+Copilot 的 Legacy Plugin loader 支持 Skills、Commands、Agents、Hooks、MCP、LSP 和脚本；不要把 SDK SessionConfig 的 pluginDirectories 当成 Claude Plugin 目录入口，该字段用于 Agent Plugins / Open Plugin Spec 语义。
 
-一个插件可以包含上述四类内容中的任意组合。第一版不允许插件携带任意可执行 JavaScript。
+## 3. Provider 文件格式适配
 
-## 3. 插件包与清单
+### 3.1 Copilot Legacy Plugin
 
-第一版使用带版本信息的插件目录，通过配置窗口导入和导出。ZIP 导入、插件市场、远程目录、依赖求解器和独立包管理器暂不实现。
+Copilot 的 Legacy Plugin loader 使用根级 plugin.json、hooks.json、.mcp.json 和 lsp.json。Claude 插件常见布局为 .claude-plugin/plugin.json、hooks/hooks.json、.mcp.json 和 .lsp.json。
 
-清单示例：
+应用不会改写已安装插件。每次启动 Copilot 时，先将插件复制到应用临时运行目录，再在副本中：
 
-```json
-{
-  "manifestVersion": 1,
-  "id": "team.research",
-  "name": "Research Workspace",
-  "version": "1.0.0",
-  "skills": ["skills/research.md"],
-  "tools": ["browser_get_current_page", "browser_snapshot"],
-  "workflows": ["workflows/research-brief.md"],
-  "views": []
-}
-```
+- 从 .claude-plugin/plugin.json 生成 Copilot 根级 plugin.json，忽略可能与 Claude manifest 不一致的旧 root manifest。
+- 将默认 hooks/hooks.json 复制为 root hooks.json；manifest 声明自定义 Hooks 文件或内联配置时，解析后生成 root hooks.json。
+- 将 manifest 的自定义 mcpServers 配置合并到 .mcp.json。
+- 将 manifest 的自定义 lspServers 配置合并到 .lsp.json，再为 Copilot 生成 lsp.json 别名。
+- 如果 manifest 未声明 commands 而包内存在标准 commands/ 目录，显式加入该目录；原有自定义 commands 声明保持不变。
+- 把 Claude 的 CLAUDE_PLUGIN_ROOT 引用转换为 Copilot 的 PLUGIN_ROOT，覆盖 POSIX、PowerShell、cmd 以及常见 Node.js / Python 环境变量写法。CLAUDE_PLUGIN_DATA 保持原样，Copilot 支持该兼容别名。
 
-导入时由宿主应用校验清单、文件路径和所声明的内容类型。Skill 只能引用 Markdown 文件，Workflow 只能引用 Markdown 或 JSON 文件，View 只能引用 JSON 声明，且内容必须将 id 指向宿主已支持的 browser 或 agent 视图。Tool 引用必须指向应用已知的工具；插件不能自行提供可执行处理器，也不能自行获得宿主 API 的访问权限。
+所有转换仅在临时副本中执行。Copilot Client 退出后删除临时目录。
 
-清单应保持精简。只有真实需求出现时才增加字段，不要提前引入依赖关系图、激活事件系统、逐字段合并策略或通用扩展 SDK。
+### 3.2 CodeBuddy
 
-## 4. 宿主应用职责
+CodeBuddy 原生接收 Claude 插件目录，通过 SDK query 的 extraArgs 传入重复的 --plugin-dir <path>。应用移除继承的 CODEBUDDY_PLUGIN_DIRS，防止用户环境中未经过应用注册表批准的目录被意外加载。
 
-宿主应用提供一个轻量的插件注册表（Plugin Registry），用于记录已安装插件、校验清单，并向现有 Agent 指令提供启用插件的 Skills、Workflow 模板和 Tool 引用。View 声明仅校验其目标属于宿主已支持的视图，不加载插件 UI。
+CodeBuddy 使用未经格式转换的 Claude Plugin 快照，原生加载 Skills、Commands、Agents、Hooks、MCP、LSP、bin/ 脚本和 TypeScript Mods。
 
-基本生命周期只有四步：
+## 4. 授权模型
 
-1. 导入插件包。
-2. 校验并登记清单。
-3. 启用或停用插件。
-4. 删除插件。
+每个插件在本地注册表中维护：
 
-插件是否生效由本机保存的启用状态决定。第一版不需要独立的插件事件总线或多阶段运行时生命周期。
+- enabled：是否启用插件资源。
+- runtimeApproved：用户是否单独允许运行该插件的第三方代码。
+- runtimeApprovalHashes：用户授权时记录的插件目录 SHA-256 指纹。
 
-工具仍通过应用现有的宿主控制执行路径运行。执行前由该路径校验输入，并执行相应的权限或确认检查。插件注册表只负责发现和组合插件内容，不是第二套工具运行时，也不是第二套授权系统。
+Provider 运行插件必须同时满足：
 
-插件文件属于数据，不属于可信代码。宿主应用必须在导入时防止路径穿越，校验被引用的文件，并确保远程网页内容不进入插件信任边界。未来若要支持可执行的第三方扩展，必须另行设计明确的隔离机制。
+1. 插件已启用。
+2. runtimeApproved === true。
+3. 当前插件内容指纹与已批准的 SHA-256 完全一致。
+4. Agent 全局权限为 allow-all。
+5. 当前 Expert 没有以 allowAllTools === false 收紧权限。
+6. 当前 Expert 的 Skills 白名单覆盖该插件全部原生加载 Skills。
+7. 当前 Provider 是 Copilot 或 CodeBuddy。
 
-## 5. 本机启用状态
+若 Expert 只选择某插件部分 Skills，宿主继续根据 Expert 白名单注入 Markdown，但不启动该插件的原生运行时，避免原生 Skill loader 暗中暴露未选择的 Skills。
 
-第一版不引入团队 Profile 或配置继承。每个插件可在配置窗口中独立启用或停用，状态保存在应用用户数据目录的插件注册表中。
+任何文件内容变化都会令指纹校验失败，旧运行授权自动失效。用户需要重新检查插件并授权。禁用或删除插件会撤销运行授权并删除关联指纹。
 
-团队 Profile、组织级基线和远程同步均暂缓，不是插件安装或运行的前置条件。原有 `PROFILE-COMPOSITION.md` 仅作为独立的未来提案保留。
+注册表使用 v3 格式。v1/v2 迁移时保留 enabled 状态，但旧布尔运行授权不会迁移成有效授权。
 
-## 6. UI 与 Layout Engine
+## 5. 运行时快照与生命周期
 
-插件可以声明使用宿主应用已经支持的视图，但视图是否可用以及显示位置均由宿主应用决定。
+plugin-content.ts 提供统一的内容指纹和快照功能：
 
-现有 Layout Engine 仍是工作区几何、停靠、分栏比例、标签组、浮动 Agent 窗口状态和布局持久化的唯一所有者。插件声明不能直接访问 Electron 的 `WebContentsView`、Bounds 或任意 Renderer 状态。
+1. 对安装目录的相对路径、文件类型和文件内容计算 SHA-256。
+2. 将已批准插件复制到一次性会话运行目录。
+3. 对复制后的快照重新计算 SHA-256。
+4. 如果快照指纹与批准指纹不一致，阻止 Provider 启动。
+5. Provider 只接收快照路径，不接收可变安装目录。
 
-不要另建一套插件专用布局系统。也不要把应用中的每个现有功能都改造成插件；只有在确实能提升复用性或配置灵活性时，才考虑迁移。
+Copilot 使用 SDK RuntimeConnection.forStdio({ args }) 在 Client 创建阶段传入重复的 --plugin-dir 参数。Copilot Client 的 baseDirectory 指向应用私有目录，避免依赖用户个人 Copilot 配置目录中的插件。
 
-## 7. 安全与诊断
+CodeBuddy 每次 Query 创建独立临时目录，把验证后的快照通过重复的 --plugin-dir 参数传给 SDK query。Query 的 finally 清理该目录以及临时配置文件。
 
-- 插件不能执行任意代码，也不能访问 Node.js 或 Electron API。
-- 插件对工具的引用不代表获得工具权限。
-- 每次工具调用仍必须经过宿主应用现有的输入校验和授权路径。
-- 导入时校验目录结构、资源路径和文件类型，并拒绝符号链接、不支持或格式错误的内容。
-- 诊断信息应能报告导入、校验和工具执行错误，并标明相关插件；不另建遥测流水线。
+切换 Workspace、Expert 或会话时，Copilot Agent 先停止旧 Client 并清理快照。启用、禁用、运行授权变更和删除插件的 IPC 操作要求 Agent 空闲，并重置会话，避免旧进程持有过期插件。
 
-## 8. 当前实现范围
+## 6. Copilot 的最小工具权限
 
-- 已实现目录包导入/导出、Manifest 校验、启用/停用和删除。
-- 已将启用插件的 Skills 和 Workflow 模板注入现有 Agent 指令。
-- Tool 引用只允许指向宿主已实现工具；引用不会授予工具权限。
-- View 声明只允许引用宿主已支持的 browser 或 agent 视图，不支持插件自带 UI 或任意 Renderer 代码。
-- ZIP 导入、插件市场、依赖解析、事件钩子和远程管理暂不实现。
+应用以 SDK mode: empty 创建 Copilot Client。默认不开放运行时内置工具。
 
-## 9. 验收标准
+只有插件运行授权通过后，Session 才会：
 
-- 用户可以导入、启用、停用、导出和删除有效的插件目录。
-- 插件清单、资源路径和内容类型经过校验；路径穿越、符号链接、未知工具引用和不支持的 View 声明会被拒绝。
-- 启用插件的 Skills 和 Workflow 模板会提供给现有 Agent。
-- 插件不能执行任意代码，也不能绕过宿主应用现有的工具权限检查。
-- 插件管理通过受信任的配置窗口 IPC 执行，远程网页不能调用插件管理接口。
-- 插件功能不会改变现有浏览器和 Layout Engine 的职责边界。
+- 启用 Skills loader。
+- 开放 bash、skill、task 三个最小内置工具，分别用于插件脚本、Skill 调用和自定义 Agent 调度。
+- 将工作目录限定在所选 Workspace；未选择 Workspace 时使用应用私有 Copilot 会话目录。
+- 将插件 MCP 工具加入该 Session 可用 MCP ToolSet。
+
+未满足运行授权条件时，不开放 Bash、Skill、Task，也不向 CLI 传入插件目录。
+
+## 7. 沙箱边界
+
+### Copilot
+
+插件获准后，Session 创建时请求 sandbox policy：
+
+    enabled: true
+    allowBypass: false
+    sandboxMcpServers: true
+    sandboxLspServers: true
+
+该策略在 MCP / LSP 和 Session 工具启动前提供。实际隔离是否生效依赖目标机器上的 Copilot CLI/runtime 版本和宿主平台能力；不应仅凭配置存在就声称所有插件行为已处于 OS 沙箱。管理员 Policy Hooks 属于机器级策略，不是插件内容，可能在宿主执行。
+
+### CodeBuddy
+
+在 macOS/Linux 且存在获批插件时，应用生成临时配置：
+
+    sandbox.enabled = true
+    sandbox.autoAllowBashIfSandboxed = true
+    sandbox.allowUnsandboxedCommands = false
+
+CodeBuddy Bash sandbox 只约束 Bash 命令执行环境，不代表所有 Hook、MCP、LSP 和 Mod 子进程都经过同一个 OS 沙箱。Windows 当前没有 CodeBuddy Bash sandbox，获批插件子进程可能以当前用户权限运行。
+
+两家 Provider 的原生沙箱都不是抵御恶意插件的完整 OS 隔离保证。应用不会设置 CODEBUDDY_IS_SANDBOX，也不会在 Electron 主进程或 Renderer 中执行插件 JavaScript。
+
+## 8. 导入校验
+
+插件导入阶段：
+
+- 仅接受 Claude Code Plugin 目录格式，不接受已废弃的应用自定义 manifest.json。
+- 拒绝符号链接、路径穿越和不支持的文件类型。
+- 单个文件最大 2 MiB，插件包最大 20 MiB。
+- 检查 Hooks / MCP / LSP 自定义配置路径必须位于插件根目录内；允许带或不带 ./ 的包内相对路径。
+- 识别默认 hooks/hooks.json、.mcp.json、.lsp.json 及 manifest 内联配置。
+- 展示 Hook event、MCP server、LSP server、脚本数量和 Mod 注册入口。
+
+## 9. 可观测性与后续增强
+
+Copilot Trace 记录实际加载的插件 ID 与 sandbox policy；CodeBuddy Trace 记录本次 Query 使用的插件 ID，不记录绝对插件目录和插件密钥。临时快照在 Provider 生命周期结束时清理。
+
+如果需要将每个 Hook、MCP、LSP 子进程提升到强隔离级别，仍需统一的 OS Sandbox Backend，分别实现 macOS、Linux、Windows 的文件系统、网络、进程和资源限制，并确认 Provider 能将每个扩展子进程纳入该后端。在此之前，不把 Provider 原生加载描述为所有插件子进程均已沙箱化。

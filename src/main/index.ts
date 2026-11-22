@@ -30,7 +30,7 @@ import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, 
 import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
 import { writeJsonAtomic } from "./json-store";
-import { exportPlugin, importPlugin, listPlugins, readEnabledPluginInstructions, removePlugin, setPluginEnabled } from "./plugins/plugin-registry";
+import { exportPlugin, importPlugin, listApprovedPluginRuntimeEntries, listPlugins, readEnabledPluginInstructions, removePlugin, setPluginEnabled, setPluginRuntimeApproved } from "./plugins/plugin-registry";
 import { importAgentSkill, importAgentSkillArchive, listAgentSkills, listMcpServers, readEnabledAgentSkillInstructions, removeAgentSkill, removeMcpServer, saveMcpServer, setAgentSkillEnabled, setMcpServerEnabled } from "./agent-extensions";
 import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./login-shell-env";
 import { calculateLayout } from "./layout/layout-engine";
@@ -446,7 +446,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const text=typeof result === "string" ? result : JSON.stringify(result);
     return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
-}, agentSettings, (skills) => [readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills), readEnabledAgentSkillInstructions(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH)].filter(Boolean).join("\n\n"), workspaceProject.path, (type, data, status, payloadComplete) => recordAgentTrace(type, data, status, payloadComplete), (() => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return expert ? { systemPrompt: expert.systemPrompt, toolPermission: expert.toolPermission, allowAllTools: expert.allowAllTools, skills: expert.skills, tools: expert.tools } : null; })(), () => listMcpServers(MCP_CONFIG_PATH), (workspacePath, query, limit) => agentTraceStore.searchSessionMessages(workspacePath, query, limit), (workspacePath, after, limit) => agentTraceStore.listMemorySources(workspacePath, after, limit));
+}, agentSettings, (skills, nativeComponentsByPlugin) => [readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, nativeComponentsByPlugin), readEnabledAgentSkillInstructions(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH)].filter(Boolean).join("\n\n"), workspaceProject.path, (type, data, status, payloadComplete) => recordAgentTrace(type, data, status, payloadComplete), (() => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return expert ? { systemPrompt: expert.systemPrompt, toolPermission: expert.toolPermission, allowAllTools: expert.allowAllTools, skills: expert.skills, tools: expert.tools } : null; })(), () => listMcpServers(MCP_CONFIG_PATH), () => listApprovedPluginRuntimeEntries(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH), (workspacePath, query, limit) => agentTraceStore.searchSessionMessages(workspacePath, query, limit), (workspacePath, after, limit) => agentTraceStore.listMemorySources(workspacePath, after, limit));
 function persistAgentTasks(): void {
   agentTasks.sort((a, b) => b.updatedAt - a.updatedAt);
   writeJsonAtomic(AGENT_TASKS_PATH, agentTasks);
@@ -2222,27 +2222,43 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("plugin:import", async (event) => {
     assertTrustedSender(event);
+    assertAgentExtensionsIdle();
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: "导入 Claude Plugin 目录",
       properties: ["openDirectory"],
     });
     if (canceled || !filePaths[0]) return null;
+    await copilotAgent.resetConversation();
     const plugin = importPlugin(filePaths[0], PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", "import " + plugin.id);
     return plugin;
   });
-  ipcMain.handle("plugin:set-enabled", (event, input: unknown) => {
+  ipcMain.handle("plugin:set-enabled", async (event, input: unknown) => {
     assertTrustedSender(event);
+    assertAgentExtensionsIdle();
     const parsed = z.object({ id: z.string().min(1).max(100), enabled: z.boolean() }).safeParse(input);
     if (!parsed.success) throw new Error("无效的插件状态请求。");
+    await copilotAgent.resetConversation();
     const plugins = setPluginEnabled(parsed.data.id, parsed.data.enabled, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", (parsed.data.enabled ? "enable " : "disable ") + parsed.data.id);
     return plugins;
   });
-  ipcMain.handle("plugin:remove", (event, input: unknown) => {
+  ipcMain.handle("plugin:set-runtime-approved", async (event, input: unknown) => {
     assertTrustedSender(event);
+    assertAgentExtensionsIdle();
+    const parsed = z.object({ id: z.string().min(1).max(100), approved: z.boolean() }).safeParse(input);
+    if (!parsed.success) throw new Error("无效的插件运行授权请求。");
+    await copilotAgent.resetConversation();
+    const plugins = setPluginRuntimeApproved(parsed.data.id, parsed.data.approved, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
+    recordOperation("plugin", (parsed.data.approved ? "authorize runtime " : "revoke runtime ") + parsed.data.id);
+    return plugins;
+  });
+  ipcMain.handle("plugin:remove", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    assertAgentExtensionsIdle();
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("无效的插件 ID。");
+    await copilotAgent.resetConversation();
     const plugins = removePlugin(parsed.data, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", "remove " + parsed.data);
     return plugins;
