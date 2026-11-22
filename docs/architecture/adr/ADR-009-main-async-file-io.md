@@ -27,7 +27,7 @@ Electron Main 进程除了 IPC 和 Browser 生命周期，还负责插件目录�
 
 ## 性能基准结果
 
-- 环境：GitHub Actions Linux runner，Node.js v24.22.3。
+- 历史性能数据采集环境：GitHub Actions Linux runner，Node.js v24.22.3。该 runner 仅用于当时的算法性能对比，不代表产品目标平台；后续基准工作流固定在 macOS runner 执行。
 - 插件包：259 个文件，数据文件合计 8 MiB；Skill ZIP：5 个文件，解压后 8 MiB。
 - 同步基线 `7dfd411` → 当前异步实现：插件导入 34.76 → 110.45 ms；运行授权/指纹 31.42 → 96.64 ms；重复扫描 126.56 → 340.31 ms；Skill ZIP 导入 326.53 → 42.05 ms；组合总耗时 520.67 → 591.33 ms。
 - 最大定时器延迟 520.17 → 21.11 ms；组合总耗时增加约 13.6%，Main 最大阻塞降低约 96%。这个取舍优先保障 Electron Main 进程交互响应；CRC 查表后，ZIP 导入 CPU 开销不再需要独立 Worker/UtilityProcess。

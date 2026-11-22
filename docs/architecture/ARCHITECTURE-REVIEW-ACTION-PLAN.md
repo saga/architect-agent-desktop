@@ -35,7 +35,7 @@
   **性能验收：** GitHub Actions Benchmark run [44998687395](https://github.com/saga/architect-agent-desktop/actions/runs/44998687395)，Linux / Node.js 24.22.3，同一组 8 MiB 插件目录（259 个文件）和 8 MiB 未压缩 Skill ZIP（5 个文件），同步基线 `7dfd411` 对比当前异步实现：插件导入 34.76 → 110.45 ms；运行授权/指纹 31.42 → 96.64 ms；重复扫描 126.56 → 340.31 ms；Skill ZIP 导入 326.53 → 42.05 ms；组合总耗时 520.67 → 591.33 ms（增加 13.6%）。最大定时器延迟 520.17 → 21.11 ms（下降约 96%）。异步 I/O 牺牲少量整体 wall-clock 时间，换得 Main Event Loop 不再被目录扫描/文件复制长时间阻塞；CRC 查表消除了 ZIP 校验的主要 CPU 热点。没有证据支持再引入 Worker/UtilityProcess，因此不增加新的进程层。
 
   **验证：** Build run [44998687413](https://github.com/saga/architect-agent-desktop/actions/runs/44998687413) 的 `npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均通过。
-- [x] **P2-08 UtilityProcess 子进程树清理。** POSIX 使用冻结根进程、重复发现后代、冻结新后代、叶节点优先终止并等待退出；Windows 使用 `taskkill /T /F`。Runtime 正常完成、失败、超时、取消和 `dispose()` 均调用进程树清理；无论 PID 是否已就绪，都会调用 Electron `UtilityProcess.kill()` 兜底关闭根进程。新增真实 Node 父/子/孙进程树集成测试，在 Ubuntu、macOS、Windows runner 上执行真实 OS 清理路径；Runtime 单元测试覆盖正常结束、PID 未就绪时取消和超时。最新三平台 Build run [44999748352](https://github.com/saga/architect-agent-desktop/actions/runs/44999748352) 全部成功。完整 Electron GUI Agent Code Mode 的打包运行/取消/退出人工验收仍单独保留，不影响进程树清理代码项关闭。
+- [x] **P2-08 UtilityProcess 子进程树清理。** POSIX 使用冻结根进程、重复发现后代、冻结新后代、叶节点优先终止并等待退出；Windows 使用 `taskkill /T /F`。Runtime 正常完成、失败、超时、取消和 `dispose()` 均调用进程树清理；无论 PID 是否已就绪，都会调用 Electron `UtilityProcess.kill()` 兜底关闭根进程。新增真实 Node 父/子/孙进程树集成测试，在 macOS 和 Windows runner 上执行真实 OS 清理路径；Runtime 单元测试覆盖正常结束、PID 未就绪时取消和超时。最新三平台 Build run [44999748352](https://github.com/saga/architect-agent-desktop/actions/runs/44999748352) 全部成功。完整 Electron GUI Agent Code Mode 的打包运行/取消/退出人工验收仍单独保留，不影响进程树清理代码项关闭。
 - [x] **P2-09 CodeBuddy 总预算。** 一次用户请求最多 12 个模型轮次（6 次 Query、每次最多 2 轮）；应用 Host 工具与兼容模式文本工具调用共用 80 次请求级预算；兼容模式工具结果总输出最多 256 KiB；仍受现有 5 分钟请求超时约束。Provider 内部原生工具由 SDK 权限和轮次限制约束，不声称由应用计数器逐个计数。
 - [x] **P2-10 未使用 Runtime 入口清理。** 确认 `executeSkill()` / `SkillExecutionRequest` / Worker 的 `execute` 分支没有产品调用点；按 Agent Skills“脚本不会由导入器执行”的产品边界移除死入口，保留 Code Mode 使用的 UtilityProcess。同步修订 Runtime 和 Agent Skills 文档。
 
@@ -53,18 +53,18 @@
 - [x] Schedule Profile 重置会依次清除站点存储、HTTP Cache、HTTP Authentication Cache，并在完成后 flush（Vitest 回归测试已加入）
 - [x] Schedule 下载路径按 Profile 隔离、远端文件名净化、唯一命名且不触发 Save 对话框（Vitest 路径测试已加入）
 - [x] Schedule Profile 重置会关闭根登录窗口和所有嵌套 OAuth 子窗口，取消未完成下载但保留已完成文件；Storage/Cache/Auth Cache 清理即使单步失败也会继续执行并 flush（Vitest 回归测试已加入）
-- [x] 真实 Node 父/子/孙进程树在 Ubuntu、macOS、Windows CI 中均被终止（GitHub Actions Build run 44999451094）
+- [x] 真实 Node 父/子/孙进程树在 macOS、Windows CI 中均被终止（GitHub Actions Build run 44999451094）
 - [ ] CodeBuddy 真实运行验证：Expert 只授权 Workspace read 时，不能读取 Workspace 外文件
 - [ ] Copilot / CodeBuddy 各自的 Agent Run 期间切换 Tab 验证
 - [ ] Sidepanel：左右/上下停靠、隐藏、窗口缩放、Tab Group 切换、浮动/重新停靠
 - [ ] Pure Agent：右侧 Browser 显示/隐藏、切换 Files/Results、窗口缩放
-- [ ] WorkspaceDocument v1 偏好迁移、四方向停靠、显隐和面板比例的 v2 往返回归测试
+- [x] WorkspaceDocument v1 偏好迁移、四方向停靠、显隐和面板比例的 v2 往返回归测试（Layout Engine 自动化测试已覆盖）
 - [ ] macOS：Electron Agent Code Mode 中真实 UtilityProcess 取消、超时及应用退出清理验证
 - [ ] Windows：Electron Agent Code Mode 中真实 UtilityProcess 取消、超时及应用退出清理验证
 
 ## CI 更新记录
 
-- 2026-11-22：UtilityProcess 子进程树清理提交 `e860a6b` 的 Build run [44999451094](https://github.com/saga/architect-agent-desktop/actions/runs/44999451094) 已在 Ubuntu、macOS、Windows 三个平台全部通过：`npm ci`、TypeScript typecheck、全部 Vitest（包含真实 Node 父/子/孙进程树集成测试）、应用 build 和 Layout Engine 独立测试均成功。该结果验证当前 OS 的进程树算法和 Runtime 测试接线，但不替代在 Electron GUI 中验证完整 Agent Code Mode 取消、超时和应用退出。
+- 2026-11-22：UtilityProcess 子进程树清理提交 `e860a6b` 的历史 Build run [44999451094](https://github.com/saga/architect-agent-desktop/actions/runs/44999451094) 曾额外运行 Ubuntu job；项目目标平台的 macOS 与 Windows jobs 均通过：`npm ci`、TypeScript typecheck、全部 Vitest（包含真实 Node 父/子/孙进程树集成测试）、应用 build 和 Layout Engine 独立测试均成功。该结果验证当前 OS 的进程树算法和 Runtime 测试接线，但不替代在 Electron GUI 中验证完整 Agent Code Mode 取消、超时和应用退出。
 
 - 2026-11-22：异步插件/Skill I/O 提交 `e0dba71` 的 GitHub Actions Build run [44997636956](https://github.com/saga/architect-agent-desktop/actions/runs/44997636956) 已通过：npm ci、TypeScript typecheck、全部 271 项 Vitest、应用 build 和 Layout Engine 独立测试全部成功。
 
@@ -79,6 +79,6 @@
 
 P2-01 当前完成的是授权边界第一阶段：插件启用与可执行运行时授权已经分开，纯 Markdown 插件无法获得运行时授权。混合插件在启用且运行时获批后仍由 Provider 原生加载整份插件快照；如未来要对 Skills、Commands、Agents 做逐组件授权，需要进一步收紧快照投影和 Provider Adapter，不能仅增加 UI 开关。
 
-P2-03 仍等待 macOS / Windows BrowserWindow、Session、OAuth Popup、下载和后台 Run 生命周期 GUI 验收。P2-08 的真实 OS 进程树测试已在 Ubuntu、macOS、Windows CI 全部通过，仍等待真实 Electron Agent Code Mode 的取消、超时和应用退出 GUI 验收。P2-05、P2-07 已完成代码、自动化测试与 CI/基准验证；不得把尚未完成的平台验收项标记为 done。
+P2-03 仍等待 macOS / Windows BrowserWindow、Session、OAuth Popup、下载和后台 Run 生命周期 GUI 验收。P2-08 的真实 OS 进程树测试已在 macOS、Windows CI 通过，仍等待真实 Electron Agent Code Mode 的取消、超时和应用退出 GUI 验收。P2-05、P2-07 已完成代码、自动化测试与 CI/基准验证；不得把尚未完成的平台验收项标记为 done。
 
 Action 项目勾选表示相关代码与自动化回归测试已经加入；上面的验证清单则需要实际 CI、Provider 或 GUI 环境确认。当前 CI 结果将在 Action Plan 更新记录中记录，不会仅因为提交成功就标记为通过。

@@ -11,8 +11,8 @@ permissions:
   contents: read
 jobs:
   compare:
-    timeout-minutes: 5
-    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:

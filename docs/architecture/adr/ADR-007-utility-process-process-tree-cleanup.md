@@ -1,6 +1,6 @@
 # ADR-007：UtilityProcess 子进程树清理
 
-**状态：** 已采纳；真实 OS 进程树自动化在 Ubuntu / macOS / Windows CI 通过，等待 Electron Agent Code Mode 人工验收  
+**状态：** 已采纳；真实 OS 进程树自动化在 macOS / Windows CI 通过，等待 Electron Agent Code Mode 人工验收  
 **日期：** 2026-11-22
 
 ## 背景
@@ -28,19 +28,19 @@ UtilityProcess 是进程隔离和崩溃隔离边界，不是安全沙箱。本 A
 
 - 进程树清理针对仍可从 UtilityProcess PID/PPID 关系发现的后代。进程若在宿主开始清理前主动 daemonize、重新托管或逃离原有父子关系，单纯的 PID 树枚举不能提供绝对保证。
 - POSIX 实现依赖系统 `ps` 命令；Windows 实现依赖系统 `taskkill.exe`。
-- 当前自动化测试既通过注入进程表验证算法边界，也会真实启动 Node 父/子/孙进程树并调用当前操作系统的清理路径；GitHub Actions 的 Ubuntu、macOS、Windows 三个平台矩阵均执行该测试。Runtime 层另有取消/结束流程与清理器的集成单元测试。真实 Electron GUI 内运行完整 Agent Code Mode 的人工验收仍单独保留。
+- 当前自动化测试既通过注入进程表验证算法边界，也会真实启动 Node 父/子/孙进程树并调用当前操作系统的清理路径；GitHub Actions 的 macOS、Windows 两个平台矩阵均执行该测试。Runtime 层另有取消/结束流程与清理器的集成单元测试。真实 Electron GUI 内运行完整 Agent Code Mode 的人工验收仍单独保留。
 
 ## 自动化跨平台验证
 
 - `tests/process-tree.integration.test.ts` 在当前操作系统真实启动三层 Node 进程树，调用 `terminateProcessTree`，并验证根进程与孙进程均不再运行。
-- `Build` workflow 使用 Ubuntu / macOS / Windows 矩阵执行 typecheck、全部 Vitest、应用 build 和 Layout Engine 测试。
+- `Build` workflow 使用 macOS / Windows 矩阵执行 typecheck、全部 Vitest、应用 build 和 Layout Engine 测试。
 - Runtime 测试验证正常完成、超时和取消均调用进程清理器；PID 尚未就绪时仍调用 Electron `kill()` 根进程兜底。
-- GitHub Actions Build run [44999451094](https://github.com/saga/architect-agent-desktop/actions/runs/44999451094) 的 Ubuntu、macOS、Windows 三个平台均通过真实 Node 父/子/孙进程树清理测试、TypeScript、Vitest 和应用 build。
+- GitHub Actions 历史 Build run [44999451094](https://github.com/saga/architect-agent-desktop/actions/runs/44999451094) 额外包含 Ubuntu job；目标平台 macOS 与 Windows 均通过真实 Node 父/子/孙进程树清理测试、TypeScript、Vitest 和应用 build。后续 CI 固定只运行 macOS 与 Windows。
 - 该测试验证 OS 进程树算法和 Runtime 清理器接线，不替代完整 GUI Agent Code Mode 手工验收。
 
 ## 跨平台 CI 结果
 
-- Build run [44999748352](https://github.com/saga/architect-agent-desktop/actions/runs/44999748352) 在 Ubuntu、macOS、Windows 三个平台全部成功，覆盖 TypeScript、完整 Vitest（含真实进程树集成）、应用 build 和 Layout Engine 测试。
+- Build run [44999748352](https://github.com/saga/architect-agent-desktop/actions/runs/44999748352) 的 macOS 与 Windows 目标平台 jobs 成功（该历史矩阵另有 Ubuntu job），覆盖 TypeScript、完整 Vitest（含真实进程树集成）、应用 build 和 Layout Engine 测试。
 - 该结果验证操作系统进程树清理实现与 Runtime 清理调用接线；未声称完成完整 Electron GUI Agent Code Mode 的人工验收。
 
 ## 验收
