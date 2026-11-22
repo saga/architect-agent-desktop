@@ -53,18 +53,19 @@ export function filterAgentHostTools<T extends { name: string }>(
   ]);
   return tools.filter(tool => {
     const permissionAllowsTool =
-      tool.name.startsWith("goal_context_") || permission === "allow-all" ||
+      permission === "allow-all" ||
       (permission !== "none" && tool.name.startsWith("browser_")) ||
       (permission === "assisted" && (
         tool.name.startsWith("workspace_") ||
         tool.name.startsWith("duckdb_") ||
         tool.name.startsWith("document_") ||
         tool.name.startsWith("memory_") ||
-        tool.name.startsWith("a2ui_")
+        tool.name.startsWith("a2ui_") ||
+        tool.name.startsWith("goal_context_")
       ));
     const permissionDeniesElevatedTool = permission !== "allow-all" && elevatedTools.has(tool.name);
     return permissionAllowsTool &&
       !permissionDeniesElevatedTool &&
-      (expertAllowsTool(tool.name) || tool.name.startsWith("goal_context_"));
+      expertAllowsTool(tool.name);
   });
 }

@@ -68,7 +68,7 @@ describe("Expert host-tool allowlist", () => {
 
   it("exposes only the explicitly selected read tool in a restricted Expert", () => {
     const selected = filterAgentHostTools(tools, "allow-all", ["workspace_read_file"], false);
-    expect(selected.map(tool => tool.name)).toEqual(["goal_context_list", "workspace_read_file"]);
+    expect(selected.map(tool => tool.name)).toEqual(["workspace_read_file"]);
   });
 
   it("keeps the normal permission ceiling when an Expert allows all its tools", () => {
@@ -92,12 +92,12 @@ describe("Expert host-tool allowlist", () => {
 
   it("does not expose workspace tools when the user's permission is browser-only", () => {
     const selected = filterAgentHostTools(tools, "browser-only", [], true);
-    expect(selected.map(tool => tool.name)).toEqual(["goal_context_list", "browser_list_tabs"]);
+    expect(selected.map(tool => tool.name)).toEqual(["browser_list_tabs"]);
   });
 
   it("retains only goal context tools when all tools are disabled", () => {
     const selected = filterAgentHostTools(tools, "none", [], true);
-    expect(selected.map(tool => tool.name)).toEqual(["goal_context_list"]);
+    expect(selected).toEqual([]);
   });
 });
 
@@ -119,5 +119,39 @@ describe("Elevated Host tools", () => {
   it("still applies the Expert allowlist in Allow all mode", () => {
     expect(filterAgentHostTools(elevated, "allow-all", ["workspace_write_file"], false))
       .toEqual([{ name: "workspace_write_file" }]);
+  });
+});
+
+describe("Tool permission and Expert ceilings", () => {
+  const tools = [
+    { name: "goal_context_list" },
+    { name: "goal_context_update" },
+    { name: "goal_context_set_status" },
+    { name: "browser_list_tabs" },
+    { name: "workspace_read_file" },
+    { name: "memory_dreaming_commit" },
+  ];
+
+  it("exposes no Host tools in none mode, including Goal reads and writes", () => {
+    expect(filterAgentHostTools(tools, "none", [], true)).toEqual([]);
+  });
+
+  it("does not let Goal tools bypass a restricted Expert allowlist", () => {
+    expect(filterAgentHostTools(tools, "allow-all", ["workspace_read_file"], false))
+      .toEqual([{ name: "workspace_read_file" }]);
+  });
+
+  it("allows Goal tools in assisted mode only when the Expert permits them", () => {
+    const unrestrictedExpert = filterAgentHostTools(tools, "assisted", [], true);
+    expect(unrestrictedExpert.map(tool => tool.name)).toEqual([
+      "goal_context_list",
+      "goal_context_update",
+      "goal_context_set_status",
+      "browser_list_tabs",
+      "workspace_read_file",
+      "memory_dreaming_commit",
+    ]);
+    const restrictedExpert = filterAgentHostTools(tools, "assisted", ["goal_context_list"], false);
+    expect(restrictedExpert.map(tool => tool.name)).toEqual(["goal_context_list"]);
   });
 });

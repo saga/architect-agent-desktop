@@ -1139,7 +1139,6 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
   }));
   const server=sdk.createSdkMcpServer({name:"browser",tools});
   const allowed=handlers.map(({name})=>"mcp__browser__"+name);
-  const alwaysAvailableContextTools=allowed.filter(name=>name.startsWith("mcp__browser__goal_context_"));
   const builtinToolNames=["Agent","Read","Write","Edit","Bash","PowerShell","Glob","Grep","EnterPlanMode","ExitPlanMode","TaskCreate","TaskGet","TaskUpdate","TaskList","WebFetch","WebSearch","TaskStop","TaskOutput","AskUserQuestion","AskUserForStructuredInput","StructuredOutput","ToolSearch","DeferExecuteTool","SendMessage","SendUserMessage","TeamCreate","TeamDelete","NotebookEdit","LSP","ImageGen","ViewImage","LibraryUpload","VideoGen","AudioTranscribe","Artifact","ArtifactControl","EnterWorktree","LeaveWorktree","CronCreate","CronDelete","CronList","DelegateTool","WeChatReply","WeComReply","PushNotification","ReportFindings","ComputerUse","ListMcpResources","ReadMcpResource","WaitForMcpServers","Workflow","Monitor","REPL","A2AGetAgentCard","A2ASendMessage","A2AGetTask","A2ACancelTask","Skill","SkillManage","Component","Mods"];
   const selectedModel=this.settings.codebuddyModel.trim();
   const pluginRuntimeDirectories=await this.approvedPluginDirectories("codebuddy");
@@ -1222,7 +1221,7 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
     persistSession: false,
     maxTurns: MAX_TURNS_PER_QUERY,
     mcpServers: { browser: server, ...configuredMcpServers },
-    ...(unrestrictedAllowAll ? {} : { allowedTools: permission === "none" ? alwaysAvailableContextTools : allowed }),
+    ...(unrestrictedAllowAll ? {} : { allowedTools: allowed }),
     ...(unrestrictedAllowAll
       ? { permissionMode: "bypassPermissions" as const }
       : {
