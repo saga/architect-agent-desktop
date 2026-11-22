@@ -23,6 +23,7 @@ import { DuckDbAnalyticsService } from "./analytics/duckdb-service.js";
 import { AgentMemoryStore, type MemoryDreamOperation, type MemorySourceEvidence, type MemoryDreamCursor, type MemoryClaimType } from "./memory/agent-memory-store.js";
 import { LocalEmbeddingService, normalizeLocalEmbeddingConfig, type LocalEmbeddingConfig } from "./memory/local-embedding-service.js";
 import { buildRequestMemorySearchQuery, createRequestMemoryContext } from "./memory/request-context-resolver.js";
+import { detectPreferenceCandidate, preferenceCandidateInstruction } from "./memory/preference-learning.js";
 
 export * from "./agent-runtime.js";
 
@@ -400,8 +401,15 @@ export class CopilotDesktopAgent {
   }
  }
  private async resolveRequestMemoryContext(prompt:string):Promise<string>{
+  const candidate=detectPreferenceCandidate(prompt);
+  if(candidate){
+   this.recordTrace("memory.preference_candidate.detected",{
+    category:candidate.category,signalStrength:candidate.strength,
+    scopeSuggestion:candidate.scopeSuggestion,explicitSaveRequest:candidate.explicitSaveRequest,
+   });
+  }
   const query=buildRequestMemorySearchQuery(prompt);
-  if(!query)return "";
+  if(!query)return candidate?preferenceCandidateInstruction(candidate):"";
   try{
    const scope=this.memoryScope();
    const config=this.memoryEmbeddingConfig();
@@ -419,13 +427,17 @@ export class CopilotDesktopAgent {
    const personalCandidates=scope===null?[]:this.memory.search(null,query,8,semantic);
    const candidates=[...new Map([...workspaceCandidates,...personalCandidates].map(note=>[note.id,note])).values()];
    const context=createRequestMemoryContext(prompt,candidates,2800);
-   this.recordTrace("memory.request_context.resolved",{retrieval,warning,candidateCount:candidates.length,selectedNoteIds:context.noteIds,preferenceCount:context.preferenceCount,workspaceContextCount:context.workspaceContextCount});
-   return context.text;
+   this.recordTrace("memory.request_context.resolved",{
+    retrieval,warning,candidateCount:candidates.length,selectedNoteIds:context.noteIds,
+    preferenceCount:context.preferenceCount,workspaceContextCount:context.workspaceContextCount,
+   });
+   return [context.text,candidate?preferenceCandidateInstruction(candidate):""].filter(Boolean).join("\n\n");
   }catch(error){
    this.recordTrace("memory.request_context.failed",{error:error instanceof Error?error.message:String(error)},"warning");
-   return "";
+   return candidate?preferenceCandidateInstruction(candidate):"";
   }
  }
+
  getMemorySnapshot(scope: string | null) {
   return {
    embeddingIndex:this.getMemoryEmbeddingStatus(scope),
