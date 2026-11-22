@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,7 @@ assert.equal(typeof electronExecutable, "string", "Electron package must resolve
 
 const temporaryRoot = await mkdtemp(path.join(tmpdir(), "architect-schedule-session-"));
 const userDataDirectory = path.join(temporaryRoot, "user-data");
+await mkdir(userDataDirectory, { recursive: true });
 
 function runElectronStage(stage) {
   return new Promise((resolve, reject) => {
