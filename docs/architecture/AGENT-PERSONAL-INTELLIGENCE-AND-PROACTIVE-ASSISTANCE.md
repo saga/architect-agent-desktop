@@ -754,3 +754,30 @@ Trace 应记录：
 10. Zep, [Graphiti overview](https://help.getzep.com/graphiti/getting-started/overview).
 
 *本设计引用产品官方文档和厂商公开架构说明，提取可复用的工程模式；并不推断 Claude 或 ChatGPT 内部未公开的完整实现。*
+
+
+## 16. 实施状态（2026-11-22）
+
+设计的核心闭环已进入代码，沿用当前 Agent Runtime、Memory SQLite、Trace、Task 和 Pure Workspace，没有增加新的 Runtime、远程服务或第三方数据库。
+
+| 阶段 | 已落地内容 | 当前边界 |
+|---|---|---|
+| Phase 1 · Request Context Resolver | 每轮请求分别检索 Personal Memory、当前 Workspace 和全局 Profile；使用 FTS5，可选本机 Ollama Embedding；Copilot 和 CodeBuddy 共用解析入口；只注入命中当前主题的少量记录。 | 当前采用确定性主题词与关键词评分，尚未单独展示每轮使用的 Note 清单；命中 Note ID 已写入 Trace。 |
+| Phase 2 · Preference Learning | 从当前用户消息检测明确偏好、强信号和重复纠正；不把附件文本当成用户陈述；排除凭据和明显敏感个人属性；候选有确认、拒绝和过期状态。接受后创建带 direct-user evidence 的 Preference Note，初始状态为 `unverified`。 | 当前必须人工确认，不提供自动升级长期偏好的策略。结构化字段包括 domain、key、operator、value、strength、appliesTo、scope、validFrom、validUntil 和 sensitivity。 |
+| Phase 3 · Proactive Opportunity Engine | 接入 Turn、Tool Failure、Task、Workspace 切换、应用激活和 Memory Candidate；增加本机 Workspace 文件变更监听；确定性检测明确日期跟进、重复工具失败和显式阻塞；事件按 ID 幂等处理。 | 当前没有外部 Connector 的推送订阅接口；只对应用自身能观察到的操作和本地文件变化作出判断。普通事件不会启动模型。 |
+| Phase 4 · Ranking 与反馈 | 根据置信度、影响和紧迫度排序；支持全局启停、类别开关、每日展示上限、冷却、延后、接受、拒绝、不相关和已处理反馈；主动建议有独立 Inbox。 | 排序为确定性初始评分，未使用长期反馈训练模型；暂不发送操作系统通知。安静模式隐藏侧边栏的待处理数量提示。 |
+| Phase 5 · 时间感知 | 支持 ISO 日期、英文月份日期、中文月份日期、今天/明天/后天、星期和 next-week weekday；到期前必须用户确认；确认后由 15 秒轻量本地检查转换为到期建议。 | 不解析没有确定日期的承诺；不连接外部日历。时钟检查不启动模型，也不是用户可配置的 Schedule。 |
+
+### 16.1 数据与运行边界
+
+Proactive Store 与 Memory Note 使用同一个 `agent-memory.sqlite` 文件，但各自使用独立表。候选、事件、Opportunity、反馈和设置不会混入 Memory Dreaming 的 Transcript 游标。已确认偏好通过现有 Memory Note 机制持久化，原始用户陈述作为直接证据保存；这不表示系统已经验证该偏好长期有效。
+
+主动建议默认只显示在 Inbox，不会调用浏览器、Shell、MCP 或外部工具，不会发送邮件、修改文件或执行第三方操作。普通事件的处理是本地规则和 SQLite 状态更新；定时检查不会按周期启动 LLM。
+
+Workspace 文件监听使用 Node 内置 `fs.watch`，仅监听当前 Task 的 Workspace，忽略 `.git`、`node_modules`、构建输出和覆盖率目录；事件聚合后只记录变更次数，不把文件名或文件内容送入主动建议存储。平台不支持递归监听或目录不可访问时，会记录诊断并停用该 Workspace 的文件监听，不影响正常 Agent 工作。
+
+### 16.2 验收范围
+
+新增回归测试覆盖请求相关性与 Scope 隔离、结构化偏好证据、敏感候选过滤、事件幂等、同工具失败阈值、用户确认前不创建提醒、到期后状态转换、反馈抑制和每日展示设置。最终通过情况以该提交对应的 GitHub Actions 为准。
+
+仍未接入的外部事件只在未来存在明确且可信的 Connector 事件契约后添加；不能把普通 MCP 工具返回值推断为外部系统状态变化。系统通知也保持关闭，避免在用户尚未配置通知策略时主动打断。
