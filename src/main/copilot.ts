@@ -425,7 +425,7 @@ export class CopilotDesktopAgent {
    }
    const workspaceCandidates=this.memory.search(scope,query,12,semantic);
    const personalCandidates=scope===null?[]:this.memory.search(null,query,8,semantic);
-   const profileCandidates=this.memory.search(null,"",16);
+   const profileCandidates=this.memory.list(null,100);
    const candidates=[...new Map([...workspaceCandidates,...personalCandidates,...profileCandidates].map(note=>[note.id,note])).values()];
    const context=createRequestMemoryContext(prompt,candidates,2800);
    this.recordTrace("memory.request_context.resolved",{
