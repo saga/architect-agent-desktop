@@ -29,42 +29,42 @@ afterEach(() => {
 });
 
 describe("Claude Code Plugin packages", () => {
-  it("validates the standard Claude Code plugin directory and resources", () => {
+  it("validates the standard Claude Code plugin directory and resources", async () => {
     const source = makeClaudePlugin(makeDirectory());
-    const manifest = validatePluginDirectory(source);
+    const manifest = await validatePluginDirectory(source);
     expect(manifest.id).toBe("research-toolkit");
     expect(manifest.skills).toContain("skills/research/SKILL.md");
   });
 
-  it("rejects traversal paths and directories without supported Claude components", () => {
+  it("rejects traversal paths and directories without supported Claude components", async () => {
     const source = makeClaudePlugin(makeDirectory());
     const pluginJson = path.join(source, ".claude-plugin", "plugin.json");
     writeFileSync(pluginJson, JSON.stringify({
       name: "research-toolkit",
       skills: ["../outside"],
     }));
-    expect(() => validatePluginDirectory(source)).toThrow();
+    await expect(validatePluginDirectory(source)).rejects.toThrow();
 
     const unprefixed = makeClaudePlugin(makeDirectory());
     writeFileSync(path.join(unprefixed, ".claude-plugin", "plugin.json"), JSON.stringify({
       name: "research-toolkit",
       skills: ["skills"],
     }));
-    expect(() => validatePluginDirectory(unprefixed)).toThrow("必须以 ./ 开头");
+    await expect(validatePluginDirectory(unprefixed)).rejects.toThrow("必须以 ./ 开头");
 
     const missingName = makeClaudePlugin(makeDirectory());
     writeFileSync(path.join(missingName, ".claude-plugin", "plugin.json"), JSON.stringify({
       skills: ["./skills"],
     }));
-    expect(() => validatePluginDirectory(missingName)).toThrow("必须包含 name 字段");
+    await expect(validatePluginDirectory(missingName)).rejects.toThrow("必须包含 name 字段");
 
     const unsupported = path.join(makeDirectory(), "unsupported-plugin");
     mkdirSync(path.join(unsupported, ".claude-plugin"), { recursive: true });
     writeFileSync(path.join(unsupported, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "unsupported-plugin" }));
-    expect(() => validatePluginDirectory(unsupported)).toThrow("不包含可加载的 Claude Code");
+    await expect(validatePluginDirectory(unsupported)).rejects.toThrow("不包含可加载的 Claude Code");
   });
 
-  it("rejects the retired application-specific manifest.json format", () => {
+  it("rejects the retired application-specific manifest.json format", async () => {
     const root = makeDirectory();
     const source = path.join(root, "legacy-research");
     mkdirSync(path.join(source, "skills"), { recursive: true });
@@ -82,37 +82,36 @@ describe("Claude Code Plugin packages", () => {
     writeFileSync(path.join(source, "skills", "research.md"), "Legacy project-specific skill.");
     writeFileSync(path.join(source, "workflows", "brief.md"), "Legacy workflow.");
 
-    expect(() => validatePluginDirectory(source)).toThrow("项目自有 manifest.json 插件格式不受支持");
+    await expect(validatePluginDirectory(source)).rejects.toThrow("项目自有 manifest.json 插件格式不受支持");
   });
 
-  it("imports, enables, disables, lists, exports and removes a Claude plugin", () => {
+  it("imports, enables, disables, lists, exports and removes a Claude plugin", async () => {
     const root = makeDirectory();
     const source = makeClaudePlugin(root);
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
 
-    expect(importPlugin(source, pluginRoot, registry).enabled).toBe(true);
-    expect(listPlugins(pluginRoot, registry)).toHaveLength(1);
-    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
-    expect(() => setPluginRuntimeApproved("research-toolkit", true, pluginRoot, registry))
-      .toThrow("该插件没有可执行的运行时组件");
-    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
-    expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("Use primary sources.");
-    expect(readEnabledPluginInstructions(pluginRoot, registry, [])).not.toContain("Use primary sources.");
-    expect(readEnabledPluginInstructions(pluginRoot, registry, ["research-toolkit:skills/research/SKILL.md"]))
+    expect(await importPlugin(source, pluginRoot, registry).enabled).toBe(true);
+    expect(await listPlugins(pluginRoot, registry)).toHaveLength(1);
+    expect(await listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
+    await expect(setPluginRuntimeApproved("research-toolkit", true, pluginRoot, registry)).rejects.toThrow("该插件没有可执行的运行时组件");
+    expect(await listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
+    expect(await readEnabledPluginInstructions(pluginRoot, registry)).toContain("Use primary sources.");
+    expect(await readEnabledPluginInstructions(pluginRoot, registry, [])).not.toContain("Use primary sources.");
+    expect(await readEnabledPluginInstructions(pluginRoot, registry, ["research-toolkit:skills/research/SKILL.md"]))
       .toContain("Use primary sources.");
-    expect(readEnabledPluginInstructions(pluginRoot, registry, undefined, {
+    expect(await readEnabledPluginInstructions(pluginRoot, registry, undefined, {
       "research-toolkit": ["skills", "commands", "agents"],
     })).not.toContain("Use primary sources.");
 
-    const exported = exportPlugin("research-toolkit", pluginRoot, path.join(root, "export"), registry);
+    const exported = await exportPlugin("research-toolkit", pluginRoot, path.join(root, "export"), registry);
     expect(exported).toContain("research-toolkit");
-    expect(setPluginEnabled("research-toolkit", false, pluginRoot, registry)[0].enabled).toBe(false);
-    expect(readEnabledPluginInstructions(pluginRoot, registry)).toBe("");
-    expect(removePlugin("research-toolkit", pluginRoot, registry)).toHaveLength(0);
+    expect(await setPluginEnabled("research-toolkit", false, pluginRoot, registry)[0].enabled).toBe(false);
+    expect(await readEnabledPluginInstructions(pluginRoot, registry)).toBe("");
+    expect(await removePlugin("research-toolkit", pluginRoot, registry)).toHaveLength(0);
   });
 
-  it("indexes Markdown resources and detects runtime components without executing them at import", () => {
+  it("indexes Markdown resources and detects runtime components without executing them at import", async () => {
     const root = makeDirectory();
     const source = makeClaudePlugin(root);
     mkdirSync(path.join(source, "commands"), { recursive: true });
@@ -133,27 +132,27 @@ describe("Claude Code Plugin packages", () => {
 
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
-    const imported = importPlugin(source, pluginRoot, registry);
+    const imported = await importPlugin(source, pluginRoot, registry);
     expect(imported.commands).toContain("commands/summarize.md");
     expect(imported.agents).toContain("agents/reviewer.md");
     expect(imported.runtime.hookEvents).toEqual(["SessionStart"]);
     expect(imported.runtime.mcpServers).toEqual(["research"]);
     expect(imported.runtimeApproved).toBe(false);
-    expect(listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
+    expect(await listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
 
-    const instructions = readEnabledPluginInstructions(pluginRoot, registry);
+    const instructions = await readEnabledPluginInstructions(pluginRoot, registry);
     expect(instructions).toContain("Use primary sources.");
     expect(instructions).toContain("Write a concise evidence-based summary.");
     expect(instructions).toContain("Check citations and unsupported claims.");
     expect(instructions).not.toContain("hooks.json");
     expect(instructions).not.toContain("mcpServers");
-    const nativeInstructions = readEnabledPluginInstructions(pluginRoot, registry, undefined, {
+    const nativeInstructions = await readEnabledPluginInstructions(pluginRoot, registry, undefined, {
       "research-toolkit": ["skills", "commands", "agents"],
     });
     expect(nativeInstructions).toBe(""); // Copilot Legacy Plugin natively loads Skills, Commands and Agents.
   });
 
-  it("supports declared Claude Code custom component paths and inline commands", () => {
+  it("supports declared Claude Code custom component paths and inline commands", async () => {
     const root = makeDirectory();
     const source = makeClaudePlugin(root, "team-tools");
     mkdirSync(path.join(source, "extra-skills", "portfolio"), { recursive: true });
@@ -171,16 +170,16 @@ describe("Claude Code Plugin packages", () => {
 
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
-    const imported = importPlugin(source, pluginRoot, registry);
+    const imported = await importPlugin(source, pluginRoot, registry);
     expect(imported.skills).toEqual(["extra-skills/portfolio/SKILL.md"]);
     expect(imported.commands).toEqual(["extra-commands/summarize.md"]);
     expect(imported.inlineCommands).toEqual([{ name: "quick-note", content: "Write a dated research note." }]);
-    const instructions = readEnabledPluginInstructions(pluginRoot, registry);
+    const instructions = await readEnabledPluginInstructions(pluginRoot, registry);
     expect(instructions).toContain("Write a dated research note.");
     expect(instructions).toContain("Use portfolio-specific review steps.");
   });
 
-  it("accepts runtime-only Claude plugins and requires a separate runtime approval", () => {
+  it("accepts runtime-only Claude plugins and requires a separate runtime approval", async () => {
     const root = makeDirectory();
     const source = path.join(root, "runtime-only");
     mkdirSync(path.join(source, ".claude-plugin"), { recursive: true });
@@ -208,7 +207,7 @@ describe("Claude Code Plugin packages", () => {
 
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
-    const imported = importPlugin(source, pluginRoot, registry);
+    const imported = await importPlugin(source, pluginRoot, registry);
     expect(imported.skills).toEqual([]);
     expect(imported.runtime.hookEvents).toEqual(["SessionStart"]);
     expect(imported.runtime.mcpServers).toEqual(["research"]);
@@ -216,18 +215,18 @@ describe("Claude Code Plugin packages", () => {
     expect(imported.runtime.mods).toBe(true);
     expect(imported.runtime.scriptFiles).toBeGreaterThanOrEqual(2);
     expect(imported.runtimeApproved).toBe(false);
-    expect(listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
+    expect(await listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
 
-    const approved = setPluginRuntimeApproved("runtime-only", true, pluginRoot, registry);
+    const approved = await setPluginRuntimeApproved("runtime-only", true, pluginRoot, registry);
     expect(approved[0]?.runtimeApproved).toBe(true);
-    expect(listApprovedPluginDirectories(pluginRoot, registry)).toEqual([path.join(pluginRoot, "runtime-only")]);
+    expect(await listApprovedPluginDirectories(pluginRoot, registry)).toEqual([path.join(pluginRoot, "runtime-only")]);
 
-    const disabled = setPluginEnabled("runtime-only", false, pluginRoot, registry);
+    const disabled = await setPluginEnabled("runtime-only", false, pluginRoot, registry);
     expect(disabled[0]?.runtimeApproved).toBe(false);
-    expect(listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
+    expect(await listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
   });
 
-  it("does not migrate legacy boolean-only approvals into runtime trust", () => {
+  it("does not migrate legacy boolean-only approvals into runtime trust", async () => {
     const root = makeDirectory();
     const source = makeClaudePlugin(root, "legacy-approved-plugin");
     mkdirSync(path.join(source, "bin"), { recursive: true });
@@ -240,13 +239,13 @@ describe("Claude Code Plugin packages", () => {
       enabled: { "legacy-approved-plugin": true },
       runtimeApproved: { "legacy-approved-plugin": true },
     }));
-    const plugin = listPlugins(pluginRoot, registry)[0];
+    const plugin = await listPlugins(pluginRoot, registry)[0];
     expect(plugin?.enabled).toBe(true);
     expect(plugin?.runtimeApproved).toBe(false);
-    expect(listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
+    expect(await listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
   });
 
-  it("invalidates runtime approval when any plugin file changes", () => {
+  it("invalidates runtime approval when any plugin file changes", async () => {
     const root = makeDirectory();
     const source = makeClaudePlugin(root, "fingerprinted-plugin");
     const scripts = path.join(source, "scripts");
@@ -257,29 +256,28 @@ describe("Claude Code Plugin packages", () => {
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
     importPlugin(source, pluginRoot, registry);
-    expect(setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry)[0]?.runtimeApproved).toBe(true);
-    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(1);
+    expect((await setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry))[0]?.runtimeApproved).toBe(true);
+    expect(await listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(1);
 
     const scriptPath = path.join(pluginRoot, "fingerprinted-plugin", "scripts", "run.js");
     const originalScript = "console.log('approved version');";
     writeFileSync(scriptPath, "console.log('changed after approval');");
-    expect(listPlugins(pluginRoot, registry)[0]?.runtimeApproved).toBe(false);
-    expect(listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
-    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toEqual([]);
+    expect((await listPlugins(pluginRoot, registry))[0]?.runtimeApproved).toBe(false);
+    expect(await listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
+    expect(await listApprovedPluginRuntimeEntries(pluginRoot, registry)).toEqual([]);
     // Restoring the old bytes cannot silently recover the previous approval.
     writeFileSync(scriptPath, originalScript);
-    expect(listPlugins(pluginRoot, registry)[0]?.runtimeApproved).toBe(false);
-    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toEqual([]);
-    expect(setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry)[0]?.runtimeApproved).toBe(true);
+    expect((await listPlugins(pluginRoot, registry))[0]?.runtimeApproved).toBe(false);
+    expect(await listApprovedPluginRuntimeEntries(pluginRoot, registry)).toEqual([]);
+    expect((await setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry))[0]?.runtimeApproved).toBe(true);
 
     rmSync(scriptPath);
-    expect(listPlugins(pluginRoot, registry)[0]?.runtimeApproved).toBe(false);
-    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
-    expect(() => setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry))
-      .toThrow("该插件没有可执行的运行时组件");
+    expect((await listPlugins(pluginRoot, registry))[0]?.runtimeApproved).toBe(false);
+    expect(await listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
+    await expect(setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry)).rejects.toThrow("该插件没有可执行的运行时组件");
   });
 
-  it("loads a manifest-less single-skill plugin with SKILL.md at the plugin root", () => {
+  it("loads a manifest-less single-skill plugin with SKILL.md at the plugin root", async () => {
     const root = makeDirectory();
     const source = path.join(root, "root-skill-plugin");
     mkdirSync(source, { recursive: true });
@@ -288,10 +286,10 @@ describe("Claude Code Plugin packages", () => {
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
     importPlugin(source, pluginRoot, registry);
-    expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("Use the root-level skill instructions.");
+    expect(await readEnabledPluginInstructions(pluginRoot, registry)).toContain("Use the root-level skill instructions.");
   });
 
-  it("accepts a standard Claude Code plugin without the optional plugin.json manifest", () => {
+  it("accepts a standard Claude Code plugin without the optional plugin.json manifest", async () => {
     const root = makeDirectory();
     const source = path.join(root, "portable-tools");
     mkdirSync(path.join(source, "skills", "notes"), { recursive: true });
@@ -299,12 +297,12 @@ describe("Claude Code Plugin packages", () => {
 
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
-    const imported = importPlugin(source, pluginRoot, registry);
+    const imported = await importPlugin(source, pluginRoot, registry);
     expect(imported.id).toBe("portable-tools");
-    expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("Write useful notes.");
+    expect(await readEnabledPluginInstructions(pluginRoot, registry)).toContain("Write useful notes.");
   });
 
-  it("invalidates runtime approval when an executable permission bit changes", () => {
+  it("invalidates runtime approval when an executable permission bit changes", async () => {
     if (process.platform === "win32") return;
     const root = makeDirectory();
     const source = makeClaudePlugin(root, "mode-fingerprinted-plugin");
@@ -316,8 +314,8 @@ describe("Claude Code Plugin packages", () => {
     setPluginRuntimeApproved("mode-fingerprinted-plugin", true, pluginRoot, registry);
     const script = path.join(pluginRoot, "mode-fingerprinted-plugin", "bin", "run.sh");
     chmodSync(script, 0o755);
-    expect(listPlugins(pluginRoot, registry)[0]?.runtimeApproved).toBe(false);
-    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toEqual([]);
+    expect((await listPlugins(pluginRoot, registry))[0]?.runtimeApproved).toBe(false);
+    expect(await listApprovedPluginRuntimeEntries(pluginRoot, registry)).toEqual([]);
   });
 
 });

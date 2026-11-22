@@ -570,7 +570,10 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     const text=typeof result === "string" ? result : JSON.stringify(result);
     return text.length > 20000 ? text.slice(0, 20000) + "… (truncated)" : text;
   }
-}, agentSettings, (skills, nativeComponentsByPlugin) => [readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, nativeComponentsByPlugin), readEnabledAgentSkillInstructions(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH)].filter(Boolean).join("\n\n"), workspaceProject.path, (type, data, status, payloadComplete) => recordAgentTrace(type, data, status, payloadComplete), (() => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return expert ? { systemPrompt: expert.systemPrompt, toolPermission: expert.toolPermission, allowAllTools: expert.allowAllTools, skills: expert.skills, tools: expert.tools } : null; })(), () => listMcpServers(MCP_CONFIG_PATH), () => listApprovedPluginRuntimeEntries(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH), (workspacePath, query, limit) => agentTraceStore.searchSessionMessages(workspacePath, query, limit), (workspacePath, after, limit) => agentTraceStore.listMemorySources(workspacePath, after, limit));
+}, agentSettings, async (skills, nativeComponentsByPlugin) => (await Promise.all([
+  readEnabledPluginInstructions(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH, skills, nativeComponentsByPlugin),
+  readEnabledAgentSkillInstructions(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH),
+])).filter(Boolean).join("\n\n"), workspaceProject.path, (type, data, status, payloadComplete) => recordAgentTrace(type, data, status, payloadComplete), (() => { const task = agentTasks.find(item => item.id === activeAgentTaskId); const expert = task?.expertId ? agentExperts.find(item => item.id === task.expertId) : undefined; return expert ? { systemPrompt: expert.systemPrompt, toolPermission: expert.toolPermission, allowAllTools: expert.allowAllTools, skills: expert.skills, tools: expert.tools } : null; })(), () => listMcpServers(MCP_CONFIG_PATH), () => listApprovedPluginRuntimeEntries(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH), (workspacePath, query, limit) => agentTraceStore.searchSessionMessages(workspacePath, query, limit), (workspacePath, after, limit) => agentTraceStore.listMemorySources(workspacePath, after, limit));
 function persistAgentTasks(): void {
   agentTasks.sort((a, b) => b.updatedAt - a.updatedAt);
   writeJsonAtomic(AGENT_TASKS_PATH, agentTasks);
@@ -2455,7 +2458,7 @@ function registerIpcHandlers(): void {
     }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Expert definition.");
     if (new Set(parsed.data.skills).size !== parsed.data.skills.length || new Set(parsed.data.tools).size !== parsed.data.tools.length) throw new Error("Expert Skills 和 Tools 不能重复。");
-    const pluginSkills = listPlugins(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH).flatMap(plugin => plugin.skills.map(skill => plugin.id + ":" + skill));
+    const pluginSkills = (await listPlugins(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH)).flatMap(plugin => plugin.skills.map(skill => plugin.id + ":" + skill));
     if (parsed.data.skills.some(skill => !pluginSkills.includes(skill))) throw new Error("Expert 引用了不存在或未安装的 Plugin Skill。");
     if (parsed.data.tools.some(tool => !AGENT_TOOL_IDS.has(tool))) throw new Error("Expert 包含不存在或当前应用不支持的 Tool ID。");
     const previous = agentExperts.find(item => item.id === parsed.data.id);
@@ -2643,9 +2646,9 @@ function registerIpcHandlers(): void {
     updateActiveBounds();
     return workspaceDocument;
   });
-  ipcMain.handle("plugin:list", (event) => {
+  ipcMain.handle("plugin:list", async (event) => {
     assertTrustedSender(event);
-    return listPlugins(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
+    return await listPlugins(PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
   });
   ipcMain.handle("plugin:import", async (event) => {
     assertTrustedSender(event);
@@ -2656,7 +2659,7 @@ function registerIpcHandlers(): void {
     });
     if (canceled || !filePaths[0]) return null;
     await copilotAgent.resetConversation();
-    const plugin = importPlugin(filePaths[0], PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
+    const plugin = await importPlugin(filePaths[0], PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", "import " + plugin.id);
     return plugin;
   });
@@ -2666,7 +2669,7 @@ function registerIpcHandlers(): void {
     const parsed = z.object({ id: z.string().min(1).max(100), enabled: z.boolean() }).safeParse(input);
     if (!parsed.success) throw new Error("无效的插件状态请求。");
     await copilotAgent.resetConversation();
-    const plugins = setPluginEnabled(parsed.data.id, parsed.data.enabled, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
+    const plugins = await setPluginEnabled(parsed.data.id, parsed.data.enabled, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", (parsed.data.enabled ? "enable " : "disable ") + parsed.data.id);
     return plugins;
   });
@@ -2676,7 +2679,7 @@ function registerIpcHandlers(): void {
     const parsed = z.object({ id: z.string().min(1).max(100), approved: z.boolean() }).safeParse(input);
     if (!parsed.success) throw new Error("无效的插件运行授权请求。");
     await copilotAgent.resetConversation();
-    const plugins = setPluginRuntimeApproved(parsed.data.id, parsed.data.approved, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
+    const plugins = await setPluginRuntimeApproved(parsed.data.id, parsed.data.approved, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", (parsed.data.approved ? "authorize runtime " : "revoke runtime ") + parsed.data.id);
     return plugins;
   });
@@ -2686,7 +2689,7 @@ function registerIpcHandlers(): void {
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("无效的插件 ID。");
     await copilotAgent.resetConversation();
-    const plugins = removePlugin(parsed.data, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
+    const plugins = await removePlugin(parsed.data, PLUGIN_ROOT, PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", "remove " + parsed.data);
     return plugins;
   });
@@ -2699,7 +2702,7 @@ function registerIpcHandlers(): void {
       properties: ["openDirectory", "createDirectory"],
     });
     if (canceled || !filePaths[0]) return null;
-    const destination = exportPlugin(parsed.data, PLUGIN_ROOT, filePaths[0], PLUGIN_REGISTRY_PATH);
+    const destination = await exportPlugin(parsed.data, PLUGIN_ROOT, filePaths[0], PLUGIN_REGISTRY_PATH);
     recordOperation("plugin", "export " + parsed.data);
     return destination;
   });
@@ -2736,9 +2739,9 @@ function registerIpcHandlers(): void {
     recordOperation("agent-mcp", "remove " + parsed.data);
     return servers;
   });
-  ipcMain.handle("agent-skill:list", (event) => {
+  ipcMain.handle("agent-skill:list", async (event) => {
     assertTrustedSender(event);
-    return listAgentSkills(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    return await listAgentSkills(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
   });
   ipcMain.handle("agent-skill:import", async (event) => {
     assertTrustedSender(event);
@@ -2749,7 +2752,7 @@ function registerIpcHandlers(): void {
     });
     if (canceled || !filePaths[0]) return null;
     await copilotAgent.resetConversation();
-    const skill = importAgentSkill(filePaths[0], AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    const skill = await importAgentSkill(filePaths[0], AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
     recordOperation("agent-skill", "import " + skill.id);
     return skill;
   });
@@ -2763,7 +2766,7 @@ function registerIpcHandlers(): void {
     });
     if (canceled || !filePaths[0]) return null;
     await copilotAgent.resetConversation();
-    const skill = importAgentSkillArchive(filePaths[0], AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    const skill = await importAgentSkillArchive(filePaths[0], AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
     recordOperation("agent-skill", "import ZIP " + skill.id);
     return skill;
   });
@@ -2771,13 +2774,13 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     assertAgentExtensionsIdle();
     await copilotAgent.resetConversation();
-    const existing = listAgentSkills(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH).find(item => item.id === "web-research");
+    const existing = (await listAgentSkills(AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH)).find(item => item.id === "web-research");
     if (existing) {
-      const skills = setAgentSkillEnabled(existing.id, true, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+      const skills = await setAgentSkillEnabled(existing.id, true, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
       return skills.find(item => item.id === existing.id) ?? existing;
     }
     const samplePath = path.join(app.getAppPath(), "examples", "skills", "web-research");
-    const skill = importAgentSkill(samplePath, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    const skill = await importAgentSkill(samplePath, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
     recordOperation("agent-skill", "install sample " + skill.id);
     return skill;
   });
@@ -2787,7 +2790,7 @@ function registerIpcHandlers(): void {
     const parsed = z.object({ id: z.string().min(1).max(64), enabled: z.boolean() }).safeParse(input);
     if (!parsed.success) throw new Error("无效的 Agent Skill 状态请求。");
     await copilotAgent.resetConversation();
-    const skills = setAgentSkillEnabled(parsed.data.id, parsed.data.enabled, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    const skills = await setAgentSkillEnabled(parsed.data.id, parsed.data.enabled, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
     recordOperation("agent-skill", (parsed.data.enabled ? "enable " : "disable ") + parsed.data.id);
     return skills;
   });
@@ -2797,7 +2800,7 @@ function registerIpcHandlers(): void {
     const parsed = z.string().min(1).max(64).safeParse(input);
     if (!parsed.success) throw new Error("无效的 Agent Skill ID。");
     await copilotAgent.resetConversation();
-    const skills = removeAgentSkill(parsed.data, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
+    const skills = await removeAgentSkill(parsed.data, AGENT_SKILL_ROOT, AGENT_SKILL_REGISTRY_PATH);
     recordOperation("agent-skill", "remove " + parsed.data);
     return skills;
   });

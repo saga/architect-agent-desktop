@@ -1,19 +1,25 @@
-import {
-  cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync,
-} from "node:fs";
+import { cp, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { stagePluginRuntimeDirectories, type PluginRuntimeEntry } from "./plugin-content";
 
-function readJsonObject(filePath: string): Record<string, unknown> {
-  const value: unknown = JSON.parse(readFileSync(filePath, "utf8"));
+async function pathExists(filePath: string): Promise<boolean> {
+  try { await lstat(filePath); return true; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function readJsonObject(filePath: string): Promise<Record<string, unknown>> {
+  const value: unknown = JSON.parse(await readFile(filePath, "utf8"));
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Claude Plugin manifest 必须是 JSON 对象：" + filePath);
   }
   return value as Record<string, unknown>;
 }
 
-function resolvePluginConfigFile(root: string, value: string, label: string): string {
+async function resolvePluginConfigFile(root: string, value: string, label: string): Promise<string> {
   if (!value || value.startsWith("/") || /^[a-zA-Z]:/.test(value)
     || value.includes("\\") || value.includes("\0")) {
     throw new Error("Copilot 插件投影中的 " + label + " 必须是包内相对路径。");
@@ -28,12 +34,12 @@ function resolvePluginConfigFile(root: string, value: string, label: string): st
   if (!within || within.startsWith("..") || path.isAbsolute(within)) {
     throw new Error("Copilot 插件投影中的 " + label + " 路径越界。");
   }
-  const stat = lstatSync(target);
+  const stat = await lstat(target);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Copilot 插件投影中的 " + label + " 必须是普通文件。");
   return target;
 }
 
-function resolvePluginPath(root: string, value: string, label: string): string {
+async function resolvePluginPath(root: string, value: string, label: string): Promise<string> {
   if (!value || value.startsWith("/") || /^[a-zA-Z]:/.test(value)
     || value.includes("\\") || value.includes("\0")) {
     throw new Error("Copilot 插件投影中的 " + label + " 必须是包内相对路径。");
@@ -48,7 +54,7 @@ function resolvePluginPath(root: string, value: string, label: string): string {
   if (!within || within.startsWith("..") || path.isAbsolute(within)) {
     throw new Error("Copilot 插件投影中的 " + label + " 路径越界。");
   }
-  const stat = lstatSync(target);
+  const stat = await lstat(target);
   if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) {
     throw new Error("Copilot 插件投影中的 " + label + " 必须是普通文件或目录。");
   }
@@ -74,16 +80,17 @@ function mergeObjects(
   return result;
 }
 
-function normalizeServerConfig(value: unknown, root: string, label: string, wrapper?: string): Record<string, unknown> {
+async function normalizeServerConfig(value: unknown, root: string, label: string, wrapper?: string): Promise<Record<string, unknown>> {
   if (Array.isArray(value)) {
-    return value.reduce(
-      (merged, item) => mergeObjects(merged, normalizeServerConfig(item, root, label, wrapper)),
-      {} as Record<string, unknown>,
-    );
+    const merged: Record<string, unknown> = {};
+    for (const item of value) {
+      Object.assign(merged, mergeObjects(merged, await normalizeServerConfig(item, root, label, wrapper)));
+    }
+    return merged;
   }
   let parsed: Record<string, unknown>;
   if (typeof value === "string") {
-    parsed = readJsonObject(resolvePluginConfigFile(root, value, label));
+    parsed = await readJsonObject(await resolvePluginConfigFile(root, value, label));
   } else if (value && typeof value === "object" && !Array.isArray(value)) {
     parsed = value as Record<string, unknown>;
   } else {
@@ -102,12 +109,14 @@ function normalizeLspConfig(value: Record<string, unknown>): Record<string, unkn
   return { lspServers: mergeObjects(directServers, nestedServers) };
 }
 
-function normalizeHooksConfig(value: unknown, root: string): Record<string, unknown> {
+async function normalizeHooksConfig(value: unknown, root: string): Promise<Record<string, unknown>> {
   if (Array.isArray(value)) {
-    return value.reduce((merged, item) => mergeObjects(merged, normalizeHooksConfig(item, root)), {} as Record<string, unknown>);
+    const merged: Record<string, unknown> = {};
+    for (const item of value) Object.assign(merged, mergeObjects(merged, await normalizeHooksConfig(item, root)));
+    return merged;
   }
   if (typeof value === "string") {
-    const file = resolvePluginConfigFile(root, value, "hooks");
+    const file = await resolvePluginConfigFile(root, value, "hooks");
     if (path.extname(file).toLowerCase() !== ".json") throw new Error("Claude Plugin Hooks 配置必须是 JSON 文件。");
     return readJsonObject(file);
   }
@@ -115,17 +124,18 @@ function normalizeHooksConfig(value: unknown, root: string): Record<string, unkn
   throw new Error("Claude Plugin hooks 必须是 JSON 文件路径、路径数组或内联对象。");
 }
 
-function collectMarkdownFiles(directory: string): string[] {
+async function collectMarkdownFiles(directory: string): Promise<string[]> {
   const result: string[] = [];
-  const visit = (current: string): void => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
+  const visit = async (current: string): Promise<void> => {
+    for (const entry of await readdir(current, { withFileTypes: true })) {
       const fullPath = path.join(current, entry.name);
-      if (entry.isSymbolicLink()) throw new Error("Copilot 插件投影不能包含符号链接：" + fullPath);
-      if (entry.isDirectory()) visit(fullPath);
-      else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) result.push(fullPath);
+      const stat = await lstat(fullPath);
+      if (stat.isSymbolicLink()) throw new Error("Copilot 插件投影不能包含符号链接：" + fullPath);
+      if (stat.isDirectory()) await visit(fullPath);
+      else if (stat.isFile() && entry.name.toLowerCase().endsWith(".md")) result.push(fullPath);
     }
   };
-  visit(directory);
+  await visit(directory);
   return result.sort((a, b) => a.localeCompare(b));
 }
 
@@ -137,16 +147,16 @@ function safeComponentName(value: string, fallback: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || fallback;
 }
 
-function projectCopilotAgents(manifest: Record<string, unknown>, root: string): void {
+async function projectCopilotAgents(manifest: Record<string, unknown>, root: string): Promise<void> {
   const raw = manifest.agents;
-  const declared = raw === undefined ? (existsSync(path.join(root, "agents")) ? ["./agents"] : [])
+  const declared = raw === undefined ? (await pathExists(path.join(root, "agents")) ? ["./agents"] : [])
     : typeof raw === "string" ? [raw]
       : Array.isArray(raw) && raw.every(item => typeof item === "string") ? raw as string[] : null;
   if (!declared) throw new Error("Claude Plugin agents 必须是包内 Markdown 路径或路径数组。");
   const sourceFiles: string[] = [];
   for (const item of declared) {
-    const target = resolvePluginPath(root, item, "agents");
-    if (lstatSync(target).isDirectory()) sourceFiles.push(...collectMarkdownFiles(target));
+    const target = await resolvePluginPath(root, item, "agents");
+    if ((await lstat(target)).isDirectory()) sourceFiles.push(...await collectMarkdownFiles(target));
     else {
       if (path.extname(target).toLowerCase() !== ".md") throw new Error("Claude Plugin agent 必须是 Markdown 文件：" + item);
       sourceFiles.push(target);
@@ -162,12 +172,12 @@ function projectCopilotAgents(manifest: Record<string, unknown>, root: string): 
       ? sourceFile
       : sourceFile.slice(0, -3) + ".agent.md";
     if (targetFile !== sourceFile) {
-      if (existsSync(targetFile)) {
-        const existing = readFileSync(targetFile, "utf8");
-        const incoming = readFileSync(sourceFile, "utf8");
+      if (await pathExists(targetFile)) {
+        const existing = await readFile(targetFile, "utf8");
+        const incoming = await readFile(sourceFile, "utf8");
         if (existing !== incoming) throw new Error("Copilot Agent 文件名冲突：" + path.relative(root, targetFile));
       } else {
-        writeFileSync(targetFile, readFileSync(sourceFile), { mode: 0o600 });
+        await writeFile(targetFile, await readFile(sourceFile), { mode: 0o600 });
       }
     }
     directories.add(pluginRelativePath(root, path.dirname(targetFile)));
@@ -175,10 +185,10 @@ function projectCopilotAgents(manifest: Record<string, unknown>, root: string): 
   manifest.agents = [...directories].sort();
 }
 
-function projectCopilotCommands(manifest: Record<string, unknown>, root: string): void {
+async function projectCopilotCommands(manifest: Record<string, unknown>, root: string): Promise<void> {
   const raw = manifest.commands;
   if (raw === undefined) {
-    if (existsSync(path.join(root, "commands"))) manifest.commands = "./commands";
+    if (await pathExists(path.join(root, "commands"))) manifest.commands = "./commands";
     return;
   }
 
@@ -186,24 +196,22 @@ function projectCopilotCommands(manifest: Record<string, unknown>, root: string)
   const generatedPaths: string[] = [];
   const sourceDirectories: string[] = [];
   let generatedCount = 0;
-  const ensureGeneratedDirectory = (): void => {
-    mkdirSync(generatedDirectory, { recursive: true });
-  };
-  const writeGenerated = (name: string, content: string): void => {
-    ensureGeneratedDirectory();
+  const ensureGeneratedDirectory = async (): Promise<void> => { await mkdir(generatedDirectory, { recursive: true }); };
+  const writeGenerated = async (name: string, content: string): Promise<void> => {
+    await ensureGeneratedDirectory();
     const filename = safeComponentName(name, "command") + "-" + generatedCount++ + ".md";
-    writeFileSync(path.join(generatedDirectory, filename), normalizeCopilotRootText(content), { encoding: "utf8", mode: 0o600 });
+    await writeFile(path.join(generatedDirectory, filename), normalizeCopilotRootText(content), { encoding: "utf8", mode: 0o600 });
   };
 
   if (typeof raw === "string" || (Array.isArray(raw) && raw.every(item => typeof item === "string"))) {
     const paths = typeof raw === "string" ? [raw] : raw as string[];
     for (const item of paths) {
-      const target = resolvePluginPath(root, item, "commands");
-      if (lstatSync(target).isDirectory()) {
+      const target = await resolvePluginPath(root, item, "commands");
+      if ((await lstat(target)).isDirectory()) {
         sourceDirectories.push(pluginRelativePath(root, target));
       } else {
         if (path.extname(target).toLowerCase() !== ".md") throw new Error("Claude Plugin command source 必须是 Markdown：" + item);
-        writeGenerated(path.basename(target, path.extname(target)), readFileSync(target, "utf8"));
+        await writeGenerated(path.basename(target, path.extname(target)), await readFile(target, "utf8"));
       }
     }
   } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -213,13 +221,13 @@ function projectCopilotCommands(manifest: Record<string, unknown>, root: string)
       }
       const command = definition as Record<string, unknown>;
       if (typeof command.source === "string" && typeof command.content !== "string") {
-        const sourceFile = resolvePluginPath(root, command.source, "commands");
-        if (!lstatSync(sourceFile).isFile() || path.extname(sourceFile).toLowerCase() !== ".md") {
+        const sourceFile = await resolvePluginPath(root, command.source, "commands");
+        if (!(await lstat(sourceFile)).isFile() || path.extname(sourceFile).toLowerCase() !== ".md") {
           throw new Error("Claude Plugin command source 必须是 Markdown：" + name);
         }
-        writeGenerated(name, readFileSync(sourceFile, "utf8"));
+        await writeGenerated(name, await readFile(sourceFile, "utf8"));
       } else if (typeof command.content === "string" && typeof command.source !== "string") {
-        writeGenerated(name, command.content);
+        await writeGenerated(name, command.content);
       } else {
         throw new Error("Claude Plugin command 必须且只能指定 source 或 content：" + name);
       }
@@ -234,8 +242,8 @@ function projectCopilotCommands(manifest: Record<string, unknown>, root: string)
   else manifest.commands = allPaths.length === 1 ? allPaths[0] : allPaths;
 }
 
-function writeJsonConfig(root: string, fileName: string, value: Record<string, unknown>): void {
-  writeFileSync(path.join(root, fileName), JSON.stringify(value, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+async function writeJsonConfig(root: string, fileName: string, value: Record<string, unknown>): Promise<void> {
+  await writeFile(path.join(root, fileName), JSON.stringify(value, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
 }
 
 function normalizeCopilotRootText(value: string): string {
@@ -266,20 +274,22 @@ const TEXT_EXTENSIONS = new Set([
   ".sh", ".bash", ".py", ".ps1", ".cmd", ".bat", ".yaml", ".yml", ".toml", ".txt",
 ]);
 
-function normalizeCopilotPluginRootVariables(root: string): void {
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+async function normalizeCopilotPluginRootVariables(root: string): Promise<void> {
+  const visit = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
       const fullPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        visit(fullPath);
-      } else if (entry.isFile() && TEXT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
-        const before = readFileSync(fullPath, "utf8");
+      const stat = await lstat(fullPath);
+      if (stat.isSymbolicLink()) throw new Error("Copilot 插件投影不能包含符号链接：" + fullPath);
+      if (stat.isDirectory()) {
+        await visit(fullPath);
+      } else if (stat.isFile() && TEXT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        const before = await readFile(fullPath, "utf8");
         const after = normalizeCopilotRootText(before);
-        if (after !== before) writeFileSync(fullPath, after, "utf8");
+        if (after !== before) await writeFile(fullPath, after, "utf8");
       }
     }
   };
-  visit(root);
+  await visit(root);
 }
 
 /**
@@ -291,84 +301,68 @@ function normalizeCopilotPluginRootVariables(root: string): void {
  * The source plugin remains untouched. A temporary runtime projection is
  * built for the Copilot process and removed when that process stops.
  */
-export function prepareCopilotPluginDirectories(
+export async function prepareCopilotPluginDirectories(
   approvedEntries: readonly PluginRuntimeEntry[],
   runtimeRoot: string,
-): string[] {
-  const stagedEntries = stagePluginRuntimeDirectories(approvedEntries, runtimeRoot);
+): Promise<string[]> {
+  const stagedEntries = await stagePluginRuntimeDirectories(approvedEntries, runtimeRoot);
   const staged: string[] = [];
   try {
     for (const entry of stagedEntries) {
       const id = entry.id;
       const destination = entry.directory;
-
       const claudeManifestPath = path.join(destination, ".claude-plugin", "plugin.json");
       const rootManifestPath = path.join(destination, "plugin.json");
-      const manifest = existsSync(claudeManifestPath)
-        ? readJsonObject(claudeManifestPath)
+      const manifest = await pathExists(claudeManifestPath)
+        ? await readJsonObject(claudeManifestPath)
         : { name: id };
-      // Never let a Claude manifest opt the Copilot projection into the
-      // incompatible Agent Plugins/Open Plugin Spec schema.
       delete manifest.$schema;
+      await normalizeCopilotPluginRootVariables(destination);
 
-      // Claude Code and Copilot expose different plugin-root environment names.
-      // Normalize references only in the disposable Copilot copy.
-      normalizeCopilotPluginRootVariables(destination);
-
-      // Copilot CLI accepts Claude plugin manifests at .claude-plugin/plugin.json,
-      // as well as legacy manifests at plugin.json. Materializing the root copy
-      // makes the format selection explicit and keeps the original directory intact.
       const copilotHooksConfig = path.join(destination, "hooks.json");
       if (manifest.hooks !== undefined) {
-        const customHooks = normalizeCopilotRootValue(normalizeHooksConfig(manifest.hooks, destination)) as Record<string, unknown>;
-        const existingHooks = existsSync(copilotHooksConfig) ? readJsonObject(copilotHooksConfig) : {};
-        writeJsonConfig(destination, "hooks.json", mergeObjects(existingHooks, customHooks));
+        const customHooks = normalizeCopilotRootValue(await normalizeHooksConfig(manifest.hooks, destination)) as Record<string, unknown>;
+        const existingHooks = await pathExists(copilotHooksConfig) ? await readJsonObject(copilotHooksConfig) : {};
+        await writeJsonConfig(destination, "hooks.json", mergeObjects(existingHooks, customHooks));
         delete manifest.hooks;
       } else {
         const hooksConfig = path.join(destination, "hooks", "hooks.json");
-        if (existsSync(hooksConfig) && !existsSync(copilotHooksConfig)) {
-          cpSync(hooksConfig, copilotHooksConfig, { errorOnExist: true, force: false });
+        if (await pathExists(hooksConfig) && !await pathExists(copilotHooksConfig)) {
+          await cp(hooksConfig, copilotHooksConfig, { errorOnExist: true, force: false });
         }
       }
 
       if (manifest.mcpServers !== undefined) {
-        const declaredMcp = normalizeCopilotRootValue(normalizeServerConfig(manifest.mcpServers, destination, "mcpServers", "mcpServers")) as Record<string, unknown>;
+        const declaredMcp = normalizeCopilotRootValue(await normalizeServerConfig(manifest.mcpServers, destination, "mcpServers", "mcpServers")) as Record<string, unknown>;
         const currentMcpPath = path.join(destination, ".mcp.json");
-        const currentMcp = existsSync(currentMcpPath) ? readJsonObject(currentMcpPath) : {};
-        writeJsonConfig(destination, ".mcp.json", mergeObjects(currentMcp, declaredMcp));
+        const currentMcp = await pathExists(currentMcpPath) ? await readJsonObject(currentMcpPath) : {};
+        await writeJsonConfig(destination, ".mcp.json", mergeObjects(currentMcp, declaredMcp));
         delete manifest.mcpServers;
       }
 
       const lspConfig = path.join(destination, ".lsp.json");
       if (manifest.lspServers !== undefined) {
-        const declaredLsp = normalizeCopilotRootValue(normalizeServerConfig(manifest.lspServers, destination, "lspServers", "lspServers")) as Record<string, unknown>;
-        const currentLsp = existsSync(lspConfig) ? readJsonObject(lspConfig) : {};
-        writeJsonConfig(destination, ".lsp.json", mergeObjects(currentLsp, declaredLsp));
+        const declaredLsp = normalizeCopilotRootValue(await normalizeServerConfig(manifest.lspServers, destination, "lspServers", "lspServers")) as Record<string, unknown>;
+        const currentLsp = await pathExists(lspConfig) ? await readJsonObject(lspConfig) : {};
+        await writeJsonConfig(destination, ".lsp.json", mergeObjects(currentLsp, declaredLsp));
         delete manifest.lspServers;
       }
       const copilotLspConfig = path.join(destination, "lsp.json");
-      const claudeLsp = existsSync(lspConfig) ? normalizeLspConfig(readJsonObject(lspConfig)) : {};
-      const existingCopilotLsp = existsSync(copilotLspConfig) ? normalizeLspConfig(readJsonObject(copilotLspConfig)) : {};
+      const claudeLsp = await pathExists(lspConfig) ? normalizeLspConfig(await readJsonObject(lspConfig)) : {};
+      const existingCopilotLsp = await pathExists(copilotLspConfig) ? normalizeLspConfig(await readJsonObject(copilotLspConfig)) : {};
       if (Object.keys(claudeLsp).length || Object.keys(existingCopilotLsp).length) {
-        // Keep the Copilot-specific config while also exposing Claude's servers
-        // through the one filename the Legacy loader reads.
-        writeJsonConfig(destination, "lsp.json", mergeObjects(existingCopilotLsp, claudeLsp));
+        await writeJsonConfig(destination, "lsp.json", mergeObjects(existingCopilotLsp, claudeLsp));
       }
-      // Copilot Legacy Plugin accepts command directories and *.agent.md agent files.
-      // Claude inline command objects and *.md agents are materialized only in
-      // this disposable copy; original files and paths remain untouched.
-      projectCopilotCommands(manifest, destination);
-      projectCopilotAgents(manifest, destination);
-      // The root manifest takes precedence in Copilot's legacy format. Always
-      // derive it from the trusted Claude manifest rather than an unrelated
-      // root plugin.json that happened to be part of the imported tree.
+
+      await projectCopilotCommands(manifest, destination);
+      await projectCopilotAgents(manifest, destination);
       const copilotManifest = normalizeCopilotRootValue(manifest) as Record<string, unknown>;
-      writeFileSync(rootManifestPath, JSON.stringify(copilotManifest, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+      await writeFile(rootManifestPath, JSON.stringify(copilotManifest, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
       staged.push(destination);
     }
     return staged;
   } catch (error) {
-    rmSync(runtimeRoot, { recursive: true, force: true });
+    await rm(runtimeRoot, { recursive: true, force: true });
     throw error;
   }
 }

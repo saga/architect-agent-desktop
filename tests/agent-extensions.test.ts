@@ -92,7 +92,7 @@ afterEach(() => {
 });
 
 describe("MCP server configuration", () => {
-  it("saves, enables, resolves environment references and removes local servers", () => {
+  it("saves, enables, resolves environment references and removes local servers", async () => {
     const root = temporaryRoot();
     const configFile = path.join(root, "mcp-servers.json");
     const server = {
@@ -117,7 +117,7 @@ describe("MCP server configuration", () => {
     expect(removeMcpServer("filesystem", configFile)).toEqual([]);
   });
 
-  it("supports remote HTTP configuration and rejects untrusted protocols or invalid ids", () => {
+  it("supports remote HTTP configuration and rejects untrusted protocols or invalid ids", async () => {
     const file = path.join(temporaryRoot(), "mcp.json");
     saveMcpServer({
       id: "remote-api", transport: "http", enabled: true, url: "https://example.com/mcp",
@@ -130,7 +130,7 @@ describe("MCP server configuration", () => {
     expect(() => saveMcpServer({ id: "remote", transport: "http", enabled: true, url: "file:///etc/passwd" }, file)).toThrow();
   });
 
-  it("fails closed when a referenced environment variable is missing", () => {
+  it("fails closed when a referenced environment variable is missing", async () => {
     const file = path.join(temporaryRoot(), "mcp.json");
     saveMcpServer({ id: "private-api", transport: "stdio", enabled: true, command: "node", args: [], env: { TOKEN: "\${NOT_CONFIGURED}" } }, file);
     expect(() => resolveMcpServerConfigs(listMcpServers(file), "copilot", {})).toThrow(/NOT_CONFIGURED/);
@@ -138,22 +138,22 @@ describe("MCP server configuration", () => {
 });
 
 describe("Agent Skills", () => {
-  it("imports SKILL.md directories, injects enabled instructions and toggles state", () => {
+  it("imports SKILL.md directories, injects enabled instructions and toggles state", async () => {
     const root = temporaryRoot();
     const source = makeSkill(root);
     const installed = path.join(root, "installed");
     const registry = path.join(root, "skills.json");
 
-    expect(importAgentSkill(source, installed, registry)).toMatchObject({ id: "review-code", enabled: true });
-    expect(listAgentSkills(installed, registry)).toHaveLength(1);
-    expect(readEnabledAgentSkillInstructions(installed, registry)).toContain("Read the changed files");
-    expect(setAgentSkillEnabled("review-code", false, installed, registry)[0]?.enabled).toBe(false);
-    expect(readEnabledAgentSkillInstructions(installed, registry)).toBe("");
-    expect(setAgentSkillEnabled("review-code", true, installed, registry)[0]?.enabled).toBe(true);
-    expect(removeAgentSkill("review-code", installed, registry)).toEqual([]);
+    expect(await importAgentSkill(source, installed, registry)).toMatchObject({ id: "review-code", enabled: true });
+    expect(await listAgentSkills(installed, registry)).toHaveLength(1);
+    expect(await readEnabledAgentSkillInstructions(installed, registry)).toContain("Read the changed files");
+    expect((await setAgentSkillEnabled("review-code", false, installed, registry))[0]?.enabled).toBe(false);
+    expect(await readEnabledAgentSkillInstructions(installed, registry)).toBe("");
+    expect((await setAgentSkillEnabled("review-code", true, installed, registry))[0]?.enabled).toBe(true);
+    expect(await removeAgentSkill("review-code", installed, registry)).toEqual([]);
   });
 
-  it("imports Claude Desktop-style ZIP files with a named folder and lowercase skill.md", () => {
+  it("imports Claude Desktop-style ZIP files with a named folder and lowercase skill.md", async () => {
     const root = temporaryRoot();
     const archivePath = path.join(root, "web-research.zip");
     const installed = path.join(root, "installed");
@@ -171,14 +171,14 @@ describe("Agent Skills", () => {
       ["web-research/references/sources.md", "Prefer official documentation."],
     ]));
 
-    expect(importAgentSkillArchive(archivePath, installed, registry)).toMatchObject({
+    expect(await importAgentSkillArchive(archivePath, installed, registry)).toMatchObject({
       id: "web-research", enabled: true,
     });
-    expect(readEnabledAgentSkillInstructions(installed, registry)).toContain("Use primary sources");
-    expect(listAgentSkills(installed, registry)).toHaveLength(1);
+    expect(await readEnabledAgentSkillInstructions(installed, registry)).toContain("Use primary sources");
+    expect(await listAgentSkills(installed, registry)).toHaveLength(1);
   });
 
-  it("rejects ZIP path traversal before extracting any file", () => {
+  it("rejects ZIP path traversal before extracting any file", async () => {
     const root = temporaryRoot();
     const archivePath = path.join(root, "unsafe.zip");
     writeFileSync(archivePath, makeZip([
@@ -189,14 +189,14 @@ describe("Agent Skills", () => {
       ].join("\n")],
       ["../escaped.txt", "must not be written"],
     ]));
-    expect(() => importAgentSkillArchive(archivePath, path.join(root, "installed"), path.join(root, "skills.json"))).toThrow(/路径穿越/);
+    await expect(importAgentSkillArchive(archivePath, path.join(root, "installed"), path.join(root, "skills.json"))).rejects.toThrow(/路径穿越/);
   });
 
-  it("rejects Skill folders without standard metadata", () => {
+  it("rejects Skill folders without standard metadata", async () => {
     const root = temporaryRoot();
     const source = path.join(root, "broken-skill");
     mkdirSync(source);
     writeFileSync(path.join(source, "SKILL.md"), "# No frontmatter");
-    expect(() => importAgentSkill(source, path.join(root, "installed"), path.join(root, "skills.json"))).toThrow(/frontmatter/);
+    await expect(importAgentSkill(source, path.join(root, "installed"), path.join(root, "skills.json"))).rejects.toThrow(/frontmatter/);
   });
 });

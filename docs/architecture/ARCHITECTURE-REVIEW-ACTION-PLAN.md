@@ -30,7 +30,7 @@
 
 ## Phase 4 — 进程、性能和资源回收
 
-- [ ] **P2-07 Main 同步 I/O 治理（含 P2-02）。** Workspace 文件列表、读取、写入与搜索已改为异步文件 API，并保持文件描述符、符号链接和路径边界校验；插件指纹、Capability 探测、插件导入/快照及 Agent Skill ZIP 导入仍使用同步文件操作。先建立典型包规模下的 Main Event Loop 延迟和导入耗时基准，再将 I/O 改为异步；只有 CPU 密集工作出现可测量阻塞时才引入 Worker/UtilityProcess。
+- [ ] **P2-07 Main 同步 I/O 治理（异步 I/O 第一阶段已实现，待 CI 与基准验证）。** Workspace 文件列表、读取、写入与搜索已使用异步文件 API，并保持文件描述符、符号链接和路径边界校验；本阶段进一步将插件目录指纹、Capability 探测、插件验证/导入/导出/授权、运行时快照、Copilot 插件投影，以及 Agent Skill 目录扫描/导入/启停/指令读取和 ZIP 解压落盘改为 `fs/promises`，Main IPC 与 Copilot 调用链均等待完成。指纹读取仍保留 `O_NOFOLLOW`、文件描述符身份/大小复核和文件数量/目录深度上限。ZIP CRC 与 `inflateRawSync` 是有 20 MB 上限的 CPU 解压，不属于文件 I/O；是否移至 UtilityProcess 由代表性 Event Loop 延迟/导入耗时基准决定。仍需先通过本次 CI，并补齐改造前后可比较的 Main Event Loop 延迟和导入耗时测量；没有测量证据不新增 Worker/UtilityProcess。
 - [ ] **P2-08 UtilityProcess 子进程树清理（实现与自动化测试已加入，待平台验收）。** 新增 POSIX 进程树冻结/递归发现/叶节点优先终止与退出等待；Windows 使用 `taskkill /T /F` 并等待 UtilityProcess 退出。正常完成、超时、取消和 `dispose()` 统一调用清理器；单元测试覆盖 POSIX 树层级、发现期间出现的新后代及 Windows 分支。仍需在真实 macOS / Windows Electron 环境验证，不把 UtilityProcess.kill() 当作整个进程树清理。
 - [x] **P2-09 CodeBuddy 总预算。** 一次用户请求最多 12 个模型轮次（6 次 Query、每次最多 2 轮）；应用 Host 工具与兼容模式文本工具调用共用 80 次请求级预算；兼容模式工具结果总输出最多 256 KiB；仍受现有 5 分钟请求超时约束。Provider 内部原生工具由 SDK 权限和轮次限制约束，不声称由应用计数器逐个计数。
 - [x] **P2-10 未使用 Runtime 入口清理。** 确认 `executeSkill()` / `SkillExecutionRequest` / Worker 的 `execute` 分支没有产品调用点；按 Agent Skills“脚本不会由导入器执行”的产品边界移除死入口，保留 Code Mode 使用的 UtilityProcess。同步修订 Runtime 和 Agent Skills 文档。

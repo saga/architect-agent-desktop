@@ -1,4 +1,5 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import path from "node:path";
@@ -35,6 +36,21 @@ interface SkillRegistry { version: 1; enabled: Record<string, boolean>; }
 const MAX_SKILL_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_SKILL_PACKAGE_BYTES = 20 * 1024 * 1024;
 const MAX_SKILL_CONTEXT_BYTES = 80_000;
+
+async function pathExistsAsync(file: string): Promise<boolean> {
+  try { await lstat(file); return true; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function writeJsonAtomicAsync(file: string, value: unknown): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true });
+  const temporary = file + ".tmp";
+  await writeFile(temporary, JSON.stringify(value, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
+  await rename(temporary, file);
+}
 
 function readMcpRegistry(file: string): McpRegistry {
   try {
@@ -96,16 +112,20 @@ export function removeMcpServer(id: string, file: string): McpServerConfig[] {
   return next.map(server => ({ ...server }));
 }
 
-function assertSafeSkillTree(root: string): void {
-  const rootStat = lstatSync(root);
+async function assertSafeSkillTree(root: string): Promise<void> {
+  const rootStat = await lstat(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error("Skill 必须位于普通目录，不能是符号链接。");
   let total = 0;
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+  let entriesSeen = 0;
+  const visit = async (directory: string, depth: number): Promise<void> => {
+    if (depth > 32) throw new Error("Skill 目录层级超过限制。");
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      entriesSeen += 1;
+      if (entriesSeen > 8192) throw new Error("Skill 目录条目数量不能超过 8192。");
       const fullPath = path.join(directory, entry.name);
-      const stat = lstatSync(fullPath);
+      const stat = await lstat(fullPath);
       if (stat.isSymbolicLink()) throw new Error("Skill 目录不能包含符号链接：" + entry.name);
-      if (stat.isDirectory()) visit(fullPath);
+      if (stat.isDirectory()) await visit(fullPath, depth + 1);
       else if (stat.isFile()) {
         if (stat.size > MAX_SKILL_FILE_BYTES) throw new Error("Skill 文件超过 2 MB：" + entry.name);
         total += stat.size;
@@ -113,7 +133,7 @@ function assertSafeSkillTree(root: string): void {
       } else throw new Error("Skill 目录包含不支持的文件类型：" + entry.name);
     }
   };
-  visit(root);
+  await visit(root, 0);
 }
 
 function parseSkillMarkdown(markdown: string): { id: string; name: string; description: string } {
@@ -128,93 +148,93 @@ function parseSkillMarkdown(markdown: string): { id: string; name: string; descr
   return { id: name, name, description };
 }
 
-function resolveSkillMarkdownPath(root: string): string {
-  const candidates = readdirSync(root, { withFileTypes: true })
+async function resolveSkillMarkdownPath(root: string): Promise<string> {
+  const candidates = (await readdir(root, { withFileTypes: true }))
     .filter(entry => entry.isFile() && (entry.name === "SKILL.md" || entry.name === "skill.md"));
   if (candidates.length === 0) throw new Error("Skill 目录必须包含 SKILL.md 或 skill.md。");
   if (candidates.length > 1) throw new Error("Skill 目录不能同时包含 SKILL.md 和 skill.md。");
   const skillFile = path.join(root, candidates[0]!.name);
-  const stat = lstatSync(skillFile);
+  const stat = await lstat(skillFile);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Skill Markdown 必须是普通文件。");
   return skillFile;
 }
 
-function readSkill(root: string): Omit<AgentSkillSummary, "enabled"> {
-  assertSafeSkillTree(root);
-  const skillFile = resolveSkillMarkdownPath(root);
-  const markdown = readFileSync(skillFile, "utf8");
+async function readSkill(root: string): Promise<Omit<AgentSkillSummary, "enabled">> {
+  await assertSafeSkillTree(root);
+  const skillFile = await resolveSkillMarkdownPath(root);
+  const markdown = await readFile(skillFile, "utf8");
   if (Buffer.byteLength(markdown, "utf8") > MAX_SKILL_FILE_BYTES) throw new Error("Skill Markdown 超过 2 MB。");
   return parseSkillMarkdown(markdown);
 }
 
-function readSkillRegistry(file: string): SkillRegistry {
+async function readSkillRegistryAsync(file: string): Promise<SkillRegistry> {
   try {
-    const parsed = JSON.parse(readFileSync(file, "utf8")) as SkillRegistry;
+    const parsed = JSON.parse(await readFile(file, "utf8")) as SkillRegistry;
     if (parsed.version === 1 && parsed.enabled && typeof parsed.enabled === "object" && !Array.isArray(parsed.enabled)) return parsed;
   } catch { /* first run or invalid file */ }
   return { version: 1, enabled: {} };
 }
 
-export function listAgentSkills(root: string, registryFile: string): AgentSkillSummary[] {
-  mkdirSync(root, { recursive: true });
-  const registry = readSkillRegistry(registryFile);
-  return readdirSync(root, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith("."))
-    .flatMap(entry => {
-      try {
-        const skill = readSkill(path.join(root, entry.name));
-        if (skill.id !== entry.name) return [];
-        return [{ ...skill, enabled: registry.enabled[skill.id] === true }];
-      } catch { return []; }
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
+export async function listAgentSkills(root: string, registryFile: string): Promise<AgentSkillSummary[]> {
+  await mkdir(root, { recursive: true });
+  const registry = await readSkillRegistryAsync(registryFile);
+  const skills: AgentSkillSummary[] = [];
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith(".")) continue;
+    try {
+      const skill = await readSkill(path.join(root, entry.name));
+      if (skill.id !== entry.name) continue;
+      skills.push({ ...skill, enabled: registry.enabled[skill.id] === true });
+    } catch { /* invalid or partially imported Skills are omitted */ }
+  }
+  return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function importAgentSkill(sourceDirectory: string, root: string, registryFile: string): AgentSkillSummary {
-  const skill = readSkill(sourceDirectory);
-  mkdirSync(root, { recursive: true });
+export async function importAgentSkill(sourceDirectory: string, root: string, registryFile: string): Promise<AgentSkillSummary> {
+  const skill = await readSkill(sourceDirectory);
+  await mkdir(root, { recursive: true });
   const destination = path.join(root, skill.id);
-  if (existsSync(destination)) throw new Error("Skill 已安装：" + skill.id);
+  if (await pathExistsAsync(destination)) throw new Error("Skill 已安装：" + skill.id);
   const temporary = path.join(root, "." + skill.id + ".importing");
   let created = false;
   try {
-    cpSync(sourceDirectory, temporary, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true });
-    const copied = readSkill(temporary);
+    await cp(sourceDirectory, temporary, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true });
+    const copied = await readSkill(temporary);
     if (copied.id !== skill.id) throw new Error("导入后的 Skill ID 不一致。");
-    renameSync(temporary, destination);
+    await rename(temporary, destination);
     created = true;
-    const registry = readSkillRegistry(registryFile);
+    const registry = await readSkillRegistryAsync(registryFile);
     registry.enabled[skill.id] = true;
-    writeJsonAtomic(registryFile, registry);
+    await writeJsonAtomicAsync(registryFile, registry);
   } catch (error) {
-    rmSync(temporary, { recursive: true, force: true });
-    if (created) rmSync(destination, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true });
+    if (created) await rm(destination, { recursive: true, force: true });
     throw error;
   }
   return { ...skill, enabled: true };
 }
 
-export function setAgentSkillEnabled(id: string, enabled: boolean, root: string, registryFile: string): AgentSkillSummary[] {
-  const skills = listAgentSkills(root, registryFile);
+export async function setAgentSkillEnabled(id: string, enabled: boolean, root: string, registryFile: string): Promise<AgentSkillSummary[]> {
+  const skills = await listAgentSkills(root, registryFile);
   if (!skills.some(skill => skill.id === id)) throw new Error("找不到 Agent Skill：" + id);
-  const registry = readSkillRegistry(registryFile);
+  const registry = await readSkillRegistryAsync(registryFile);
   registry.enabled[id] = enabled;
-  writeJsonAtomic(registryFile, registry);
+  await writeJsonAtomicAsync(registryFile, registry);
   return listAgentSkills(root, registryFile);
 }
 
-export function removeAgentSkill(id: string, root: string, registryFile: string): AgentSkillSummary[] {
+export async function removeAgentSkill(id: string, root: string, registryFile: string): Promise<AgentSkillSummary[]> {
   if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(id)) throw new Error("无效的 Skill ID。");
   const target = path.join(root, id);
-  if (!existsSync(target) || lstatSync(target).isSymbolicLink() || !lstatSync(target).isDirectory()) throw new Error("找不到 Agent Skill：" + id);
-  rmSync(target, { recursive: true, force: false });
-  const registry = readSkillRegistry(registryFile);
+  if (!await pathExistsAsync(target)) throw new Error("找不到 Agent Skill：" + id);
+  const stat = await lstat(target);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error("找不到 Agent Skill：" + id);
+  await rm(target, { recursive: true, force: false });
+  const registry = await readSkillRegistryAsync(registryFile);
   delete registry.enabled[id];
-  writeJsonAtomic(registryFile, registry);
+  await writeJsonAtomicAsync(registryFile, registry);
   return listAgentSkills(root, registryFile);
 }
-
-
 
 const MAX_SKILL_ARCHIVE_BYTES = 20 * 1024 * 1024;
 const MAX_SKILL_ARCHIVE_ENTRIES = 256;
@@ -320,8 +340,8 @@ function readSkillZipEntries(archive: Buffer): ZipSkillEntry[] {
   return entries;
 }
 
-export function importAgentSkillArchive(archiveFile: string, root: string, registryFile: string): AgentSkillSummary {
-  const archive = readFileSync(archiveFile);
+export async function importAgentSkillArchive(archiveFile: string, root: string, registryFile: string): Promise<AgentSkillSummary> {
+  const archive = await readFile(archiveFile);
   const entries = readSkillZipEntries(archive);
   const roots = new Set(entries.map(entry => entry.name.split("/")[0]).filter(Boolean));
   if (roots.size !== 1) throw new Error("Claude Desktop Skill ZIP 必须只包含一个顶层 Skill 文件夹。");
@@ -331,8 +351,8 @@ export function importAgentSkillArchive(archiveFile: string, root: string, regis
     throw new Error("Skill ZIP 必须将 Skill 文件放在一个独立文件夹中，不能直接放在 ZIP 根目录。");
   }
 
-  mkdirSync(root, { recursive: true });
-  const staging = mkdtempSync(path.join(root, ".skill-zip-" + randomUUID() + "-"));
+  await mkdir(root, { recursive: true });
+  const staging = await mkdtemp(path.join(root, ".skill-zip-" + randomUUID() + "-"));
   try {
     for (const entry of entries) {
       if (entry.directory) continue;
@@ -341,25 +361,25 @@ export function importAgentSkillArchive(archiveFile: string, root: string, regis
       const destination = path.resolve(staging, folderName, relative);
       const boundary = path.resolve(staging) + path.sep;
       if (!destination.startsWith(boundary)) throw new Error("Skill ZIP 包含路径穿越条目。");
-      mkdirSync(path.dirname(destination), { recursive: true });
-      writeFileSync(destination, entry.data, { flag: "wx", mode: 0o600 });
+      await mkdir(path.dirname(destination), { recursive: true });
+      await writeFile(destination, entry.data, { flag: "wx", mode: 0o600 });
     }
     const extracted = path.join(staging, folderName);
-    const skill = readSkill(extracted);
+    const skill = await readSkill(extracted);
     if (folderName !== skill.id) throw new Error("ZIP 顶层文件夹名称必须与 SKILL.md 的 name 相同（" + skill.id + "）。");
-    return importAgentSkill(extracted, root, registryFile);
+    return await importAgentSkill(extracted, root, registryFile);
   } finally {
-    rmSync(staging, { recursive: true, force: true });
+    await rm(staging, { recursive: true, force: true });
   }
 }
 
-export function readEnabledAgentSkillInstructions(root: string, registryFile: string): string {
+export async function readEnabledAgentSkillInstructions(root: string, registryFile: string): Promise<string> {
   let remaining = MAX_SKILL_CONTEXT_BYTES;
   const chunks: string[] = [];
-  for (const skill of listAgentSkills(root, registryFile).filter(item => item.enabled)) {
+  for (const skill of (await listAgentSkills(root, registryFile)).filter(item => item.enabled)) {
     if (remaining <= 0) break;
     try {
-      const markdown = readFileSync(resolveSkillMarkdownPath(path.join(root, skill.id)), "utf8");
+      const markdown = await readFile(await resolveSkillMarkdownPath(path.join(root, skill.id)), "utf8");
       const content = markdown.replace(/^---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/, "").trim();
       if (!content) continue;
       const chunk = "### " + skill.name + "\n" + content.slice(0, Math.min(20_000, remaining));
