@@ -7,6 +7,7 @@ import ExpertManager from "./ExpertManager";
 import PureAgentRightPanel from "./PureAgentRightPanel";
 import PureAgentSidebar, { type PureAgentSection } from "./PureAgentSidebar";
 import ScheduleManager from "./ScheduleManager";
+import ProactiveInbox from "./ProactiveInbox";
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || navigator.userAgent);
 
@@ -231,6 +232,7 @@ export default function PureAgentWorkspace({ browserState }: PureAgentWorkspaceP
       </>}
       {section === "schedule" && <ScheduleManager snapshot={snapshot} onChanged={() => void refresh()} onOpenTask={taskId => void activateTask(taskId)} />}
       {section === "expert" && <ExpertManager onChanged={() => void refresh()} />}
+      {section === "opportunities" && <ProactiveInbox taskId={activeTask?.id ?? ""} opportunities={snapshot.proactiveOpportunities ?? []} candidates={snapshot.memoryCandidates ?? []} settings={snapshot.proactiveSettings} onChanged={() => void refresh()} />}
     </section>
     {preferences.rightPanelVisible && <>
       <div className="pure-right-splitter" role="separator" aria-orientation="vertical"
