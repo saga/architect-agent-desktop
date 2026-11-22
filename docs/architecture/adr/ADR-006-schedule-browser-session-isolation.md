@@ -1,6 +1,6 @@
 # ADR-006：Schedule 专属 Browser Session 与登录 Profile
 
-**状态：** 已采纳；真实 Electron Session 持久化/隔离及生产下载处理器自动化回归已接入 macOS / Windows CI；Schedule 登录、OAuth Popup 和 GUI Run 生命周期仍待验收  
+**状态：** 已采纳；真实 Electron Session 持久化/隔离及生产下载处理器自动化回归已在 macOS / Windows CI 通过；Schedule 登录、OAuth Popup 和 GUI Run 生命周期仍待验收  
 **日期：** 2026-11-22
 
 ## 背景
