@@ -432,7 +432,7 @@ export class AgentMemoryStore {
       const note=this.saveNote({
         id,title,content,scope:input.scope,tags:["preference",input.category,"user-confirmed"],
         claimType:"user_preference",sourceSessionId:input.sourceSessionId,sourceTraceId:input.sourceTraceId,
-        sourceRefs:[sourceId],importance:priority==="high"?1:0.8,pinned:priority==="high",
+        sourceRefs:[sourceId],importance:priority==="high"?1:0.8,pinned:priority==="high"?true:undefined,
       preference:{
         domain:input.category,key:preferenceKey,
         operator:/\\b(?:don't|do not|never|avoid|not|dislike|cannot|can't)\\b|不吃|不要|别再|避免|不能|不得|不喜欢/iu.test(content)?"avoid":
@@ -636,7 +636,7 @@ export class AgentMemoryStore {
     const placeholders=scopeKeys.map(()=>"?").join(",");
     const rows=this.database.prepare(
       "SELECT * FROM memory_notes WHERE scope_key IN ("+placeholders+") AND claim_type='user_preference' "+
-      "AND preference_json LIKE '%\\\"priority\\\":\\\"high\\\"%' AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
+      "AND preference_json LIKE '%\"priority\":\"high\"%' AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
       "ORDER BY CASE WHEN scope_key=? THEN 0 ELSE 1 END,pinned DESC,importance DESC,updated_at DESC LIMIT ?"
     ).all({},...scopeKeys,Date.now(),workspaceKey,Math.max(1,Math.min(Math.floor(limit),50))) as Record<string,unknown>[];
     return rows.map(row=>{
