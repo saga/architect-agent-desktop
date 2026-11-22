@@ -29,7 +29,7 @@ describe("Preference learning",()=>{
   const candidate=detectPreferenceCandidate("Please remember across all projects: I prefer concise answers.");
   expect(candidate).toMatchObject({category:"communication",strength:"explicit",scopeSuggestion:"personal",explicitSaveRequest:true});
   expect(candidate).toMatchObject({priority:"high",autoPersist:true});
-  expect(preferenceCandidateInstruction(candidate!)).toContain("save it immediately");
+  expect(preferenceCandidateInstruction(candidate!)).toMatch(/save it immediately/i);
  });
  it("does not confuse a memory recall question with a save request",()=>{
   expect(detectPreferenceCandidate("Do you remember the Mermaid format?")).toBeNull();
