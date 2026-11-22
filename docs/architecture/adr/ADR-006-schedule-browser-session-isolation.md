@@ -13,7 +13,7 @@ Schedule 运行此前复用全局 `persist:architect-agent-browser` Session，�
 2. Schedule 的后台 Agent Run 使用隐藏 BrowserWindow 和专属 WebContentsView；所有 Browser Tools 只访问该 Run 的 Browser Context，不访问全局 UI Tab Map。
 3. 同一个 Schedule 的专属登录窗口与后台 Run 共享该 Schedule Profile，以便用户先完成登录，后续自动运行复用登录态。不同 Schedule 之间以及 Schedule 与普通浏览器之间不共享 Cookie 或站点存储。
 4. Schedule Profile 的起始 URL 可配置。Settings 页面可打开独立 Profile 进行人工登录，也可显式重置 Cookie、站点存储、HTTP Cache 和 HTTP Authentication Cache。起始 URL 必须是无内嵌凭据的 HTTP(S) 地址。
-5. 登录窗口允许有界 OAuth/SSO 弹窗，子窗口显式继承同一个 Schedule Session 和 sandbox/contextIsolation 设置；弹窗 URL 仍受安全协议检查和最大嵌套层数限制。每个 Profile 的根窗口与嵌套 OAuth 子窗口都要登记生命周期，重置/删除时一并强制销毁。
+5. 登录窗口允许有界 OAuth/SSO 弹窗，子窗口显式继承同一个 Schedule Session 和 sandbox/contextIsolation 设置；弹窗 URL 仍受安全协议检查和最大嵌套层数限制。每个 Profile 的根窗口与嵌套 OAuth 子窗口都要登记生命周期；任一窗口关闭时 flush Profile，重置/删除时一并强制销毁。
 6. Schedule Session 的站点权限请求默认拒绝，不弹出后台权限确认框；Display Media 请求始终拒绝。每个 Schedule 的下载自动保存到系统 Downloads 下独立的、由 Schedule 哈希隔离的目录，文件名净化并附加唯一下载 ID，不打开原生 Save 对话框；下载事件带上 Schedule ID 和实际保存路径。Profile 重置/删除时取消未完成下载，但不删除已经完成的用户文件。
 7. 普通 Agent Run 继续使用用户可见 Tab pin。Memory Dreaming 的后台维护没有交互式 Browser 目标，显式使用空 Browser Context，不能回落到用户当前 Tab。
 8. Schedule 的 WebContents 与隐藏 BrowserWindow 在 Run 的 finally 路径强制销毁，避免远端页面的 `beforeunload` 对话框阻塞清理；持久 Profile 数据不会在每次 Run 后清除，以保留用户认可的登录态。显式重置和删除 Schedule 时清除该 Profile 的站点数据。后台页面关闭后台节流，避免定时器被隐藏窗口冻结。

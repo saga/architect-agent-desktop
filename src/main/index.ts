@@ -947,7 +947,7 @@ function attachScheduleBrowserWindowDiagnostics(window: BrowserWindow, label: st
   });
 }
 
-function trackScheduleBrowserProfileWindow(scheduleId: string, window: BrowserWindow): void {
+function trackScheduleBrowserProfileWindow(scheduleId: string, window: BrowserWindow, profile: Session): void {
   let windows = scheduleBrowserProfilePopupWindows.get(scheduleId);
   if (!windows) {
     windows = new Set<BrowserWindow>();
@@ -958,6 +958,10 @@ function trackScheduleBrowserProfileWindow(scheduleId: string, window: BrowserWi
     const current = scheduleBrowserProfilePopupWindows.get(scheduleId);
     current?.delete(window);
     if (current?.size === 0) scheduleBrowserProfilePopupWindows.delete(scheduleId);
+    try { profile.flushStorageData(); }
+    catch (error) {
+      recordOperation("schedule-browser", "Profile flush failed after window close for " + scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
+    }
   });
 }
 
@@ -967,7 +971,7 @@ function secureScheduleProfilePopup(
   scheduleId: string,
   depth = 0,
 ): void {
-  trackScheduleBrowserProfileWindow(scheduleId, popup);
+  trackScheduleBrowserProfileWindow(scheduleId, popup, profile);
   popup.webContents.on("will-navigate", (event, url) => {
     if (!safeWebUrl(url)) {
       event.preventDefault();
