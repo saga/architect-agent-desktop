@@ -365,6 +365,8 @@ export class AgentMemoryStore {
     if (!evidence.length) throw new Error("Goal 必须包含直接来自用户消息的原文证据。");
     if (input.level === "project" && input.taskId !== null) throw new Error("Project Goal 不应绑定单个 Task。");
     const existing = this.database.prepare("SELECT * FROM agent_goals WHERE id=?").get({}, id) as Record<string, unknown> | undefined;
+    if (existing && input.baseVersion === undefined) throw new Error("更新既有 Goal 必须提供 baseVersion。");
+    const evidenceToPersist = [...new Set([...parseJson<string[]>(existing?.evidence_json, []), ...evidence])].slice(-12);
     if (existing && (String(existing.scope_key) !== scopeKey || String(existing.level) !== input.level ||
       (existing.task_id == null ? null : String(existing.task_id)) !== input.taskId)) {
       throw new Error("Goal ID 已属于其他 Workspace、Task 或层级。");
@@ -386,7 +388,7 @@ export class AgentMemoryStore {
       "confidence=excluded.confidence,evidence_json=excluded.evidence_json,source_session_id=excluded.source_session_id," +
       "source_trace_id=excluded.source_trace_id,updated_at=excluded.updated_at,version=excluded.version"
     ).run({}, id, scopeKey, input.taskId, input.level, objective, expectedOutcome, JSON.stringify(constraints),
-      JSON.stringify(acceptanceCriteria), status, clamp(input.confidence ?? 0.7, 0, 1), JSON.stringify(evidence),
+      JSON.stringify(acceptanceCriteria), status, clamp(input.confidence ?? 0.7, 0, 1), JSON.stringify(evidenceToPersist),
       input.sourceSessionId ?? null, input.sourceTraceId ?? null, Number(existing?.created_at ?? now), now, currentVersion + 1);
     const row = this.database.prepare("SELECT * FROM agent_goals WHERE id=? AND scope_key=?").get({}, id, scopeKey) as Record<string, unknown> | undefined;
     if (!row) throw new Error("Goal 保存失败。");
