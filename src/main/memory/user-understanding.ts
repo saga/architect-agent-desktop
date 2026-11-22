@@ -31,7 +31,7 @@ const ELEVATED_URGENCY = /直接(?:改|修改|做|执行)|别再解释|不要再
 const CORRECTION = new RegExp(REPEATED_CORRECTION.source + "|" + FRUSTRATION.source, "iu");
 
 function compact(value: string): string {
-  return value.replace(/\\s+/g, " ").trim().slice(0, 12_000);
+  return value.replace(/\s+/g, " ").trim().slice(0, 12_000);
 }
 
 function matchedEvidence(text: string, patterns: readonly RegExp[], limit = 4): string[] {
