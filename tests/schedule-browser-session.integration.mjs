@@ -61,7 +61,8 @@ try {
   await runElectronStage("seed");
   await runElectronStage("verify-and-reset");
   await runElectronStage("verify-reset-persisted");
-  console.log("Electron Schedule Session persistence, isolation and reset integration passed.");
+  await runElectronStage("download");
+  console.log("Electron Schedule Session persistence, isolation, reset and download integration passed.");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }
