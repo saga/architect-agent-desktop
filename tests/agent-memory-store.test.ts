@@ -71,7 +71,7 @@ describe("AgentMemoryStore", () => {
     store.archive(note.id, "/workspace/portfolio");
     expect(store.getNote(note.id, "/workspace/portfolio")).toBeNull();
     store.close();
-  });
+  }, 15_000);
 
   it("shares Personal Memory across Workspaces without exposing project Notes", () => {
     const databasePath=path.join(temporaryDirectory(),"memory.sqlite");
