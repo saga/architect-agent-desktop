@@ -327,7 +327,7 @@ export default function MemoryManager() {
 
   const noteColumns = [
     { title: "Note", key: "note", render: (_: unknown, note: AgentMemoryNoteView) => <div>
-      <Space wrap><Text strong>{note.title}</Text><Tag color={statusColor(note.validation)}>{note.validation}</Tag><Tag>{({ user_preference: "用户偏好", user_intent: "用户意图", decision: "决策", project_fact: "项目事实", workflow_pattern: "工作模式", external_fact: "外部事实", unknown: "未分类" } as Record<string, string>)[note.claimType] ?? "未分类"}</Tag>{note.pinned && <Tag color="gold">Pinned</Tag>}{note.status !== "active" && <Tag>{note.status}</Tag>}</Space>
+      <Space wrap><Text strong>{note.title}</Text><Tag color={statusColor(note.validation)}>{note.validation}</Tag><Tag>{({ user_preference: "用户偏好", user_intent: "用户意图", decision: "决策", project_fact: "项目事实", workflow_pattern: "工作模式", external_fact: "外部事实", unknown: "未分类" } as Record<string, string>)[note.claimType] ?? "未分类"}</Tag>{note.preference?.priority==="high" && <Tag color="red">高优先级规则</Tag>}{note.pinned && <Tag color="gold">Pinned</Tag>}{note.status !== "active" && <Tag>{note.status}</Tag>}</Space>
       <Paragraph ellipsis={{ rows: 2, expandable: true, symbol: "展开" }} style={{ margin: "4px 0 0" }}>{note.content}</Paragraph>
       {note.preference && <div style={{ marginTop: 6 }}>
         <Space wrap size={4}>
@@ -369,7 +369,7 @@ export default function MemoryManager() {
     {
       title: "操作", key: "actions", width: 230,
       render: (_: unknown, note: AgentMemoryNoteView) => note.status === "active" ? <Space size={4} wrap>
-        <Button type="link" size="small" onClick={() => void togglePinned(note)}>{note.pinned ? "取消置顶" : "置顶"}</Button>
+        {note.preference?.priority==="high" ? <Tag color="red">规则锁定</Tag> : <Button type="link" size="small" onClick={() => void togglePinned(note)}>{note.pinned ? "取消置顶" : "置顶"}</Button>}
         {note.claimType === "external_fact" && note.validation === "unverified" &&
           note.externalVerification?.status === "multi_domain_sources_recorded" &&
           <Popconfirm
@@ -383,11 +383,11 @@ export default function MemoryManager() {
           </Popconfirm>}
         <Popconfirm
           title="归档这条 Memory Note？"
-          description={note.pinned ? "请先取消置顶。归档不会物理删除历史版本。" : "归档后不会再注入上下文，但可在 Notes 列表中查看。"}
-          disabled={note.pinned}
+          description={note.preference?.priority==="high" ? "高优先级用户规则不能直接归档；请先明确修改或撤销该规则。" : note.pinned ? "请先取消置顶。归档不会物理删除历史版本。" : "归档后不会再注入上下文，但可在 Notes 列表中查看。"}
+          disabled={note.pinned || note.preference?.priority==="high"}
           onConfirm={() => void archiveNote(note)}
         >
-          <Button type="link" size="small" danger disabled={note.pinned}>归档</Button>
+          <Button type="link" size="small" danger disabled={note.pinned || note.preference?.priority==="high"}>归档</Button>
         </Popconfirm>
       </Space> : <Text type="secondary">—</Text>,
     },
