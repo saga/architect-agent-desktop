@@ -10,6 +10,10 @@ describe("Preference learning",()=>{
   const candidate=detectPreferenceCandidate("From now on, never use ASCII diagrams.");
   expect(candidate).toMatchObject({category:"diagrams",key:"diagram_output_format",strength:"explicit",priority:"high",autoPersist:true,scopeSuggestion:"workspace"});
  });
+ it("treats a general no-repeat interaction rule as cross-workspace Personal Memory",()=>{
+  expect(detectPreferenceCandidate("不要让我反复提醒。")).toMatchObject({category:"interaction",priority:"high",autoPersist:true,scopeSuggestion:"personal"});
+  expect(detectPreferenceCandidate("这个项目里不要让我反复提醒。")).toMatchObject({category:"interaction",scopeSuggestion:"workspace"});
+ });
  it("recognizes angry repeat-correction language as a high-priority interaction rule",()=>{
   const candidate=detectPreferenceCandidate("不要让我反复提醒，不要再让我重复已经说过的要求。");
   expect(candidate).toMatchObject({category:"interaction",key:"avoid_repeating_user_requirements",strength:"repeated_correction",priority:"high",autoPersist:true});
