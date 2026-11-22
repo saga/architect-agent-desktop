@@ -115,6 +115,7 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
   const [runningId, setRunningId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
+  const [browserStartUrl, setBrowserStartUrl] = useState("");
   const [workspacePath, setWorkspacePath] = useState(activeTask?.workspacePath ?? "");
   const [expertId, setExpertId] = useState(activeTask?.expertId ?? "");
   const [runAt, setRunAt] = useState(() => localDateTimeValue(new Date(Date.now() + 60 * 60 * 1000)));
@@ -148,6 +149,7 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
     setEditingId(null);
     setTitle("");
     setPrompt("");
+    setBrowserStartUrl("");
     setWorkspacePath(activeTask?.workspacePath ?? "");
     setExpertId(activeTask?.expertId ?? "");
     setRunAt(localDateTimeValue(new Date(Date.now() + 60 * 60 * 1000)));
@@ -176,6 +178,7 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
     setEditingId(schedule.id);
     setTitle(schedule.title);
     setPrompt(schedule.prompt);
+    setBrowserStartUrl(schedule.browserStartUrl ?? "");
     setWorkspacePath(schedule.workspacePath ?? "");
     setExpertId(schedule.expertId ?? "");
     setRunAt(localDateTimeValue(new Date(schedule.runAt)));
@@ -199,6 +202,15 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
       return;
     }
     const existing = editingId ? snapshot.schedules.find(item => item.id === editingId) : undefined;
+    if (browserStartUrl.trim()) {
+      try {
+        const url = new URL(browserStartUrl.trim());
+        if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("仅支持 HTTP(S)");
+      } catch {
+        message.error("隔离浏览器起始地址必须是有效的 HTTP(S) URL。");
+        return;
+      }
+    }
     if (instant.getTime() <= Date.now() && (existing?.enabled ?? true)) {
       message.warning("首次执行时间需要晚于当前时间。");
       return;
@@ -219,6 +231,7 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
         prompt: prompt.trim(),
         workspacePath: workspacePath || null,
         expertId: expertId || null,
+        browserStartUrl: browserStartUrl.trim() || undefined,
         runAt: instant.toISOString(),
         repeat,
         intervalMinutes: repeat === "interval" ? intervalMinutes : undefined,
@@ -252,6 +265,24 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
       await window.browser.deleteAgentSchedule(schedule.id);
       onChanged();
       message.success("定时任务已删除；已有运行记录会保留。");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const openBrowserProfile = async (schedule: AgentSchedule) => {
+    try {
+      await window.browser.openAgentScheduleBrowser(schedule.id);
+      message.success("已打开该 Schedule 专属浏览器。登录态与普通浏览器及其他 Schedule 隔离，并会保留供后续运行使用。");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const resetBrowserProfile = async (schedule: AgentSchedule) => {
+    try {
+      await window.browser.resetAgentScheduleBrowser(schedule.id);
+      message.success("该 Schedule 的浏览器 Cookie、站点存储和缓存已清除。");
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     }
@@ -345,6 +376,11 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
               {snapshot.experts.map(expert => <option key={expert.id} value={expert.id}>{expert.name}</option>)}
             </select>
           </label>
+          <label>隔离浏览器起始地址（可选）
+            <input type="url" maxLength={2048} value={browserStartUrl}
+              onChange={event => setBrowserStartUrl(event.target.value)}
+              placeholder="https://example.com/login" />
+          </label>
           <label>首次执行时间<input type="datetime-local" value={runAt} onChange={event => setRunAt(event.target.value)} /></label>
           <label>重复规则
             <select value={repeat} onChange={event => setRepeat(event.target.value as AgentScheduleRepeat)}>
@@ -387,7 +423,7 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
           <Button onClick={() => { setShowForm(false); reset(); }}>取消</Button>
           <Button type="primary" loading={saving} onClick={() => void createOrUpdate()}>{editingId ? "保存修改" : "创建任务"}</Button>
         </div>
-        <p className="pure-form-help">任务会使用指定 Workspace 和 Expert，以独立 Session 执行并保留运行记录。它继承当前 Agent 的模型和权限；无人值守任务不会自动提升权限，需要人工确认的工具调用仍遵循原权限策略，可能等待用户确认。应用退出或电脑休眠期间不会执行，重新启动后只处理当前已到期的任务，不逐次补跑错过的周期。</p>
+        <p className="pure-form-help">任务会使用指定 Workspace 和 Expert，以独立 Agent Session 执行并保留运行记录。浏览器也有独立于普通浏览器、按 Schedule ID 持久保存的登录 Profile；首次执行前可在任务卡片打开专属浏览器登录，Agent 后续运行会复用该 Profile。可配置起始 URL，留空时默认打开 Google。它继承当前 Agent 的模型和权限；无人值守任务不会自动提升权限，需要人工确认的工具调用仍遵循原权限策略，可能等待用户确认。应用退出或电脑休眠期间不会执行，重新启动后只处理当前已到期的任务，不逐次补跑错过的周期。</p>
       </section>}
 
       <div className="pure-schedule-list">
@@ -414,6 +450,10 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
             <div className="pure-schedule-actions">
               <Button size="small" icon={<PlayCircleOutlined />} loading={runningId === schedule.id}
                 disabled={runningScheduleIds.has(schedule.id) || Boolean(runningId && runningId !== schedule.id)} onClick={() => void runNow(schedule)}>立即运行</Button>
+              <Button size="small" onClick={() => void openBrowserProfile(schedule)}>隔离浏览器 / 登录</Button>
+              <Popconfirm title="重置这个 Schedule 的浏览器登录态？" description="将清除该 Schedule 专属 Profile 的 Cookie、站点存储和缓存，不影响普通浏览器或其他 Schedule。" okText="重置" cancelText="取消" onConfirm={() => void resetBrowserProfile(schedule)}>
+                <Button size="small">重置登录态</Button>
+              </Popconfirm>
               <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(schedule)}>编辑</Button>
               <Button size="small" onClick={() => void updateEnabled(schedule, !schedule.enabled)}>{schedule.enabled ? "暂停" : "启用"}</Button>
               <Popconfirm title="删除这个定时任务？" description="已有运行记录和执行结果会保留。" okText="删除" cancelText="取消" onConfirm={() => void remove(schedule)}>

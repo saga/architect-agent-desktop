@@ -20,6 +20,8 @@ export interface BrowserDownloadEvent {
   receivedBytes: number;
   totalBytes: number;
   savePath?: string;
+  /** Present when the download belongs to a Schedule-specific persistent Browser Profile. */
+  scheduleId?: string;
 }
 
 export type AgentProvider = "copilot" | "codebuddy";
@@ -204,6 +206,8 @@ export interface AgentSchedule {
   prompt: string;
   workspacePath: string | null;
   expertId: string | null;
+  /** Optional login/start page for this Schedule's isolated Browser Profile. */
+  browserStartUrl?: string;
   runAt: string;
   repeat: AgentScheduleRepeat;
   intervalMinutes?: number;
@@ -344,6 +348,8 @@ export interface BrowserApi {
   saveAgentSchedule(schedule: Omit<AgentSchedule, "createdAt" | "updatedAt"> & Partial<Pick<AgentSchedule, "createdAt" | "updatedAt">>): Promise<AgentSchedule[]>;
   deleteAgentSchedule(id: string): Promise<AgentSchedule[]>;
   runAgentScheduleNow(id: string): Promise<void>;
+  openAgentScheduleBrowser(id: string): Promise<void>;
+  resetAgentScheduleBrowser(id: string): Promise<void>;
   agentProactiveFeedback(taskId: string, opportunityId: string, action: ProactiveFeedbackAction): Promise<{ noteId?: string }>;
   agentMemoryCandidateFeedback(taskId: string, candidateId: string, action: "accept" | "reject"): Promise<{ noteId?: string }>;
   agentProactiveSaveSettings(settings: AgentProactiveSettingsPatch): Promise<AgentProactiveSettings>;

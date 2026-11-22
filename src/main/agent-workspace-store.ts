@@ -42,6 +42,10 @@ const scheduleSchema = z.object({
   prompt: z.string().trim().min(1).max(30000),
   workspacePath: z.string().max(4096).nullable(),
   expertId: z.string().max(100).nullable(),
+  browserStartUrl: z.string().trim().max(2048).url().refine(value => {
+    try { const url = new URL(value); return url.protocol === "http:" || url.protocol === "https:"; }
+    catch { return false; }
+  }).optional(),
   runAt: z.string().datetime({ offset: true }),
   repeat: z.enum(["none", "interval", "daily", "weekly", "biweekly", "monthly", "yearly"]),
   intervalMinutes: z.number().int().min(1).max(525600).optional(),

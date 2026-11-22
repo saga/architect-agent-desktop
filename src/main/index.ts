@@ -35,7 +35,8 @@ import { importAgentSkill, importAgentSkillArchive, listAgentSkills, listMcpServ
 import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./login-shell-env";
 import { clampBrowserBounds } from "./layout/browser-bounds";
 import { isAgentOperationBusy } from "./agent-operation-policy";
-import { resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
+import { resolveAgentBrowserTab, resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
+import { scheduleBrowserPartition } from "./schedule-browser-profile";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { findPanel, setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
@@ -61,6 +62,22 @@ interface BrowserTab {
   isLoading: boolean;
 }
 
+interface ScheduleBrowserContext {
+  scheduleId: string;
+  runId: string;
+  session: Session;
+  window: BrowserWindow;
+  tabs: Map<string, BrowserTab>;
+  tabOrder: string[];
+  activeTabId: string | null;
+  disposed: boolean;
+}
+
+const scheduleBrowserSessions = new Map<string, Session>();
+const scheduleBrowserSessionPromises = new Map<string, Promise<Session>>();
+const scheduleBrowserProfileWindows = new Map<string, BrowserWindow>();
+let scheduleBrowserContext: ScheduleBrowserContext | null = null;
+
 const tabs = new Map<string, BrowserTab>();
 const tabOrder: string[] = [];
 const permissionGrants = new Map<string, Set<string>>();
@@ -76,8 +93,7 @@ let browserSession: Session;
 let activeTabId: string | null = null;
 let agentToolTabId: string | null | undefined = undefined;
 function agentBrowserTab(): BrowserTab | null {
-  const id = resolveAgentBrowserTabId(agentToolTabId, activeTabId);
-  return id ? tabs.get(id) ?? null : null;
+  return resolveAgentBrowserTab(scheduleBrowserContext, agentToolTabId, activeTabId, tabs);
 }
 let attachedView: WebContentsView | null = null;
 let snapshotView: WebContentsView | null = null;
@@ -472,6 +488,15 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     return messages.map((entry, index) => `${index + 1}. [${entry.type}] ${entry.text.slice(0, 2000)}`).join("\n");
   },
   async listTabs() {
+    if (scheduleBrowserContext) {
+      const selectedTabId = scheduleBrowserContext.activeTabId;
+      return JSON.stringify({
+        activeTabId: selectedTabId,
+        tabs: scheduleBrowserContext.tabOrder.map(id => scheduleBrowserContext?.tabs.get(id))
+          .filter((tab): tab is BrowserTab => Boolean(tab))
+          .map(tab => ({ id: tab.id, title: tab.title, url: tab.url, active: tab.id === selectedTabId, loading: tab.isLoading })),
+      });
+    }
     const selectedTabId = resolveAgentBrowserTabId(agentToolTabId, activeTabId);
     return JSON.stringify({ activeTabId: selectedTabId, tabs: currentState().tabs.map(t => ({ id:t.id, title:t.title, url:t.url, active:t.id===selectedTabId, loading:t.isLoading })) });
   },
@@ -482,9 +507,18 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
   },
   async openTab(url) {
     if (!safeWebUrl(url)) throw new Error("Only http(s) URLs are allowed.");
+    if (scheduleBrowserContext) {
+      const id = await createScheduleBrowserTab(scheduleBrowserContext, url);
+      return "Opened isolated Schedule tab " + id + " at " + url;
+    }
     const id=await createTab(url); if (agentToolTabId !== undefined) agentToolTabId=id; return "Opened new tab " + id + " at " + url;
   },
   async switchTab(tabId) {
+    if (scheduleBrowserContext) {
+      if (!scheduleBrowserContext.tabs.has(tabId)) throw new Error("Unknown Schedule Browser tab ID.");
+      scheduleBrowserContext.activeTabId = tabId;
+      return "Switched to isolated Schedule tab " + tabId;
+    }
     if (!tabs.has(tabId)) throw new Error("Unknown tab ID.");
     activateTab(tabId);
     if (agentToolTabId !== undefined) agentToolTabId = tabId;
@@ -683,6 +717,202 @@ function resolveAddress(input: string): string {
 
   if (safeWebUrl(candidate)) return candidate;
   return "https://www.google.com/search?q=" + encodeURIComponent(value);
+}
+
+async function getScheduleBrowserSession(scheduleId: string): Promise<Session> {
+  const cached = scheduleBrowserSessions.get(scheduleId);
+  if (cached) return cached;
+  const existing = scheduleBrowserSessionPromises.get(scheduleId);
+  if (existing) return existing;
+  const pending = (async () => {
+    const profile = session.fromPartition(scheduleBrowserPartition(scheduleId));
+    await profile.setProxy({ mode: "system" });
+    profile.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+    profile.setPermissionCheckHandler(() => false);
+    profile.setDisplayMediaRequestHandler((_request, callback) => callback(null));
+    profile.on("will-download", (_event, item) => {
+      const id = ++downloadSequence;
+      const publish = (status: BrowserDownloadEvent["status"]) => {
+        const payload: BrowserDownloadEvent = {
+          id, scheduleId, fileName: item.getFilename(), status,
+          receivedBytes: item.getReceivedBytes(), totalBytes: item.getTotalBytes(),
+          savePath: item.getSavePath() || undefined,
+        };
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("browser:download", payload);
+      };
+      publish("started");
+      item.on("updated", () => publish("progress"));
+      item.once("done", (_downloadEvent, state) => {
+        publish(state === "completed" ? "completed" : "cancelled");
+        recordOperation("schedule-browser", "download " + scheduleId + " " + item.getFilename() + " " + state);
+      });
+    });
+    scheduleBrowserSessions.set(scheduleId, profile);
+    return profile;
+  })();
+  scheduleBrowserSessionPromises.set(scheduleId, pending);
+  try { return await pending; }
+  catch (error) {
+    scheduleBrowserSessionPromises.delete(scheduleId);
+    throw error;
+  }
+}
+
+function attachScheduleBrowserTabEvents(context: ScheduleBrowserContext, tab: BrowserTab): void {
+  const webContents = tab.view.webContents;
+  webContents.on("did-start-loading", () => { tab.isLoading = true; });
+  webContents.on("did-stop-loading", () => {
+    tab.isLoading = false;
+    tab.url = webContents.getURL() || tab.url;
+    tab.title = webContents.getTitle() || tab.title;
+  });
+  webContents.on("did-navigate", (_event, url) => { tab.url = url; tab.cdp.resetUids(); });
+  webContents.on("did-navigate-in-page", (_event, url, isMainFrame) => {
+    if (!isMainFrame) return;
+    tab.url = url;
+    tab.cdp.resetUids();
+  });
+  webContents.on("page-title-updated", (_event, title) => { tab.title = title; });
+  webContents.on("will-navigate", (event, url) => { if (!safeWebUrl(url)) event.preventDefault(); });
+  webContents.on("will-redirect", (event, url) => { if (!safeWebUrl(url)) event.preventDefault(); });
+  webContents.setWindowOpenHandler(({ url }) => {
+    if (safeWebUrl(url) && !context.disposed) void createScheduleBrowserTab(context, url);
+    return { action: "deny" };
+  });
+  webContents.on("render-process-gone", (_event, details) => {
+    tab.isLoading = false;
+    tab.title = "This page crashed";
+    tab.cdp.resetUids();
+    recordOperation("schedule-browser", "render-process-gone " + details.reason + " exitCode=" + details.exitCode + " schedule=" + context.scheduleId);
+  });
+  webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return;
+    recordOperation("schedule-browser", "did-fail-load " + errorCode + " " + errorDescription + " " + validatedURL + " schedule=" + context.scheduleId);
+  });
+}
+
+async function createScheduleBrowserTab(context: ScheduleBrowserContext, url = HOME_URL): Promise<string> {
+  if (context.disposed || context.window.isDestroyed()) throw new Error("Schedule Browser Context is closed.");
+  const id = randomUUID();
+  const view = new WebContentsView({
+    webPreferences: {
+      session: context.session,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      spellcheck: true,
+    },
+  });
+  context.window.contentView.addChildView(view);
+  view.setBounds({ x: 0, y: 0, width: 1280, height: 800 });
+  const tab: BrowserTab = { id, view, cdp: new BrowserCdp(), title: "New tab", url: "about:blank", favicon: null, isLoading: false };
+  context.tabs.set(id, tab);
+  context.tabOrder.push(id);
+  context.activeTabId = id;
+  attachScheduleBrowserTabEvents(context, tab);
+  const target = resolveAddress(url);
+  tab.url = target;
+  try { await view.webContents.loadURL(target); }
+  catch (error) {
+    tab.isLoading = false;
+    tab.title = "Unable to load page";
+    recordOperation("schedule-browser", "navigation failed " + target + " schedule=" + context.scheduleId + " error=" + (error instanceof Error ? error.message : String(error)));
+  }
+  return id;
+}
+
+async function createScheduleBrowserContext(schedule: AgentSchedule, runId: string): Promise<ScheduleBrowserContext> {
+  const profile = await getScheduleBrowserSession(schedule.id);
+  const window = new BrowserWindow({
+    show: false, width: 1280, height: 800, frame: false, skipTaskbar: true, backgroundColor: "#ffffff",
+    webPreferences: { session: profile, contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  const context: ScheduleBrowserContext = {
+    scheduleId: schedule.id, runId, session: profile, window,
+    tabs: new Map(), tabOrder: [], activeTabId: null, disposed: false,
+  };
+  window.on("closed", () => {
+    context.disposed = true;
+    for (const tab of context.tabs.values()) tab.cdp.detach(tab.view.webContents);
+    context.tabs.clear();
+    context.tabOrder.length = 0;
+    if (scheduleBrowserContext === context) scheduleBrowserContext = null;
+  });
+  await createScheduleBrowserTab(context, schedule.browserStartUrl || HOME_URL);
+  return context;
+}
+
+function disposeScheduleBrowserContext(context: ScheduleBrowserContext): void {
+  context.disposed = true;
+  if (scheduleBrowserContext === context) scheduleBrowserContext = null;
+  for (const tab of context.tabs.values()) {
+    tab.cdp.detach(tab.view.webContents);
+    if (!context.window.isDestroyed()) {
+      try { context.window.contentView.removeChildView(tab.view); } catch { /* already detached */ }
+    }
+    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+  }
+  context.tabs.clear();
+  context.tabOrder.length = 0;
+  if (!context.window.isDestroyed()) context.window.close();
+}
+
+async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
+  const schedule = agentSchedules.find(item => item.id === scheduleId);
+  if (!schedule) throw new Error("定时任务不存在。");
+  const existing = scheduleBrowserProfileWindows.get(scheduleId);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+    return;
+  }
+  const profile = await getScheduleBrowserSession(scheduleId);
+  const window = new BrowserWindow({
+    width: 1180, height: 820, minWidth: 760, minHeight: 560,
+    title: schedule.title + " · 隔离浏览器", autoHideMenuBar: true, backgroundColor: "#ffffff",
+    webPreferences: { session: profile, contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  scheduleBrowserProfileWindows.set(scheduleId, window);
+  window.on("closed", () => {
+    if (scheduleBrowserProfileWindows.get(scheduleId) === window) scheduleBrowserProfileWindows.delete(scheduleId);
+  });
+  window.webContents.on("will-navigate", (event, url) => { if (!safeWebUrl(url)) event.preventDefault(); });
+  window.webContents.on("will-redirect", (event, url) => { if (!safeWebUrl(url)) event.preventDefault(); });
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const key = input.key.toLowerCase();
+    if ((input.control || input.meta) && key === "r") { event.preventDefault(); window.webContents.reload(); }
+    else if (input.alt && (key === "arrowleft" || key === "left")) {
+      event.preventDefault();
+      if (window.webContents.navigationHistory.canGoBack()) window.webContents.navigationHistory.goBack();
+    } else if (input.alt && (key === "arrowright" || key === "right")) {
+      event.preventDefault();
+      if (window.webContents.navigationHistory.canGoForward()) window.webContents.navigationHistory.goForward();
+    }
+  });
+  attachWindowDiagnostics(window, "schedule-browser-" + scheduleId);
+  try {
+    await window.loadURL(resolveAddress(schedule.browserStartUrl || HOME_URL));
+    if (!window.isDestroyed()) { window.show(); window.focus(); }
+  } catch (error) {
+    scheduleBrowserProfileWindows.delete(scheduleId);
+    if (!window.isDestroyed()) window.close();
+    throw error;
+  }
+}
+
+async function resetScheduleBrowserProfile(scheduleId: string): Promise<void> {
+  if (scheduleBrowserContext?.scheduleId === scheduleId) throw new Error("该 Schedule 正在运行，不能重置其 Browser Profile。");
+  const window = scheduleBrowserProfileWindows.get(scheduleId);
+  if (window && !window.isDestroyed()) window.destroy();
+  scheduleBrowserProfileWindows.delete(scheduleId);
+  const profile = await getScheduleBrowserSession(scheduleId);
+  await profile.clearStorageData();
+  await profile.clearCache();
+  profile.flushStorageData();
 }
 
 function tabSnapshot(tab: BrowserTab): BrowserTabState {
@@ -1780,7 +2010,7 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
     let skipped = false;
     try {
       await activateAgentTask(eligibleTask.id, false, true);
-      agentToolTabId = activeTabId;
+      agentToolTabId = null; // Background Memory maintenance has no interactive Browser target.
       activeAgentTraceId = runId;
       copilotAgent.setMemoryContext(eligibleTask.sessionId, runId, eligibleTask.id, false);
       scheduledCapture = { taskId: eligibleTask.id, answer: "" };
@@ -1898,8 +2128,12 @@ async function processDueAgentSchedules(manualScheduleId?: string): Promise<void
       publishAgentWorkspaceSnapshot();
 
       let runTask: AgentTask | null = null;
+      let runBrowserContext: ScheduleBrowserContext | null = null;
       let failure = "";
       try {
+        agentToolTabId = null;
+        runBrowserContext = await createScheduleBrowserContext(schedule, runId);
+        scheduleBrowserContext = runBrowserContext;
         runTask = createAgentTaskRecord({
           title: ("定时任务 · " + schedule.title + " · " + new Date(runStartedAt).toLocaleString()).slice(0, 120),
           workspacePath: schedule.workspacePath,
@@ -1908,13 +2142,14 @@ async function processDueAgentSchedules(manualScheduleId?: string): Promise<void
         runRecord.taskId = runTask.id;
         persistAgentScheduleRuns();
         await activateAgentTask(runTask.id, false, true);
-        agentToolTabId = activeTabId;
+        agentToolTabId = null; // Never fall back to the visible user's Browser Tab.
         activeAgentTraceId = runId;
         copilotAgent.setMemoryContext(runTask.sessionId, runId, runTask.id, true);
         scheduledCapture = { taskId: runTask.id, answer: "" };
         recordAgentTrace("schedule.started", {
           scheduleId: schedule.id, scheduleRunId: runId, trigger: runRecord.trigger,
           title: schedule.title, prompt: schedule.prompt,
+          browserProfile: "isolated-per-schedule",
         }, "running");
         await copilotAgent.send(schedule.prompt, []);
       } catch (error) {
@@ -1982,6 +2217,11 @@ async function processDueAgentSchedules(manualScheduleId?: string): Promise<void
           status: succeeded ? "success" : "error", durationMs: finishedAt - runStartedAt,
         }, succeeded ? "completed" : "failed");
         activeAgentTraceId = null;
+        if (runBrowserContext) {
+          disposeScheduleBrowserContext(runBrowserContext);
+          runBrowserContext = null;
+        }
+        scheduleBrowserContext = null;
         agentToolTabId = undefined;
         if (agentTasks.some(item => item.id === previousTaskId)) {
           try { await activateAgentTask(previousTaskId, false, true); }
@@ -2219,6 +2459,10 @@ function registerIpcHandlers(): void {
       prompt: z.string().trim().min(1).max(30000),
       workspacePath: z.string().max(4096).nullable(),
       expertId: z.string().max(100).nullable(),
+      browserStartUrl: z.string().trim().max(2048).url().refine(value => {
+        try { const url = new URL(value); return url.protocol === "http:" || url.protocol === "https:"; }
+        catch { return false; }
+      }).optional(),
       runAt: z.string().datetime({ offset: true }),
       repeat: z.enum(["none", "interval", "daily", "weekly", "biweekly", "monthly", "yearly"]),
       intervalMinutes: z.number().int().min(1).max(525600).optional(),
@@ -2265,10 +2509,27 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Schedule ID.");
+    if (scheduleRunnerActive) throw new Error("Schedule 正在执行，暂时不能删除。");
     agentSchedules = agentSchedules.filter(item => item.id !== parsed.data);
     persistAgentSchedules();
     publishAgentWorkspaceSnapshot();
     return agentSchedules;
+  });
+  ipcMain.handle("agent-schedule:open-browser", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.string().min(1).max(100).safeParse(input);
+    if (!parsed.success || !agentSchedules.some(item => item.id === parsed.data)) throw new Error("定时任务不存在。");
+    if (agentOperationBusy()) throw new Error("Agent 正在运行，请结束当前操作后再打开 Schedule Browser Profile。");
+    await openScheduleBrowserProfile(parsed.data);
+    recordOperation("schedule-browser", "opened isolated profile for " + parsed.data);
+  });
+  ipcMain.handle("agent-schedule:reset-browser", async (event, input: unknown) => {
+    assertTrustedSender(event);
+    const parsed = z.string().min(1).max(100).safeParse(input);
+    if (!parsed.success || !agentSchedules.some(item => item.id === parsed.data)) throw new Error("定时任务不存在。");
+    if (agentOperationBusy()) throw new Error("Agent 正在运行，请结束当前操作后再重置 Schedule Browser Profile。");
+    await resetScheduleBrowserProfile(parsed.data);
+    recordOperation("schedule-browser", "cleared isolated profile for " + parsed.data);
   });
   ipcMain.handle("agent-schedule:run-now", async (event, input: unknown) => {
     assertTrustedSender(event);

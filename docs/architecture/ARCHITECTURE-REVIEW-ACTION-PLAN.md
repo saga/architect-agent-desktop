@@ -18,7 +18,7 @@
 - [x] **P1-04 AgentPanel 事件初始化竞态。** 在加载 Session 前订阅事件；加载期间暂存事件，恢复 Transcript 后按序回放；按 Task ID 严格过滤，未就绪时禁止提交。
 - [x] **P1-05 Pure Agent Snapshot 竞态。** 实时更新先到时，迟到的初始 Snapshot 不得覆盖新状态。
 - [x] **P1-06 Run 浏览器 Tab 固定。** 每次 Agent Run 固定工具目标 Tab（包括 Run 开始时没有 Active Tab 的情况），工具不再随 UI 的全局 Active Tab 漂移；应用侧阻止在 Run 期间关闭、导航、后退、前进、刷新或停止该 Tab，并保护键盘快捷键路径。为目标解析与操作阻断增加单元测试。
-- [ ] **P2-03 完整 Browser Session 隔离。** 当前 Tab pin 只解决应用 UI 切换导致的目标漂移，不阻止网页脚本或用户内容改变同一 Tab。Schedule 如需无人值守可靠性，应使用独立 Browser Session / 专用 Tab 生命周期，并测试登录态、下载和清理。
+- [ ] **P2-03 Browser Session 隔离（第一阶段代码已实现，待跨平台验收）。** 已为每个 Schedule 建立独立、持久的 Electron Session partition；后台 Run 使用隐藏 BrowserWindow / WebContentsView，Browser Tools 通过 Schedule Context 路由，不再引用用户的 Active Tab；可打开专属 Profile 完成人工登录、配置起始 URL，并单独重置 Cookie / 站点存储 / Cache；Session 下载事件关联 Schedule ID；Memory Dreaming 明确不绑定任何可见 Browser Tab。仍需 macOS / Windows GUI 验证登录态持久化、弹窗、下载保存路径、超时/取消销毁和退出清理后才能标记 done。
 - [x] **P2-04 当前阶段不实施完整操作状态机（范围决策已关闭）。** 保留共享忙碌判断和 maintenance lock；只对发现真实竞态的生命周期补局部状态与测试。没有证据证明当前布尔状态协调需要被全量替换，本项不作为当前实施任务。此勾选仅表示决策关闭，不表示完整状态机已实现。
 
 ## Phase 3 — Layout 唯一事实来源
@@ -41,6 +41,8 @@
 - [x] 全部 Vitest 单元测试
 - [x] Layout Engine 独立测试
 - [x] Markdown-only Plugin 不能获得或保留可执行运行时授权（Vitest 回归测试已加入）
+- [x] Schedule Browser Profile partition ID 稳定且按 Schedule 隔离（Vitest 回归测试已加入）
+- [x] Schedule Browser Tool Context 不会回退到用户 Active Tab（Vitest 回归测试已加入）
 - [ ] CodeBuddy 真实运行验证：Expert 只授权 Workspace read 时，不能读取 Workspace 外文件
 - [ ] Copilot / CodeBuddy 各自的 Agent Run 期间切换 Tab 验证
 - [ ] Sidepanel：左右/上下停靠、隐藏、窗口缩放、Tab Group 切换、浮动/重新停靠
