@@ -3519,6 +3519,74 @@ if (hasSingleInstanceLock) {
   });
 }
 
+
+async function cleanupScheduleBrowserResourcesForQuit(): Promise<void> {
+  const reportFailure = (operation: string, scheduleId: string, error: unknown) => {
+    recordOperation(
+      "schedule-browser",
+      "shutdown " + operation + " failed for " + scheduleId + ": " + (error instanceof Error ? error.message : String(error)),
+    );
+  };
+
+  // Close the active hidden Run context first. Its disposer detaches CDP,
+  // destroys the hidden BrowserWindow, closes remaining WebContents and flushes.
+  const activeContext = scheduleBrowserContext;
+  if (activeContext) {
+    try { disposeScheduleBrowserContext(activeContext); }
+    catch (error) { reportFailure("Run Context disposal", activeContext.scheduleId, error); }
+  }
+
+  // Cancel unattended downloads before closing the user-managed Profile windows.
+  for (const [scheduleId, downloads] of [...scheduleBrowserDownloads.entries()]) {
+    for (const error of cancelScheduleBrowserDownloads(downloads)) {
+      reportFailure("download cancellation", scheduleId, error);
+    }
+  }
+  scheduleBrowserDownloads.clear();
+
+  // A Profile login window may have OAuth descendants. Destroy every tracked
+  // child and root window, deduplicating windows shared by the tracking maps.
+  const profileWindows = new Set<BrowserWindow>();
+  for (const window of scheduleBrowserProfileWindows.values()) profileWindows.add(window);
+  for (const windows of scheduleBrowserProfilePopupWindows.values()) {
+    for (const window of windows) profileWindows.add(window);
+  }
+  for (const error of destroyScheduleBrowserProfileWindows(profileWindows)) {
+    reportFailure("Profile window destruction", "all", error);
+  }
+  scheduleBrowserProfileWindows.clear();
+  scheduleBrowserProfilePopupWindows.clear();
+
+  // Finish any in-flight Session initialization briefly, but never let a stuck
+  // system-proxy lookup hold application shutdown indefinitely.
+  const pendingSessions = [...scheduleBrowserSessionPromises.entries()];
+  if (pendingSessions.length) {
+    let timeout: NodeJS.Timeout | null = null;
+    const settlePending = Promise.allSettled(pendingSessions.map(([, pending]) => pending)).then(results => {
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          reportFailure("Session initialization", pendingSessions[index]?.[0] ?? "unknown", result.reason);
+        }
+      });
+    });
+    await Promise.race([
+      settlePending,
+      new Promise<void>(resolve => {
+        timeout = setTimeout(resolve, 1500);
+        timeout.unref();
+      }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+  }
+
+  for (const [scheduleId, profile] of scheduleBrowserSessions.entries()) {
+    try { profile.flushStorageData(); }
+    catch (error) { reportFailure("Profile storage flush", scheduleId, error); }
+  }
+  scheduleBrowserSessionPromises.clear();
+  scheduleBrowserSessions.clear();
+}
+
 let quitState: "idle" | "confirming" | "stopping" | "ready" = "idle";
 
 async function confirmQuitWhileBusy(): Promise<boolean> {
@@ -3571,6 +3639,7 @@ async function shutdown(): Promise<void> {
   saveWindowState();
   recordOperation("app", "quit");
   await stopAgentForQuit();
+  await cleanupScheduleBrowserResourcesForQuit();
 
   quitState = "ready";
   app.quit();
