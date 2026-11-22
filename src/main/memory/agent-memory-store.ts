@@ -1193,6 +1193,10 @@ export class AgentMemoryStore {
     const before=this.getNoteRow(op.id,scopeKey);
     if(!before||before.status!=="active")throw new Error("只能复核当前 Workspace 的活动 Note："+op.id);
     if(Number(before.version)!==op.baseVersion)throw new Error("Memory Note 版本已变化，请重新检索后再复核："+op.id);
+    if(parseJson<AgentStructuredPreference|null>(before.preference_json,null)?.priority==="high"){
+      this.recordDreamOperation(runId,sequence,"note",op.id,"protected_high_priority_review_skip",before,before,reason);
+      return;
+    }
     if(!isValidation(op.validation))throw new Error("Invalid validation state.");
     const now=Date.now();
     const sourceRefs=[...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100);
