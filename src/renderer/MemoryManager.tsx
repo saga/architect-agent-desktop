@@ -332,6 +332,7 @@ export default function MemoryManager() {
       {note.preference && <div style={{ marginTop: 6 }}>
         <Space wrap size={4}>
           <Tag color="blue">{note.preference.domain}</Tag>
+          <Tag>{note.preference.key}</Tag>
           <Tag>{({prefer:"偏好",avoid:"避免",require:"必须",exclude:"排除",format:"格式",tone:"语气",instruction:"说明"} as Record<string,string>)[note.preference.operator] ?? note.preference.operator}</Tag>
           <Tag>{({explicit:"明确表达",strong_signal:"强信号",repeated_correction:"重复纠正"} as Record<string,string>)[note.preference.strength] ?? note.preference.strength}</Tag>
           <Tag>{note.preference.scope===null?"Personal · 跨 Workspace":"Workspace · 当前项目"}</Tag>
