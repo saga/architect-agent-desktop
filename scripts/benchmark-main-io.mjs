@@ -110,7 +110,6 @@ function makeSkillArchive() {
   }
   return createZipArchive(entries);
 }
-} = require("../dist/main/plugins/plugin-registry.js");
 
 const root = mkdtempSync(path.join(os.tmpdir(), "architect-main-io-benchmark-"));
 const source = path.join(root, "source", "io-benchmark");
