@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { canOpenScheduleBrowserPopup, initializeScheduleBrowserContext, scheduleBrowserPartition } from "../src/main/schedule-browser-profile";
+import { canOpenScheduleBrowserPopup, clearScheduleBrowserProfileData, initializeScheduleBrowserContext, scheduleBrowserPartition } from "../src/main/schedule-browser-profile";
 
 describe("Schedule Browser Context initialization", () => {
   it("disposes partially-created resources when initialization fails", async () => {
@@ -21,6 +21,19 @@ describe("Schedule Browser Context initialization", () => {
     await expect(initializeScheduleBrowserContext({ id: "partial" }, initialize, dispose))
       .rejects.toBe(originalError);
     expect(dispose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Schedule Browser Profile reset", () => {
+  it("clears site storage, HTTP cache and HTTP authentication cache before flushing", async () => {
+    const calls: string[] = [];
+    await clearScheduleBrowserProfileData({
+      clearStorageData: async () => { calls.push("storage"); },
+      clearCache: async () => { calls.push("cache"); },
+      clearAuthCache: async () => { calls.push("auth"); },
+      flushStorageData: () => { calls.push("flush"); },
+    });
+    expect(calls).toEqual(["storage", "cache", "auth", "flush"]);
   });
 });
 

@@ -36,7 +36,7 @@ import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./logi
 import { clampBrowserBounds } from "./layout/browser-bounds";
 import { isAgentOperationBusy } from "./agent-operation-policy";
 import { resolveAgentBrowserTab, resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
-import { canOpenScheduleBrowserPopup, initializeScheduleBrowserContext, scheduleBrowserPartition } from "./schedule-browser-profile";
+import { canOpenScheduleBrowserPopup, clearScheduleBrowserProfileData, initializeScheduleBrowserContext, scheduleBrowserPartition } from "./schedule-browser-profile";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { setPanelVisibility } from "./layout/layout-tree";
 
@@ -1019,9 +1019,7 @@ async function resetScheduleBrowserProfile(scheduleId: string): Promise<void> {
   if (window && !window.isDestroyed()) window.destroy();
   scheduleBrowserProfileWindows.delete(scheduleId);
   const profile = await getScheduleBrowserSession(scheduleId);
-  await profile.clearStorageData();
-  await profile.clearCache();
-  profile.flushStorageData();
+  await clearScheduleBrowserProfileData(profile);
 }
 
 function tabSnapshot(tab: BrowserTab): BrowserTabState {

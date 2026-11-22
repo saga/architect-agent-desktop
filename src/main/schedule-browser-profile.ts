@@ -28,6 +28,21 @@ export async function initializeScheduleBrowserContext<T>(
   }
 }
 
+export interface ScheduleBrowserProfileStore {
+  clearStorageData(): Promise<void>;
+  clearCache(): Promise<void>;
+  clearAuthCache(): Promise<void>;
+  flushStorageData(): void;
+}
+
+/** Explicit Profile reset clears browser storage, network caches and HTTP authentication state. */
+export async function clearScheduleBrowserProfileData(profile: ScheduleBrowserProfileStore): Promise<void> {
+  await profile.clearStorageData();
+  await profile.clearCache();
+  await profile.clearAuthCache();
+  profile.flushStorageData();
+}
+
 /** Only safe HTTP(S)/about:blank URLs may create OAuth popups, with bounded nesting. */
 export function canOpenScheduleBrowserPopup(isSafeUrl: boolean, depth: number): boolean {
   return isSafeUrl && Number.isInteger(depth) && depth >= 0 && depth < 3;
