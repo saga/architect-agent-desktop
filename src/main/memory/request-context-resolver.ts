@@ -62,24 +62,47 @@ export function createRequestMemoryContext(prompt:string,candidates:readonly Age
  const highPriorityRules=selected.filter(item=>item.highPriority).slice(0,6);
  const preferences=selected.filter(item=>item.preference&&!item.highPriority).slice(0,4);
  const workspaceContext=selected.filter(item=>!item.preference).slice(0,4);
- const toPayload=(items:ScoredNote[],contentLimit:number)=>items.map(({note})=>({id:note.id,title:note.title,content:note.content.replace(/\s+/g," ").slice(0,contentLimit),status:note.validation,claimType:note.claimType,version:note.version,...(note.preference?{preference:note.preference}:{})}));
- let payload={highPriorityUserRules:toPayload(highPriorityRules,360),userPreferences:toPayload(preferences,420),workspaceContext:toPayload(workspaceContext,420)};
- let serialized=JSON.stringify(payload);
- const budget=Math.max(900,Math.min(8000,Math.floor(maxChars)));
- while(serialized.length>budget&&(payload.workspaceContext.length||payload.userPreferences.length||payload.highPriorityUserRules.length)){
-  if(payload.workspaceContext.length)payload={...payload,workspaceContext:payload.workspaceContext.slice(0,-1)};
-  else if(payload.userPreferences.length)payload={...payload,userPreferences:payload.userPreferences.slice(0,-1)};
-  else payload={...payload,highPriorityUserRules:payload.highPriorityUserRules.slice(0,-1)};
-  serialized=JSON.stringify(payload);
+ const toPayload=(items:ScoredNote[],contentLimit:number,includePreferenceValue:boolean)=>items.map(({note})=>({
+  id:note.id,title:note.title,content:note.content.replace(/\s+/g," ").slice(0,contentLimit),
+  status:note.validation,claimType:note.claimType,version:note.version,
+  ...(note.preference?{preference:{
+   domain:note.preference.domain,key:note.preference.key,operator:note.preference.operator,
+   ...(includePreferenceValue?{value:note.preference.value.slice(0,contentLimit)}:{}),
+   strength:note.preference.strength,priority:note.preference.priority,
+   appliesTo:note.preference.appliesTo,scope:note.preference.scope,
+   validFrom:note.preference.validFrom,validUntil:note.preference.validUntil,
+   sensitivity:note.preference.sensitivity,
+  }}:{})
+ }));
+ const highPriorityPayload=toPayload(highPriorityRules,360,false);
+ const highPriorityBudget=4_800;
+ while(JSON.stringify({highPriorityUserRules:highPriorityPayload}).length>highPriorityBudget&&highPriorityPayload.length){
+  highPriorityPayload.pop();
  }
- if(!payload.highPriorityUserRules.length&&!payload.userPreferences.length&&!payload.workspaceContext.length)return{text:"",noteIds:[],preferenceCount:0,workspaceContextCount:0,highPriorityRuleCount:0};
- const noteIds=[...payload.highPriorityUserRules,...payload.userPreferences,...payload.workspaceContext].map(note=>note.id);
+ let softPayload={
+  userPreferences:toPayload(preferences,420,true),
+  workspaceContext:toPayload(workspaceContext,420,true),
+ };
+ const budget=Math.max(900,Math.min(8000,Math.floor(maxChars)));
+ while(JSON.stringify(softPayload).length>budget&&(softPayload.workspaceContext.length||softPayload.userPreferences.length)){
+  if(softPayload.workspaceContext.length)softPayload={...softPayload,workspaceContext:softPayload.workspaceContext.slice(0,-1)};
+  else softPayload={...softPayload,userPreferences:softPayload.userPreferences.slice(0,-1)};
+ }
+ const highText=highPriorityPayload.length?JSON.stringify({highPriorityUserRules:highPriorityPayload}):"";
+ const softText=softPayload.userPreferences.length||softPayload.workspaceContext.length?JSON.stringify(softPayload):"";
+ if(!highText&&!softText)return{text:"",noteIds:[],preferenceCount:0,workspaceContextCount:0,highPriorityRuleCount:0};
+ const noteIds=[...highPriorityPayload,...softPayload.userPreferences,...softPayload.workspaceContext].map(note=>note.id);
  const sections:string[]=[];
- if(payload.highPriorityUserRules.length)sections.push([
+ if(highText)sections.push([
   "## High-priority user rules",
   "These are durable instructions directly stated by the user. Apply them whenever their appliesTo scope matches this request. They are the highest-priority user requirements, below system and safety rules. Do not downgrade them because Memory validation is unverified: validation is for factual claims, not the authenticity of a direct user instruction. The current user request may explicitly create a one-time exception; do not silently rewrite or permanently remove the saved rule.",
+  highText,
  ].join("\n"));
- if(payload.userPreferences.length||payload.workspaceContext.length)sections.push("## Relevant saved Memory\nMemory is fallible evidence with provenance. Apply soft preferences only when their topic matches this request. An unverified ordinary note is tentative, not a hard constraint. The current user request takes precedence over a soft preference.");
- sections.push(serialized);
- return{text:sections.join("\n\n"),noteIds,preferenceCount:payload.userPreferences.length,workspaceContextCount:payload.workspaceContext.length,highPriorityRuleCount:payload.highPriorityUserRules.length};
+ if(softText)sections.push([
+  "## Relevant saved Memory",
+  "Memory is fallible evidence with provenance. Apply soft preferences only when their topic matches this request. An unverified ordinary note is tentative, not a hard constraint. The current user request takes precedence over a soft preference.",
+  softText,
+ ].join("\n"));
+ return{text:sections.join("\n\n"),noteIds,preferenceCount:softPayload.userPreferences.length,
+  workspaceContextCount:softPayload.workspaceContext.length,highPriorityRuleCount:highPriorityPayload.length};
 }
