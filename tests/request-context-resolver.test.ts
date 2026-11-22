@@ -36,6 +36,36 @@ describe("Request memory context resolver",()=>{
   const result=createRequestMemoryContext("Explain how SQLite WAL works.",candidates);
   expect(result.preferenceCount).toBe(1);expect(result.text).toContain("Answer style");store.close();
  });
+ it("injects a high-priority interaction rule without topic keyword matching",()=>{
+  const store=new AgentMemoryStore(path.join(temporaryDirectory(),"memory.sqlite"));
+  store.saveConfirmedPreference({
+   id:"global-no-repeat-rule",scope:"/workspace/interaction",title:"High-priority interaction rule",
+   content:"不要让我反复提醒；先检查本轮会话和已提供的要求。",
+   category:"interaction",key:"avoid_repeating_user_requirements",
+   sourceSessionId:"session-rule",sourceTraceId:"trace-rule",createdAt:Date.now(),
+   crossWorkspaceConfirmed:false,strength:"repeated_correction",priority:"high",
+  });
+  const rules=store.listHighPriorityPreferences("/workspace/interaction",20);
+  const result=createRequestMemoryContext("Summarize the API design.",rules);
+  expect(result.highPriorityRuleCount).toBe(1);
+  expect(result.text).toContain("High-priority user rules");
+  expect(result.text).toContain("avoid_repeating_user_requirements");
+  store.close();
+ });
+ it("injects domain-specific high-priority rules only for relevant requests",()=>{
+  const store=new AgentMemoryStore(path.join(temporaryDirectory(),"memory.sqlite"));
+  store.saveConfirmedPreference({
+   id:"diagram-output-rule",scope:"/workspace/diagrams",title:"High-priority diagram rule",
+   content:"Never use ASCII diagrams; use Mermaid for architecture diagrams.",
+   category:"diagrams",key:"diagram_output_format",
+   sourceSessionId:"session-diagram-rule",sourceTraceId:"trace-diagram-rule",createdAt:Date.now(),
+   crossWorkspaceConfirmed:false,strength:"repeated_correction",priority:"high",
+  });
+  const candidates=store.listHighPriorityPreferences("/workspace/diagrams",20);
+  expect(createRequestMemoryContext("Explain the API retry policy.",candidates).highPriorityRuleCount).toBe(0);
+  expect(createRequestMemoryContext("Create an architecture diagram.",candidates).highPriorityRuleCount).toBe(1);
+  store.close();
+ });
  it("keeps Workspace context scoped to the active Workspace",()=>{
   const store=new AgentMemoryStore(path.join(temporaryDirectory(),"memory.sqlite"));
   store.saveNote({scope:"/workspace/a",title:"Architecture boundary",content:"The service owns persistence and the renderer only presents state.",claimType:"project_fact",tags:["architecture","renderer","service"]});
