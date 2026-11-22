@@ -620,8 +620,6 @@ export class AgentMemoryStore {
     const scopeKey=normalizeScope(scope);
     const existing=this.getNoteRow(id,scopeKey);
     if(!existing||existing.status!=="active")throw new Error("当前 Workspace 中不存在该活动 Memory Note。");
-    const existingPreference=parseJson<AgentStructuredPreference|null>(existing.preference_json,null);
-    if(existingPreference?.priority==="high"&&!pinned)throw new Error("高优先级用户规则不能取消置顶；请先明确修改或撤销该规则。");
     const version=Number(existing.version)+1;
     this.database.prepare("UPDATE memory_notes SET pinned=?,updated_at=?,version=? WHERE id=? AND scope_key=?")
       .run({},pinned?1:0,Date.now(),version,id,scopeKey);
