@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { copilotPluginEnvironment, filterPluginRuntimeEntries, pluginRuntimeBuiltinTools } from "../src/main/plugins/plugin-runtime-policy";
+import path from "node:path";
+import {
+  codeBuddyPluginEnvironment,
+  copilotPluginDirectoryArgs,
+  copilotPluginEnvironment,
+  filterPluginRuntimeEntries,
+  pluginRuntimeBuiltinTools,
+} from "../src/main/plugins/plugin-runtime-policy";
 
 describe("Claude Plugin runtime permission gate", () => {
   const entries = [
@@ -48,6 +55,32 @@ describe("Claude Plugin runtime permission gate", () => {
       COPILOT_PLUGIN_DIR_ONLY: "true",
       PATH: "/bin",
     });
+  });
+
+
+  it("passes only staged plugin directories through Copilot SDK launch arguments", () => {
+    expect(copilotPluginDirectoryArgs(["/staged/research", "/staged/git"])).toEqual([
+      "--plugin-dir", "/staged/research", "--plugin-dir", "/staged/git",
+    ]);
+    expect(copilotPluginDirectoryArgs([])).toEqual([]);
+  });
+
+  it("replaces inherited CodeBuddy plugin lists with only staged approved directories", () => {
+    expect(codeBuddyPluginEnvironment({
+      codebuddy_plugin_dirs: "/untrusted/plugin-a",
+      CODEBUDDY_PLUGIN_DIRS: "/untrusted/plugin-b",
+      PATH: "/usr/bin",
+    }, ["/staged/research", "/staged/git"])).toEqual({
+      PATH: "/usr/bin",
+      CODEBUDDY_PLUGIN_DIRS: ["/staged/research", "/staged/git"].join(path.delimiter),
+    });
+  });
+
+  it("removes ambient CodeBuddy plugin lists when no plugin runtime is approved", () => {
+    expect(codeBuddyPluginEnvironment({
+      CODEBUDDY_PLUGIN_DIRS: "/untrusted/plugins",
+      PATH: "/usr/bin",
+    }, [])).toEqual({ PATH: "/usr/bin" });
   });
 
   it("caps the number of plugin directories passed to a provider", () => {

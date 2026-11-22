@@ -30,3 +30,9 @@ Tool 引用只能指向宿主应用已有工具。所有执行和权限检查仍
 - 不需要为不同团队维护独立的应用构建版本。
 - 插件注册表只负责安装状态和声明内容，不构成第二套工具运行时或授权系统。
 - 只有在能够带来实际收益时，才将现有功能迁移为插件。
+
+## Provider 原生插件加载
+
+插件运行时目录由宿主注册表审批、内容指纹校验后再复制到当前 Agent 请求的临时快照目录。Copilot SDK 使用 `RuntimeConnection.forStdio({ args: ['--plugin-dir', directory] })` 显式传入目录，并设置 `COPILOT_PLUGIN_DIR_ONLY=true` 禁止加载用户主目录中的隐式插件。CodeBuddy SDK 使用 `CODEBUDDY_PLUGIN_DIRS` 注入目录列表；环境变量必须先剔除大小写不同的继承值，再只加入本次获批快照，路径列表按当前操作系统 `path.delimiter` 拼接（Windows 不能硬编码冒号，否则盘符会被误拆）。
+
+两条 Provider 路径都受同一权限闸门约束：全局权限必须为 Allow all，Expert 也必须显式允许全部工具；仅有 Skill 选择或插件启用状态不足以授予可执行运行时。Copilot 官方 SDK 的 [plugin directories 文档](https://github.com/microsoft/copilot-sdk/blob/main/docs/features/plugin-directories.md) 和 CodeBuddy 的 [插件环境变量文档](https://www.codebuddy.ai/docs/zh/cli/env-vars) 分别定义了上述原生加载入口。

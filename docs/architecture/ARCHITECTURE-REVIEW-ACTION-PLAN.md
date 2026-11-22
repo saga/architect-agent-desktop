@@ -10,6 +10,7 @@
 - [x] **P1-01 CodeBuddy 文件工具收口。** 受限权限/Expert 不再把 `workspace_read_file` 映射成 CodeBuddy 内置 `Read/Glob/Grep`，而是通过应用 Workspace Host Handler 提供读写；`assisted` 不开放 Provider 原生文件工具。增加工具选择策略单元测试。
 - [x] **P1-02 插件指纹扫描有界化。** 在读取文件之前检查单文件 2 MB、总量 20 MB、文件数量和目录深度；打开文件后重新核对文件类型和大小。增加超大文件回归测试。
 - [x] **P2-01 插件组件授权拆分（第一阶段）。** 插件启用状态控制 Markdown 指令资源；独立运行授权只允许真实存在 Hooks/MCP/LSP/脚本/Mods 等可执行组件的插件。纯 Markdown 插件不能通过运行授权 IPC，也不会进入 Provider 原生插件目录；最后一个可执行组件被删除后，注册表会持久撤销旧运行授权。UI、注册表和回归测试已同步更新。
+  - Copilot SDK：通过 `RuntimeConnection.forStdio` 逐个传递 `--plugin-dir`，并启用 `COPILOT_PLUGIN_DIR_ONLY=true`；CodeBuddy：通过 `CODEBUDDY_PLUGIN_DIRS` 传入目录，使用 `path.delimiter` 兼容 Windows 盘符。两者都只接收权限闸门批准并经指纹校验的临时快照。新增 Provider 入口构造单测，覆盖多插件、清理继承环境和空授权列表。
 - [x] **P2-02 归并到 P2-07。** 插件目录指纹、Capability 探测和导入校验与 Main 同步 I/O 治理统一跟踪，避免重复 Action；性能测量和异步化仍未完成，见 P2-07。
 
 ## Phase 2 — Agent 状态与运行上下文

@@ -56,3 +56,25 @@ export function copilotPluginEnvironment(environment: Record<string, string | un
   result.COPILOT_PLUGIN_DIR_ONLY = "true";
   return result;
 }
+
+/** Copilot SDK launches its CLI with one explicit --plugin-dir pair per staged plugin. */
+export function copilotPluginDirectoryArgs(directories: readonly string[]): string[] {
+  return directories.flatMap(directory => ["--plugin-dir", directory]);
+}
+
+/**
+ * CodeBuddy accepts CODEBUDDY_PLUGIN_DIRS as a platform-delimited path list.
+ * Strip inherited values first so only this request's approved, staged snapshots
+ * are exposed to the native plugin loader.
+ */
+export function codeBuddyPluginEnvironment(
+  environment: Record<string, string | undefined>,
+  directories: readonly string[],
+): Record<string, string | undefined> {
+  const result = { ...environment };
+  for (const key of Object.keys(result)) {
+    if (key.toUpperCase() === "CODEBUDDY_PLUGIN_DIRS") delete result[key];
+  }
+  if (directories.length) result.CODEBUDDY_PLUGIN_DIRS = directories.join(path.delimiter);
+  return result;
+}
