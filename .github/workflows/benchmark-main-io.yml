@@ -5,6 +5,8 @@ on:
     paths:
       - scripts/benchmark-main-io.mjs
       - .github/workflows/benchmark-main-io.yml
+      - src/main/plugins/plugin-content.ts
+      - src/main/agent-extensions.ts
 permissions:
   contents: read
 jobs:
