@@ -325,6 +325,7 @@ export class AgentMemoryStore {
     claimType?: MemoryClaimType; validation?: MemoryValidation; confidence?: number; pinned?: boolean; importance?: number;
     expiresAt?: number | null; sourceSessionId?: string | null; sourceTraceId?: string | null; sourceRefs?: string[];
     preference?: AgentStructuredPreference | null;
+    allowHighPriorityRewrite?: boolean;
   }): AgentMemoryNote {
     const scopeKey = normalizeScope(input.scope);
     const title = redactSecrets(input.title.trim(), 160);
@@ -345,6 +346,8 @@ export class AgentMemoryStore {
       String(before.claim_type ?? "unknown") === claimType);
     if(input.preference!=null&&claimType!=="user_preference")throw new Error("Structured Preference metadata can only be attached to user_preference Notes.");
     const priorPreference=parseJson<AgentStructuredPreference|null>(before?.preference_json,null);
+    if(priorPreference?.priority==="high"&&!input.allowHighPriorityRewrite)
+      throw new Error("高优先级用户规则只能通过用户明确提出的新规则来修改；普通 Memory 写入不能覆盖它。");
     const inheritedPreference=priorPreference?{...priorPreference,value:content,scope:input.scope??null}:null;
     const preference=claimType==="user_preference" ? this.normalizeStructuredPreference(input.preference===undefined?inheritedPreference:input.preference,input.scope??null) : null;
     const validation: MemoryValidation = unchanged && isValidation(before?.validation) &&
@@ -432,7 +435,7 @@ export class AgentMemoryStore {
       const note=this.saveNote({
         id,title,content,scope:input.scope,tags:["preference",input.category,"user-confirmed"],
         claimType:"user_preference",sourceSessionId:input.sourceSessionId,sourceTraceId:input.sourceTraceId,
-        sourceRefs:[sourceId],importance:priority==="high"?1:0.8,pinned:priority==="high"?true:undefined,
+        sourceRefs:[sourceId],importance:priority==="high"?1:0.8,pinned:priority==="high"?true:undefined,allowHighPriorityRewrite:true,
       preference:{
         domain:input.category,key:preferenceKey,
         operator:/\\b(?:don't|do not|never|avoid|not|dislike|cannot|can't)\\b|不吃|不要|别再|避免|不能|不得|不喜欢/iu.test(content)?"avoid":
@@ -1580,6 +1583,7 @@ export class AgentMemoryStore {
       sensitivity:input.sensitivity==="sensitive"?"sensitive":"normal"};
   }
   private preferenceKey(category:string,content:string):string{
+    if(category==="interaction")return "avoid_repeating_user_requirements";
     if(category==="food"){
       if(/added sugar|sugar|糖|蔗糖|糖浆/iu.test(content))return "added_sugar";
       if(/sweetener|甜味剂/iu.test(content))return "sweetener";
