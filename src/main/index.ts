@@ -847,13 +847,17 @@ async function createScheduleBrowserContext(schedule: AgentSchedule, runId: stri
 function disposeScheduleBrowserContext(context: ScheduleBrowserContext): void {
   context.disposed = true;
   if (scheduleBrowserContext === context) scheduleBrowserContext = null;
-  for (const tab of context.tabs.values()) tab.cdp.detach(tab.view.webContents);
+  const tabsToDispose = [...context.tabs.values()];
+  for (const tab of tabsToDispose) tab.cdp.detach(tab.view.webContents);
   context.session.flushStorageData();
   context.tabs.clear();
   context.tabOrder.length = 0;
   // destroy() bypasses page beforeunload prompts so hidden scheduled pages cannot
   // hold the run lifecycle open after success, failure, cancellation or timeout.
   if (!context.window.isDestroyed()) context.window.destroy();
+  for (const tab of tabsToDispose) {
+    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.destroy();
+  }
 }
 
 function attachScheduleBrowserWindowDiagnostics(window: BrowserWindow, label: string): void {
@@ -907,7 +911,7 @@ function secureScheduleProfilePopup(
       },
     };
   });
-  popup.webContents.on("did-create-window", (_event, childWindow) => {
+  popup.webContents.on("did-create-window", (childWindow) => {
     secureScheduleProfilePopup(childWindow, profile, scheduleId, depth + 1);
   });
   attachScheduleBrowserWindowDiagnostics(popup, "schedule-browser-popup-" + scheduleId);
@@ -925,6 +929,7 @@ async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
   }
   const profile = await getScheduleBrowserSession(scheduleId);
   const window = new BrowserWindow({
+    ...(mainWindow && !mainWindow.isDestroyed() ? { parent: mainWindow } : {}),
     width: 1180, height: 820, minWidth: 760, minHeight: 560,
     title: schedule.title + " · 隔离浏览器", autoHideMenuBar: true, backgroundColor: "#ffffff",
     webPreferences: { session: profile, contextIsolation: true, nodeIntegration: false, sandbox: true },
