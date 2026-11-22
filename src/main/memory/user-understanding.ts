@@ -116,7 +116,7 @@ export function assessUserTurn(prompt: string, history: readonly AgentChatMessag
 
   return {
     emotion, emotionIntensity, emotionConfidence, emotionEvidence,
-    urgency, patience, repeatedCorrectionCount, escalating: repeatedCorrectionCount >= 2,
+    urgency, patience, repeatedCorrectionCount, escalating: correctionEvidence.length > 0 && repeatedCorrectionCount >= 2,
     strategy, goalRelationHint: relationMatch?.relation ?? "unclear", goalRelationEvidence,
   };
 }
