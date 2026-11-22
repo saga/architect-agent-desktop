@@ -66,24 +66,26 @@ function parseResourceMetadata(raw: string | undefined): Record<string, unknown>
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("MCP Protected Resource Metadata 格式无效。");
   return parsed as Record<string, unknown>;
 }
-export function resolveEntraOpenIdConfigurationUrl(resourceMetadataJson: string, tenantId: string): string {
+export function resolveEntraOpenIdConfigurationUrl(resourceMetadataJson: string | undefined, tenantId: string): string {
   const metadata = parseResourceMetadata(resourceMetadataJson);
   const servers = metadata.authorization_servers;
   if (!Array.isArray(servers) || servers.length === 0 || servers.some(value => typeof value !== "string")) {
     throw new Error("MCP Protected Resource Metadata 缺少有效的 authorization_servers。");
   }
-  const advertised = (servers as string[]).map(value => {
+  const advertised: URL[] = [];
+  let hasEntraAuthority = false;
+  for (const value of servers as string[]) {
     let url: URL;
-    try { url = new URL(value); } catch { throw new Error("MCP 授权服务器地址无效。"); }
-    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || !ENTRA_LOGIN_HOSTS.has(url.hostname.toLowerCase())) {
-      throw new Error("当前 MCP OAuth 仅接受 Microsoft Entra ID 的 HTTPS 授权服务器。");
-    }
+    try { url = new URL(value); } catch { continue; }
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || !ENTRA_LOGIN_HOSTS.has(url.hostname.toLowerCase())) continue;
+    hasEntraAuthority = true;
     const tenant = url.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
-    if (tenant && ![tenantId.toLowerCase(), "common", "organizations", "consumers"].includes(tenant)) {
-      throw new Error("MCP 授权服务器 Tenant 与 MCP_OAUTH_TENANT_ID 不一致。");
-    }
-    return url;
-  });
+    if (!tenant || [tenantId.toLowerCase(), "common", "organizations", "consumers"].includes(tenant)) advertised.push(url);
+  }
+  if (advertised.length === 0) {
+    if (hasEntraAuthority) throw new Error("MCP 授权服务器 Tenant 与 MCP_OAUTH_TENANT_ID 不一致。");
+    throw new Error("当前 MCP OAuth 仅接受 Microsoft Entra ID 的 HTTPS 授权服务器。");
+  }
   const authority = advertised[0]!;
   const authorityUrl = new URL("/" + encodeURIComponent(tenantId) + "/v2.0", authority.origin);
   return new URL(".well-known/openid-configuration", authorityUrl.toString() + "/").toString();
@@ -148,7 +150,7 @@ function startLoopbackCallback(expectedState: string): Promise<LoopbackCallback>
       if (!settled) { settled = true; resolveCode(code); }
     });
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(0, "localhost", () => {
       server.removeListener("error", reject);
       const address = server.address();
       if (!address || typeof address === "string") {
