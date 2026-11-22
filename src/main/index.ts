@@ -1,3 +1,4 @@
+import "./runtime-env.js";
 import {
   app,
   BrowserWindow,

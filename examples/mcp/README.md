@@ -22,7 +22,7 @@ npm 包：https://www.npmjs.com/package/firecrawl-mcp
 - URL：https://mcp.firecrawl.dev/v2/mcp
 - keyless 同样只有有限速的基础工具；认证后有完整功能。
 - API Key 通过 Authorization: Bearer ... 请求头提供。不要把 Key 放进 URL。
-- Firecrawl OAuth 登录端点是 https://mcp.firecrawl.dev/v2/mcp-oauth。当前应用的通用 HTTP MCP 配置支持 URL 和 Headers，但尚未实现 MCP OAuth 浏览器授权流程，因此示例使用普通 HTTP endpoint。
+- Firecrawl OAuth 登录端点是 https://mcp.firecrawl.dev/v2/mcp-oauth。当前应用中的 Entra OAuth 流程面向受 Entra 保护的 MCP Resource；它不是 Firecrawl 专有登录适配器。Firecrawl 的静态 API Key 仍可通过 Authorization Header 和环境变量配置。
 
 ## Claude Desktop 对照
 

@@ -111,6 +111,8 @@ export function McpSettingsPanel() {
     </div>
     <Alert type="warning" showIcon message="外部 MCP 仅在当前 Agent 的有效工具权限为 Allow all 时连接"
       description="MCP Server 提供的工具由外部服务定义，不受浏览器工具的细粒度权限控制。请只连接可信服务。密钥建议使用 ${ENV_VAR} 环境变量引用，不要把真实 Token 写入配置。" />
+    <Alert type="info" showIcon message="Remote HTTP · Microsoft Entra OAuth（可选）"
+      description="Copilot 可使用 Entra 公共客户端授权码 + PKCE 登录远程 MCP。需要在主进程 .env 中设置 MCP_OAUTH_ENABLED=true、MCP_OAUTH_TENANT_ID 和 MCP_OAUTH_CLIENT_ID；默认关闭。CodeBuddy 仍使用 HTTP Headers / Bearer Token 环境变量。" />
     <div className="extension-list-summary"><Text type="secondary">{servers.length} 个已配置 · {activeCount} 个已启用</Text></div>
     <List className="extension-list" loading={loading} dataSource={servers}
       locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有配置 MCP Server" /> }}

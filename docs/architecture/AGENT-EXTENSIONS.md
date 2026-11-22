@@ -15,13 +15,27 @@ Settings 采用 OpenCode 风格的左侧分类导航，将 Agent、MCP Servers�
 支持两类传输：
 
 - `stdio`：本地命令、参数、环境变量、工作目录和超时。
-- `http`：远程 HTTP MCP URL、Headers 和超时。
+- `http`：远程 HTTP MCP URL、Headers 和超时。Copilot 另支持由 Entra 公共客户端提供的远程 MCP OAuth；CodeBuddy 当前使用 Headers / Bearer Token 环境变量。
 
 MCP Server ID 使用小写字母、数字、点、下划线和连字符，且不能使用系统保留名称。配置可通过 `${ENV_VAR}` 引用运行环境变量。变量在启动 Provider 前解析；缺少引用变量时失败关闭，不会把未解析占位符交给 MCP 进程。
 
 Copilot 使用 SDK Session 的 `mcpServers` 配置，STDIO 工作目录映射到 `workingDirectory`；CodeBuddy 使用 Agent SDK 的 `mcpServers` 参数。只有 Agent 最终生效权限为 `allow-all` 时才连接外部 MCP。 `browser-only` 和 `assisted` 不启动外部 MCP，因为任意 MCP 工具的副作用无法由应用现有浏览器工具权限分类准确约束。
 
 MCP 配置变更前会检查 Agent 是否空闲，并重置已有 Copilot Session，确保新配置在下一次请求生效。CodeBuddy 每次请求都会从本地配置构建 MCP Server 清单。
+
+### 远程 MCP OAuth（Copilot）
+
+OAuth 是可选能力，默认关闭。主进程启动时读取开发目录 `.env`；打包应用读取 Electron `userData/.env`。设置 `MCP_OAUTH_ENABLED=true` 后，Copilot SDK 的 MCP OAuth challenge 由主进程处理：根据 MCP Protected Resource Metadata 限定 Entra 授权服务器，使用授权码 + PKCE 和系统浏览器登录，再将 Access Token 返回给 SDK。应用不把 ID Token 当 API Token，也不把 Token 暴露给 Renderer。
+
+需要配置：
+
+- `MCP_OAUTH_TENANT_ID`：Entra Directory / Tenant ID。
+- `MCP_OAUTH_CLIENT_ID`：为本桌面应用注册的 Public Client Application ID，不是 MCP API 的 Client ID。不要配置 Client Secret。
+- `MCP_OAUTH_SCOPES`：MCP Server 未在 `WWW-Authenticate` 中提供 scope 时使用的默认 API scope。也可设置 `MCP_OAUTH_SCOPES_<SERVER_ID>`，例如 `MCP_OAUTH_SCOPES_GITHUB`。
+
+Entra 应用注册需启用 Mobile and desktop applications，并登记 `http://localhost` 回调地址。应用使用 PKCE，不在本机监听非 loopback 网络接口。Refresh Token 仅在 Electron `safeStorage` 可用时加密持久化；不可用时仅保留在当前进程内存。MCP Server 仍必须在服务端验证 JWT 签名、`iss`、`tid`、`aud`、`azp`、`oid` 和 `scp` / `roles`，并继续实施业务级 Data Entitlement / Policy 检查。
+
+该环境变量开关只控制 Copilot 的交互式 Entra OAuth。CodeBuddy 目前继续通过 HTTP Headers 和 `${ENV_VAR}` 引用提供静态 Bearer Token，不宣称支持同等的 OAuth 浏览器授权流程。
 
 ## Agent Skills
 

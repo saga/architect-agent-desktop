@@ -2,11 +2,12 @@ import type { CopilotClient, CopilotSession } from "@github/copilot-sdk" with { 
 import { z } from "zod";
 import type { AgentChatMessage, AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission, AgentUserGoalStatus, McpServerConfig } from "../shared/types";
 import { resolveMcpServerConfigs } from "./agent-extensions";
+import { EntraMcpOAuthProvider, readEntraMcpOAuthConfig } from "./mcp-oauth.js";
 import { codeBuddyPluginEnvironment, copilotPluginDirectoryArgs, copilotPluginEnvironment, filterPluginRuntimeEntries, pluginRuntimeBuiltinTools, type PluginRuntimeEntry } from "./plugins/plugin-runtime-policy";
 import type { PluginNativeComponents } from "./plugins/plugin-registry";
 import { prepareCopilotPluginDirectories } from "./plugins/copilot-plugin-adapter";
 import { stagePluginRuntimeDirectories } from "./plugins/plugin-content";
-import { app, session } from "electron";
+import { app, safeStorage, session, shell } from "electron";
 import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir as mkdirAsync, mkdtemp as mkdtempAsync, readFile as readFileAsync, rm as rmAsync, writeFile as writeFileAsync } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -939,6 +940,12 @@ export class CopilotDesktopAgent {
      const tools=await this.handlers();
      this.registeredTools = tools.map(({ name, description, schema }) => ({ name, description, schema }));
      const configuredMcpServers=this.configuredMcpServers("copilot",runtimeEnvironment);
+     const mcpOAuthConfig=readEntraMcpOAuthConfig(process.env);
+     const mcpOAuthProvider=mcpOAuthConfig.enabled?new EntraMcpOAuthProvider(mcpOAuthConfig,{
+      storageFile:path.join(app.getPath("userData"),"mcp-oauth-tokens.json"),
+      secureStorage:safeStorage,
+      openExternal:url=>shell.openExternal(url),
+     }):null;
      this.registeredMcpServerNames = Object.keys(configuredMcpServers).sort();
      const pluginRuntimeAllowed=approvedDirectories.length>0&&this.effectivePermission()==="allow-all"&&(this.taskContext===null||this.taskContext.allowAllTools);
      const availableTools=new ToolSet();
@@ -973,7 +980,23 @@ export class CopilotDesktopAgent {
        }
       }} as never)),
       onPermissionRequest:async(request:unknown)=>{this.recordTrace("permission.requested",request,"waiting");return(pluginRuntimeAllowed?{kind:"approve-once"}:{kind:"user-not-available"}) as never;},
-      onMcpAuthRequest:async()=>({kind:"cancelled"} as never),
+      onMcpAuthRequest:async(request:unknown)=>{
+       if(!mcpOAuthProvider)return {kind:"cancelled"} as never;
+       const challenge=request as {serverName?:string;serverUrl?:string;reason?:string;wwwAuthenticateParams?:{scope?:string};resourceMetadata?:string};
+       try{
+        const token=await mcpOAuthProvider.authenticate({
+         serverName:challenge.serverName??"",serverUrl:challenge.serverUrl??"",reason:challenge.reason,
+         wwwAuthenticateParams:challenge.wwwAuthenticateParams,resourceMetadata:challenge.resourceMetadata,
+        });
+        this.recordTrace("mcp.oauth.authenticated",{serverName:challenge.serverName,reason:challenge.reason,expiresIn:token.expiresIn},"completed");
+        return {kind:"token",accessToken:token.accessToken,tokenType:token.tokenType,expiresIn:token.expiresIn} as never;
+       }catch(error){
+        const detail=error instanceof Error?error.message:String(error);
+        this.recordTrace("mcp.oauth.failed",{serverName:challenge.serverName,reason:challenge.reason,error:detail},"failed");
+        this.publish({type:"error",text:"MCP OAuth 登录失败（"+(challenge.serverName||"remote server")+"）：" + detail});
+        return {kind:"cancelled"} as never;
+       }
+      },
      };
      const session=await client.createSession(sessionConfig as never);
      if(pluginRuntimeAllowed){
