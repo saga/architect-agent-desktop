@@ -1,6 +1,6 @@
 # ADR-009：Main 文件 I/O 异步化与 CPU 工作边界
 
-**状态：** 已采纳，异步 I/O 第一阶段代码与回归测试已加入；等待 CI 和性能基准  
+**状态：** 已采纳并完成实现、CI 与性能基准验证  
 **日期：** 2026-11-22
 
 ## 背景
@@ -25,11 +25,20 @@ Electron Main 进程除了 IPC 和 Browser 生命周期，还负责插件目录�
 - 不降低指纹、符号链接、路径边界或文件大小校验。
 - 不把 ZIP 解压 CPU 成本误记为磁盘 I/O 成本。
 
+## 性能基准结果
+
+- 环境：GitHub Actions Linux runner，Node.js v24.22.3。
+- 插件包：259 个文件，数据文件合计 8 MiB；Skill ZIP：5 个文件，解压后 8 MiB。
+- 同步基线 `7dfd411` → 当前异步实现：插件导入 34.76 → 110.45 ms；运行授权/指纹 31.42 → 96.64 ms；重复扫描 126.56 → 340.31 ms；Skill ZIP 导入 326.53 → 42.05 ms；组合总耗时 520.67 → 591.33 ms。
+- 最大定时器延迟 520.17 → 21.11 ms；组合总耗时增加约 13.6%，Main 最大阻塞降低约 96%。这个取舍优先保障 Electron Main 进程交互响应；CRC 查表后，ZIP 导入 CPU 开销不再需要独立 Worker/UtilityProcess。
+- Build run [44998687413](https://github.com/saga/architect-agent-desktop/actions/runs/44998687413) 与 Benchmark run [44998687395](https://github.com/saga/architect-agent-desktop/actions/runs/44998687395) 均成功。
+
 ## 验收
 
 - 插件指纹、Capability 探测、验证、导入、授权、快照和 Provider 投影全链路使用异步文件 I/O。
 - Agent Skill 扫描、导入、ZIP 解压落盘、启停、删除和指令读取全链路使用异步文件 I/O。
 - Main IPC、Copilot Runtime 与所有单元测试均等待异步操作完成。
 - 原有安全校验与批准指纹撤销语义保持不变。
-- TypeScript、Vitest 和应用 build 全部通过。
+- TypeScript、全部 Vitest、应用 build 和 Layout Engine 独立测试全部通过。
+- 同步/异步性能对比完成，Main Event Loop 最大定时器延迟降低约 96%。
 - 在代表性插件包规模下采集改造前后 Main Event Loop 延迟、文件导入耗时和 Skill ZIP 导入耗时；只有测量证明 CPU 处理造成明显阻塞时才考虑 Worker/UtilityProcess。

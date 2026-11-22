@@ -30,12 +30,18 @@
 
 ## Phase 4 — 进程、性能和资源回收
 
-- [ ] **P2-07 Main 同步 I/O 治理（异步 I/O 第一阶段已通过 CI，待性能基准结果）。** Workspace 文件列表、读取、写入与搜索已使用异步文件 API，并保持文件描述符、符号链接和路径边界校验；本阶段进一步将插件目录指纹、Capability 探测、插件验证/导入/导出/授权、运行时快照、Copilot 插件投影，以及 Agent Skill 目录扫描/导入/启停/指令读取和 ZIP 解压落盘改为 `fs/promises`，Main IPC 与 Copilot 调用链均等待完成。指纹读取仍保留 `O_NOFOLLOW`、文件描述符身份/大小复核和文件数量/目录深度上限。ZIP CRC 与 `inflateRawSync` 是有 20 MB 上限的 CPU 解压，不属于文件 I/O；是否移至 UtilityProcess 由代表性 Event Loop 延迟/导入耗时基准决定。异步 I/O 第一阶段已通过 `npm ci`、TypeScript、全部 Vitest、应用 build 和 Layout Engine 独立测试。已新增只在基准脚本/工作流变更时触发的比较工作流：使用相同 8 MB 插件包，分别构建同步基线提交 `7dfd411` 与当前实现，记录导入/授权/重复扫描耗时、Event Loop delay 和 timer lag。等待该工作流的实测结果后，再决定 P2-07 是否完成以及是否需要将 ZIP CPU 解压移至 UtilityProcess。
+- [x] **P2-07 Main 同步 I/O 治理。** Workspace 文件列表、读取、写入与搜索，以及插件目录指纹、Capability 探测、插件验证/导入/导出/授权、运行时快照、Copilot 插件投影、Agent Skill 扫描/导入/启停/指令读取和 ZIP 解压落盘均使用异步文件 API；Main IPC 与 Copilot 调用链等待操作完成。指纹读取保留 `O_NOFOLLOW`、文件描述符身份/大小复核和文件数量/目录深度上限；每目录最多 8 路并发读取，最终 SHA-256 仍按排序后的深度优先顺序更新。ZIP CRC32 改为查表实现，保留原校验语义；解压仍使用受大小上限约束的 Node zlib。
+
+  **性能验收：** GitHub Actions Benchmark run [44998687395](https://github.com/saga/architect-agent-desktop/actions/runs/44998687395)，Linux / Node.js 24.22.3，同一组 8 MiB 插件目录（259 个文件）和 8 MiB 未压缩 Skill ZIP（5 个文件），同步基线 `7dfd411` 对比当前异步实现：插件导入 34.76 → 110.45 ms；运行授权/指纹 31.42 → 96.64 ms；重复扫描 126.56 → 340.31 ms；Skill ZIP 导入 326.53 → 42.05 ms；组合总耗时 520.67 → 591.33 ms（增加 13.6%）。最大定时器延迟 520.17 → 21.11 ms（下降约 96%）。异步 I/O 牺牲少量整体 wall-clock 时间，换得 Main Event Loop 不再被目录扫描/文件复制长时间阻塞；CRC 查表消除了 ZIP 校验的主要 CPU 热点。没有证据支持再引入 Worker/UtilityProcess，因此不增加新的进程层。
+
+  **验证：** Build run [44998687413](https://github.com/saga/architect-agent-desktop/actions/runs/44998687413) 的 `npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均通过。
 - [ ] **P2-08 UtilityProcess 子进程树清理（实现与自动化测试已加入，待平台验收）。** 新增 POSIX 进程树冻结/递归发现/叶节点优先终止与退出等待；Windows 使用 `taskkill /T /F` 并等待 UtilityProcess 退出。正常完成、超时、取消和 `dispose()` 统一调用清理器；单元测试覆盖 POSIX 树层级、发现期间出现的新后代及 Windows 分支。仍需在真实 macOS / Windows Electron 环境验证，不把 UtilityProcess.kill() 当作整个进程树清理。
 - [x] **P2-09 CodeBuddy 总预算。** 一次用户请求最多 12 个模型轮次（6 次 Query、每次最多 2 轮）；应用 Host 工具与兼容模式文本工具调用共用 80 次请求级预算；兼容模式工具结果总输出最多 256 KiB；仍受现有 5 分钟请求超时约束。Provider 内部原生工具由 SDK 权限和轮次限制约束，不声称由应用计数器逐个计数。
 - [x] **P2-10 未使用 Runtime 入口清理。** 确认 `executeSkill()` / `SkillExecutionRequest` / Worker 的 `execute` 分支没有产品调用点；按 Agent Skills“脚本不会由导入器执行”的产品边界移除死入口，保留 Code Mode 使用的 UtilityProcess。同步修订 Runtime 和 Agent Skills 文档。
 
 ## 验证清单
+
+- [x] Main 插件/Skill 异步 I/O 回归测试及性能基准（同步/异步同规模对比已记录）
 
 - [x] TypeScript typecheck
 - [x] 全部 Vitest 单元测试
@@ -67,6 +73,6 @@
 
 P2-01 当前完成的是授权边界第一阶段：插件启用与可执行运行时授权已经分开，纯 Markdown 插件无法获得运行时授权。混合插件在启用且运行时获批后仍由 Provider 原生加载整份插件快照；如未来要对 Skills、Commands、Agents 做逐组件授权，需要进一步收紧快照投影和 Provider Adapter，不能仅增加 UI 开关。
 
-P2-03、P2-07、P2-08 仍未全部完成。P2-03 增加初始化回滚和容错清理测试，但真实 macOS / Windows BrowserWindow、Profile、OAuth Popup、下载、超时/取消和退出清理仍待 GUI 验收；P2-05 已完成代码与 CI 验证，剩余 GUI 检查在验证清单中；P2-08 已加入首版进程树清理实现和自动化单元测试，但尚未完成真实 macOS / Windows 运行验收，因此保持未勾选。
+P2-03 与 P2-08 仍等待 macOS / Windows GUI 和真实 Electron 进程验收。P2-05、P2-07 已完成代码、自动化测试与 CI/基准验证；不得把尚未完成的平台验收项标记为 done。
 
 Action 项目勾选表示相关代码与自动化回归测试已经加入；上面的验证清单则需要实际 CI、Provider 或 GUI 环境确认。当前 CI 结果将在 Action Plan 更新记录中记录，不会仅因为提交成功就标记为通过。

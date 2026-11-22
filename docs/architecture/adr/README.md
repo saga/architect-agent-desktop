@@ -10,7 +10,7 @@
 | [ADR-006](./ADR-006-schedule-browser-session-isolation.md) | Schedule 专属 Browser Session 与登录 Profile | 已采纳，第一阶段代码已实现，待跨平台验收 |
 | [ADR-007](./ADR-007-utility-process-process-tree-cleanup.md) | UtilityProcess 子进程树清理 | 已采纳，第一阶段代码已实现，待平台验收 |
 | [ADR-008](./ADR-008-workspace-document-single-source-of-truth.md) | WorkspaceDocument 作为唯一布局状态来源 | 已采纳并通过 CI，待 GUI 验收 |
-| [ADR-009](./ADR-009-main-async-file-io.md) | Main 文件 I/O 异步化与 CPU 工作边界 | 已采纳，第一阶段代码已加入，待 CI 与性能基准 |
+| [ADR-009](./ADR-009-main-async-file-io.md) | Main 文件 I/O 异步化与 CPU 工作边界 | 已采纳并完成实现、CI 与性能基准验证 |
 
 Layout Engine 和 Electron 原生视图相关决策记录在以下文档中：
 
