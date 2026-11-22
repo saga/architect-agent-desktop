@@ -32,7 +32,7 @@
 
 - [ ] **P2-07 Main 同步 I/O 治理。** Workspace 搜索、插件指纹和 ZIP 导入先异步化；只有基准证明 CPU 扫描仍阻塞时，才使用 UtilityProcess/Worker Thread。
 - [ ] **P2-08 UtilityProcess 子进程树清理。** 实现跨平台进程树终止和等待退出；macOS/Linux 与 Windows 分别验证。不能把 UtilityProcess.kill() 当作整个进程树清理。
-- [ ] **P2-09 CodeBuddy 总预算。** 统一用户请求的总模型轮数、工具调用数、总时长和输出预算，明确原生工具调用与旧式文本工具调用的 fallback 关系。
+- [x] **P2-09 CodeBuddy 总预算。** 一次用户请求最多 12 个模型轮次（6 次 Query、每次最多 2 轮）；应用 Host 工具与兼容模式文本工具调用共用 80 次请求级预算；兼容模式工具结果总输出最多 256 KiB；仍受现有 5 分钟请求超时约束。Provider 内部原生工具由 SDK 权限和轮次限制约束，不声称由应用计数器逐个计数。
 - [ ] **P2-10 未使用 Runtime 入口清理。** 对 `executeSkill()` 和 Native Skill Runtime 进行调用链盘点；未接入产品流程的入口应移除或明确标为实验能力。
 
 ## 验证清单

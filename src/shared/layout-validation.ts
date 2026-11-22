@@ -15,7 +15,9 @@ export function validateLayout(node: LayoutNode): string[] {
       if (current.maxWidth !== undefined && current.minWidth !== undefined && current.maxWidth < current.minWidth) errors.push(current.id + " maxWidth is below minWidth.");
       if (current.maxHeight !== undefined && current.minHeight !== undefined && current.maxHeight < current.minHeight) errors.push(current.id + " maxHeight is below minHeight.");
     } else {
+      if (current.axis !== "horizontal" && current.axis !== "vertical") errors.push(current.id + " axis must be horizontal or vertical.");
       if (!Number.isFinite(current.ratio) || current.ratio <= 0 || current.ratio >= 1) errors.push(current.id + " ratio must be between 0 and 1.");
+      if (current.splitterSize !== undefined && (!Number.isFinite(current.splitterSize) || current.splitterSize < 0)) errors.push(current.id + " splitterSize must be a non-negative finite number.");
       visit(current.first);
       visit(current.second);
     }

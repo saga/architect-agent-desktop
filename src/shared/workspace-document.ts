@@ -61,13 +61,18 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
   let nodeCount = 0;
   const collect = (node: LayoutNode, ids = new Set<string>(), depth = 0): Set<string> => {
     nodeCount += 1;
-    if (nodeCount > 128 || depth > 32 || !node || typeof node !== "object" || typeof node.id !== "string" || !node.id.trim() || ids.has(node.id)) throw new Error("Invalid workspace layout tree.");
+    // Bound recursion and validate untrusted structure here. Shared layout
+    // semantics (IDs, axes, ratios and dimensions) belong to validateLayout.
+    if (nodeCount > 128 || depth > 32 || !node || typeof node !== "object" || typeof node.id !== "string") {
+      throw new Error("Invalid workspace layout tree.");
+    }
     ids.add(node.id);
     if (node.type === "split") {
-      if (node.axis !== "horizontal" && node.axis !== "vertical") throw new Error("Invalid split axis.");
-      if (!Number.isFinite(node.ratio) || node.ratio <= 0 || node.ratio >= 1) throw new Error("Invalid split ratio.");
-      collect(node.first, ids, depth + 1); collect(node.second, ids, depth + 1);
-    } else if (node.type !== "panel") throw new Error("Unknown layout node.");
+      collect(node.first, ids, depth + 1);
+      collect(node.second, ids, depth + 1);
+    } else if (node.type !== "panel") {
+      throw new Error("Unknown layout node.");
+    }
     return ids;
   };
   const allNodeIds = collect(root);

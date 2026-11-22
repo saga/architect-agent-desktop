@@ -13,6 +13,5 @@ export interface LayoutResult {
 }
 export interface LayoutOptions {
   splitterSize?: number;
-  minPanelSize?: number;
   pixelRatio?: number;
 }

@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const { calculateLayout, validateLayout } = require("../dist/main/layout/layout-engine.js");
-const { dockPanel, removePanel, collectPanelIds, normalizeLayout } = require("../dist/main/layout/layout-tree.js");
+const { dockPanel, removePanel, collectPanelIds, normalizeLayout, validateTree } = require("../dist/main/layout/layout-tree.js");
 const { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, activateWorkspaceTab, createWorkspaceTabGroup, movePanelToTabGroup, removePanelFromTabGroup, ungroupWorkspacePanel, setWorkspacePanelVisibility } = require("../dist/shared/workspace-document.js");
 const { NativeViewStackManager } = require("../dist/main/layout/native-view-stack.js");
 
@@ -133,6 +133,17 @@ test("invalid layout constraints are rejected before geometry", () => {
   assert.ok(validateLayout(invalid).some((error) => error.includes("ratio")));
   const badPanel = { type: "panel", id: "bad", minWidth: -1 };
   assert.ok(validateLayout(badPanel).some((error) => error.includes("minWidth")));
+});
+
+
+test("shared layout validation rejects invalid axes and splitter sizes", () => {
+  const invalidAxis = { ...base, axis: "diagonal" };
+  assert.ok(validateLayout(invalidAxis).some((error) => error.includes("axis")));
+  assert.equal(validateTree(invalidAxis), false);
+
+  const invalidSplitter = { ...base, splitterSize: -1 };
+  assert.ok(validateLayout(invalidSplitter).some((error) => error.includes("splitterSize")));
+  assert.equal(validateTree(invalidSplitter), false);
 });
 
 test("native view stack manages visibility, layers, bounds and disposal", () => {

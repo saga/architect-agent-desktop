@@ -1,4 +1,5 @@
 import type { LayoutNode } from "../../shared/layout-types";
+import { validateLayout } from "../../shared/layout-validation";
 
 export type DockPosition = "left" | "right" | "top" | "bottom";
 
@@ -114,12 +115,5 @@ export function normalizeLayout(root: LayoutNode): LayoutNode | null {
 }
 
 export function validateTree(root: LayoutNode): boolean {
-  const ids = new Set<string>();
-  const visit = (node: LayoutNode): boolean => {
-    if (!node.id.trim() || ids.has(node.id)) return false;
-    ids.add(node.id);
-    return node.type === "panel" || (Number.isFinite(node.ratio) && node.ratio > 0 && node.ratio < 1
-      && visit(node.first) && visit(node.second));
-  };
-  return visit(root);
+  return validateLayout(root).length === 0;
 }

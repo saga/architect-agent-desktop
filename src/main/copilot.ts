@@ -975,9 +975,17 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
   return results.map(item=>"<tool_result name=\""+item.name+"\">\n"+JSON.stringify(item.error?{error:item.error}:item.result)+"\n</tool_result>").join("\n");
  }
  private async sendCodeBuddy(prompt:string,history?:AgentChatMessage[]){
+  const MAX_TOTAL_MODEL_TURNS = 12;
+  const MAX_QUERIES = 6;
+  const MAX_TURNS_PER_QUERY = Math.ceil(MAX_TOTAL_MODEL_TURNS / MAX_QUERIES);
+  const MAX_HOST_TOOL_CALLS = 80;
+  const MAX_RAW_TOOL_OUTPUT_BYTES = 256 * 1024;
+  let hostToolCalls = 0;
   const sdk=await import("@tencent-ai/agent-sdk");
   const handlers=await this.handlers();
   const tools=handlers.map(({name,description,schema,handler})=>sdk.tool(name,description,schema.shape,async(input:any)=>{
+   if (hostToolCalls >= MAX_HOST_TOOL_CALLS) throw new Error("CodeBuddy 本次请求已达到应用工具调用上限（" + MAX_HOST_TOOL_CALLS + " 次）。");
+   hostToolCalls += 1;
    const toolCallId=randomUUID();
    this.recordTrace("tool.call",{name,input,toolCallId,source:"codebuddy-sdk"},"running");
    try{
@@ -1070,7 +1078,7 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
     env: queryEnvironment,
     settingSources,
     persistSession: false,
-    maxTurns: 12,
+    maxTurns: MAX_TURNS_PER_QUERY,
     mcpServers: { browser: server, ...configuredMcpServers },
     ...(unrestrictedAllowAll ? {} : { allowedTools: permission === "none" ? [] : allowed }),
     ...(unrestrictedAllowAll
@@ -1088,7 +1096,7 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
   let currentPrompt=historyPrompt(history,prompt);
   let finalAnswer="";
   timeout=setTimeout(()=>{void this.cancel();},300000);
-   for(let step=0;step<6;step++){
+   for(let step=0;step<MAX_QUERIES;step++){
     const query=sdk.query({prompt:currentPrompt,options:{...queryOptions,abortController}});
     this.codeBuddyQuery=query;
     let answer="";let sawThinkingDelta=false;let resultEvent:unknown;
@@ -1099,7 +1107,7 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
      pluginRuntimeIds:stagedCodeBuddyPluginDirectories.map(entry=>entry.id),
      builtinTools:allowedBuiltinTools,
      disallowedBuiltinTools,
-     includePartialMessages:true,maxTurns:12,
+     includePartialMessages:true,maxTurns:MAX_TURNS_PER_QUERY,totalModelTurnBudget:MAX_TOTAL_MODEL_TURNS,hostToolCallBudget:MAX_HOST_TOOL_CALLS,
     });
     this.recordTrace("provider.request",{
      requestId,step,prompt:currentPrompt,options:{model:selectedModel,effort,cwd,settingSources,permission},
@@ -1128,7 +1136,7 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
     }
     const responseSnapshot=this.contextSnapshot("codebuddy",currentPrompt,systemPrompt,handlers,{
      model:selectedModel,effort,contextWindow:this.settings.contextWindow,cwd,settingSources,permission,
-     includePartialMessages:true,maxTurns:12,
+     includePartialMessages:true,maxTurns:MAX_TURNS_PER_QUERY,totalModelTurnBudget:MAX_TOTAL_MODEL_TURNS,hostToolCallBudget:MAX_HOST_TOOL_CALLS,
     },resultEvent ?? answer,answer);
     this.recordTrace("provider.response",{
      requestId,step,response:answer,text:answer,captureLevel:"sdk-stream-aggregate-with-tool-loop",
@@ -1141,8 +1149,19 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
      finalAnswer=parsed.text.trim();
      break;
     }
-    const toolResults=await this.executeRawToolCalls(parsed.calls,handlers);
-    this.recordTrace("provider.raw_tool_loop",{step,calls:parsed.calls,toolResults},"completed");
+    const remainingToolCalls = MAX_HOST_TOOL_CALLS - hostToolCalls;
+    const allowedCalls = parsed.calls.slice(0, remainingToolCalls);
+    hostToolCalls += allowedCalls.length;
+    const rawToolResults = await this.executeRawToolCalls(allowedCalls,handlers);
+    const rawToolBuffer = Buffer.from(rawToolResults, "utf8");
+    const toolResults = rawToolBuffer.byteLength > MAX_RAW_TOOL_OUTPUT_BYTES
+      ? rawToolBuffer.subarray(0, MAX_RAW_TOOL_OUTPUT_BYTES).toString("utf8") + "\\n[tool results truncated at 256 KiB]"
+      : rawToolResults;
+    this.recordTrace("provider.raw_tool_loop",{step,calls:allowedCalls,toolResults},"completed");
+    if (allowedCalls.length < parsed.calls.length) {
+      finalAnswer = "本次请求的应用工具调用预算已耗尽，以上为预算内已执行的工具结果。";
+      break;
+    }
     currentPrompt=currentPrompt+"\n\nTool results from executed calls:\n"+toolResults+"\n\nContinue the original user request using these results. Give the final answer as plain assistant text. Do not emit <tool_call> markup; if another tool is required, use the native tool API.";
     if(parsed.text.trim())currentPrompt+="\n\nYour previous unfinished assistant text was: "+parsed.text.trim();
    }
