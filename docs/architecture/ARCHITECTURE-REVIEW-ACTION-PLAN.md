@@ -26,7 +26,7 @@
 - [x] **P1-07 Renderer 拥有实际布局几何。** Sidepanel/Pure Agent 均测量 Browser 内容矩形，并通过统一 IPC 发送完整 `x/y/width/height`。
 - [x] **P1-08 删除 Main 的重复布局计算。** Main 只校验、裁剪并应用 Renderer 提供的矩形，不再从 WorkspaceDocument 重新计算 Native Browser View 位置；保留独立 Layout Engine 供布局树计算使用。
 - [ ] **P2-05 Layout 树语义收敛。** WorkspaceDocument 继续保存结构、Tab Group 和浮动面板；清理 WorkspaceLayoutState 中与树节点重复的宽度/显示状态，并补迁移和往返兼容测试。
-- [ ] **P2-06 布局验证规则统一。** 合并基础树节点校验规则，清理 `validateTree`、`validateLayout` 与 Document parser 的重复检查；保留布局计算独立测试。
+- [x] **P2-06 布局验证规则统一。** 基础树语义统一由 `validateLayout` 校验（ID、split 轴向、比例、splitterSize 和 panel 尺寸）；Document parser 仅保留不可信输入的结构、节点数及深度防护；`validateTree` 复用共享校验。移除未被计算器消费的 `LayoutOptions.minPanelSize`，并补充布局回归测试。
 
 ## Phase 4 — 进程、性能和资源回收
 
