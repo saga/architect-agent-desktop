@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  isMcpOAuthEnabled, parseOAuthScopes, readEntraMcpOAuthConfig, resolveEntraOpenIdConfigurationUrl,
+  isMcpOAuthEnabled, parseOAuthScopes, readEntraMcpOAuthConfig, resolveEntraOpenIdConfigurationUrl, resolveMcpOAuthResource,
 } from "../src/main/mcp-oauth";
 
 const tenantId = "11111111-2222-3333-4444-555555555555";
@@ -26,6 +26,25 @@ describe("MCP Entra OAuth configuration", () => {
       "https://login.microsoftonline.com/" + tenantId + "/v2.0/.well-known/openid-configuration",
     );
   });
+
+  it("binds the OAuth request to the resource URI and uses server-supported scopes", () => {
+    const resource = resolveMcpOAuthResource(JSON.stringify({
+      resource: "https://mcp.example.com/mcp",
+      authorization_servers: ["https://login.microsoftonline.com/" + tenantId + "/v2.0"],
+      scopes_supported: ["mcp:tools", "mcp:read"],
+    }), "https://mcp.example.com/mcp");
+    expect(resource).toEqual({
+      resource: "https://mcp.example.com/mcp",
+      supportedScopes: ["mcp:tools", "mcp:read"],
+    });
+  });
+  it("rejects Protected Resource Metadata that points to another host", () => {
+    expect(() => resolveMcpOAuthResource(JSON.stringify({
+      resource: "https://attacker.example.com/mcp",
+      authorization_servers: ["https://login.microsoftonline.com/" + tenantId + "/v2.0"],
+    }), "https://mcp.example.com/mcp")).toThrow(/不匹配/);
+  });
+
   it("rejects non-Entra or insecure authorization servers", () => {
     expect(() => resolveEntraOpenIdConfigurationUrl(JSON.stringify({ authorization_servers: ["https://auth.example.com"] }), tenantId)).toThrow(/Microsoft Entra/);
     expect(() => resolveEntraOpenIdConfigurationUrl(JSON.stringify({ authorization_servers: ["http://login.microsoftonline.com/" + tenantId + "/v2.0"] }), tenantId)).toThrow(/Microsoft Entra/);
