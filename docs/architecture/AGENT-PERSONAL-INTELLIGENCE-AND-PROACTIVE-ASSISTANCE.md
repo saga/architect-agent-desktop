@@ -786,3 +786,46 @@ Workspace 文件监听使用 Node 内置 `fs.watch`，仅监听当前 Task 的 W
 新增回归测试覆盖请求相关性与 Scope 隔离、结构化偏好证据、敏感候选过滤、事件幂等、同工具失败阈值、用户确认前不创建提醒、到期后状态转换、反馈抑制和每日展示设置。最终通过情况以该提交对应的 GitHub Actions 为准。
 
 仍未接入的外部事件只在未来存在明确且可信的 Connector 事件契约后添加；不能把普通 MCP 工具返回值推断为外部系统状态变化。系统通知也保持关闭，避免在用户尚未配置通知策略时主动打断。
+
+## 17. User Understanding Layer（2026-11-22）
+
+在现有 Memory、Task、Trace 和双 Provider 共用的请求链路上增加 User Understanding，不另建 Agent Runtime、独立数据库或远程情绪分析服务。实现分为两个互相配合但各自有边界的部分。
+
+### 17.1 Emotion & Interaction Understanding
+
+每轮请求在 Memory Context Resolver 中调用本地 assessUserTurn()。输入是当前用户消息与最近最多 6 条用户历史消息，输出包括：
+
+- 情绪信号：neutral、frustrated、angry、confused、dissatisfied、satisfied。
+- 强度、置信度和触发识别的原文片段。
+- 独立的紧迫度与耐心状态。
+- 最近连续纠正次数及是否正在升级。
+- 交互策略：正常处理、纠偏并执行、重新对齐、解释澄清、提高优先级或直接执行。
+- 当前消息与既有目标的关系提示：continue、refine、correct、extend、override、cancel 或 unclear。
+
+情绪状态只存在于本轮上下文和 Trace，不写入长期用户画像，也不把一次愤怒推断成稳定人格特征。识别器采用可解释的本地规则；模型需要结合完整对话判断规则信号是否适用，并按照策略改变实际行为。frustrated / angry 时，优先检查用户已经提出的约束和最近纠正，停止扩展争议方案，保留没有受到影响的决定并直接修正；不能只道歉或改变回复语气。
+
+当前实现是明确措辞与纠正模式的第一版，不是完整的心理状态识别。讽刺、含蓄失望、跨语言隐喻等表达可能无法由规则稳定识别；因此识别结果带有 confidence 和 evidence，并要求模型依据上下文校正，不能把分类当作事实。
+
+### 17.2 Goal Understanding
+
+Goal 与普通 Memory Note 分开保存，但使用同一个 agent-memory.sqlite。新增 agent_goals 表，支持：
+
+- Project Goal：作用于当前 Workspace 下的所有 Task。
+- Task Goal：只作用于指定 Task。
+- Objective、预期结果、约束、验收条件、状态、置信度和用户原话证据。
+- active、blocked、completed、cancelled 状态。
+- version 与 baseVersion 乐观并发检查，避免旧上下文覆盖新目标。
+
+每轮请求把当前 Workspace 的 Project Goal 和当前 Task 的 Task Goal 注入 Copilot / CodeBuddy 的共享理解上下文。Goal 工具提供读取、创建/更新和状态修改。continue、refine、correct、extend、override、cancel 等关系由模型结合对话判断；本地规则只提供提示，不替代语义判断。
+
+持久化采用直接用户证据约束。创建或更新 Goal 时，工具必须提交当前用户消息或本轮历史中真实出现的短引文，应用层逐字匹配；附件、网页、工具输出和 Assistant 自己生成的计划不能作为用户目标证据。修改既有 Goal 必须带 id 和 baseVersion；新 Goal 不能覆盖旧 Goal。取消必须同时满足原文匹配和明确取消用语。Project Goal 必须绑定 Workspace，Task Goal 必须绑定 Task。
+
+后台 Memory Dreaming、主动维护及 A2UI Renderer Action 不允许修改 Goal。用户明确发起的 Schedule 任务绑定独立 Task，可以在用户提供的 Schedule Prompt 范围内更新其 Goal。Goal 工具不因普通浏览器工具权限关闭而消失，因为记录用户目标本身不执行浏览器、文件或外部副作用；其证据校验和 Workspace / Task Scope 仍由主进程强制执行。
+
+### 17.3 Trace 与测试
+
+每轮 Trace 写入 user_understanding.assessed，包含识别类别、强度、置信度、证据片段、紧迫度、耐心、升级标记、交互策略、目标关系提示及当前 Goal ID。Goal 创建、修改和状态变化分别记录 goal.context.updated 与 goal.context.status_changed，保留用户证据及版本信息。
+
+新增测试覆盖情绪与紧迫度分离、连续纠正升级和恢复、目标关系识别、普通技术纠正不误判、Project / Task Goal 隔离、乐观并发、无 Workspace 的 Project Goal 拒绝，以及取消目标的明确证据要求。Copilot 和 CodeBuddy 通过同一 resolver 和工具契约使用这些能力。
+
+当前阶段没有独立 Goal Manager UI，也没有针对情绪分类准确率的真实用户标注评估集。情绪分类仍是辅助信号；Goal 的自动更新依赖模型调用工具，但不能越过主进程的原文证据与作用域校验。后续应基于实际 Trace 复核误判和漏判，再决定是否增加更复杂的语义分类或 Goal 可视化管理，不应先引入另一个模型服务。
