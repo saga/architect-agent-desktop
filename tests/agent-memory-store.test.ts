@@ -1418,6 +1418,36 @@ describe("Confirmed preference Memory", () => {
     store.close();
   });
 
+  it("preserves structured preference metadata when a Note is revised", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const first = store.saveConfirmedPreference({
+      id: "revised-preference-1",
+      scope: "/workspace/preferences",
+      title: "Communication preference",
+      content: "Please keep answers concise.",
+      category: "communication",
+      sourceSessionId: "session-revision",
+      sourceTraceId: "trace-revision",
+      createdAt: Date.now(),
+      crossWorkspaceConfirmed: false,
+      strength: "explicit",
+    });
+    const revised = store.saveNote({
+      id: first.id,
+      scope: "/workspace/preferences",
+      title: first.title,
+      content: "Please keep architecture reviews concise and state important trade-offs.",
+      claimType: "user_preference",
+    });
+    expect(revised.preference).toMatchObject({
+      domain: "communication",
+      operator: "instruction",
+      value: "Please keep architecture reviews concise and state important trade-offs.",
+      scope: "/workspace/preferences",
+    });
+    store.close();
+  });
+
   it("requires explicit cross-Workspace confirmation before writing Personal Memory", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const input = {
