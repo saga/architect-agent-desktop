@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import type { AgentStructuredPreference, AgentPreferenceOperator, AgentPreferenceStrength } from "../../shared/types.js";
+import type { AgentStructuredPreference, AgentPreferenceOperator, AgentPreferenceStrength, AgentPreferencePriority } from "../../shared/types.js";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -401,8 +401,8 @@ export class AgentMemoryStore {
   }
 
   saveConfirmedPreference(input:{
-    id:string;scope:string|null;title:string;content:string;category:string;
-    sourceSessionId:string|null;sourceTraceId:string|null;createdAt:number;crossWorkspaceConfirmed:boolean;strength:AgentPreferenceStrength;
+    id:string;scope:string|null;title:string;content:string;category:string;key?:string;
+    sourceSessionId:string|null;sourceTraceId:string|null;createdAt:number;crossWorkspaceConfirmed:boolean;strength:AgentPreferenceStrength;priority?:AgentPreferencePriority;
   }):AgentMemoryNote{
     const id=input.id.trim().slice(0,100);
     const title=redactSecrets(input.title.trim(),160);
@@ -413,6 +413,10 @@ export class AgentMemoryStore {
     const sourceId=randomUUID().replace(/-/g,"").slice(0,32);
     const runId=randomUUID();
     const createdAt=Number.isFinite(input.createdAt)?input.createdAt:Date.now();
+    const existing=this.getNoteRow(id,normalizeScope(input.scope));
+    const existingPreference=parseJson<AgentStructuredPreference|null>(existing?.preference_json,null);
+    const priority:AgentPreferencePriority=input.priority??existingPreference?.priority??"normal";
+    const preferenceKey=input.key?.trim().slice(0,100)||this.preferenceKey(input.category,content);
     const now=Date.now();
     this.database.exec("BEGIN IMMEDIATE");
     try{
@@ -428,12 +432,12 @@ export class AgentMemoryStore {
       const note=this.saveNote({
         id,title,content,scope:input.scope,tags:["preference",input.category,"user-confirmed"],
         claimType:"user_preference",sourceSessionId:input.sourceSessionId,sourceTraceId:input.sourceTraceId,
-        sourceRefs:[sourceId],importance:0.8,
+        sourceRefs:[sourceId],importance:priority==="high"?1:0.8,pinned:priority==="high",
       preference:{
-        domain:input.category,key:this.preferenceKey(input.category,content),
+        domain:input.category,key:preferenceKey,
         operator:/\\b(?:don't|do not|never|avoid|not|dislike|cannot|can't)\\b|不吃|不要|别再|避免|不能|不得|不喜欢/iu.test(content)?"avoid":
           /\\b(?:prefer|like|love)\\b|喜欢|偏好|更愿意/iu.test(content)?"prefer":"instruction",
-        value:content,strength:input.strength,
+        value:content,strength:input.strength,priority,
         appliesTo:this.preferenceAppliesTo(input.category),scope:input.scope,
         validFrom:now,validUntil:null,sensitivity:"normal",
       },
@@ -616,12 +620,29 @@ export class AgentMemoryStore {
     const scopeKey=normalizeScope(scope);
     const existing=this.getNoteRow(id,scopeKey);
     if(!existing||existing.status!=="active")throw new Error("当前 Workspace 中不存在该活动 Memory Note。");
+    const existingPreference=parseJson<AgentStructuredPreference|null>(existing.preference_json,null);
+    if(existingPreference?.priority==="high"&&!pinned)throw new Error("高优先级用户规则不能取消置顶；请先明确修改或撤销该规则。");
     const version=Number(existing.version)+1;
     this.database.prepare("UPDATE memory_notes SET pinned=?,updated_at=?,version=? WHERE id=? AND scope_key=?")
       .run({},pinned?1:0,Date.now(),version,id,scopeKey);
     const row=this.getNoteRow(id,scopeKey) as Record<string,unknown>;
     this.saveVersion(scopeKey,"note",id,version,row,null);
     return this.toNote(row);
+  }
+
+  listHighPriorityPreferences(scope:string|null,limit=20):AgentMemoryNote[]{
+    const personalKey=normalizeScope(null),workspaceKey=normalizeScope(scope);
+    const scopeKeys=scope===null?[personalKey]:[workspaceKey,personalKey];
+    const placeholders=scopeKeys.map(()=>"?").join(",");
+    const rows=this.database.prepare(
+      "SELECT * FROM memory_notes WHERE scope_key IN ("+placeholders+") AND claim_type='user_preference' "+
+      "AND preference_json LIKE '%\\\"priority\\\":\\\"high\\\"%' AND status='active' AND (expires_at IS NULL OR expires_at>?) "+
+      "ORDER BY CASE WHEN scope_key=? THEN 0 ELSE 1 END,pinned DESC,importance DESC,updated_at DESC LIMIT ?"
+    ).all({},...scopeKeys,Date.now(),workspaceKey,Math.max(1,Math.min(Math.floor(limit),50))) as Record<string,unknown>[];
+    return rows.map(row=>{
+      const note=this.toNote(row);
+      return scope!==null&&String(row.scope_key)===personalKey?{...note,sourceRefs:[]}:note;
+    });
   }
 
   private buildValidationEvidence(scope: string | null, claimType: MemoryClaimType, sourceRefs: string[]): MemoryValidationEvidence {
@@ -1138,6 +1159,10 @@ export class AgentMemoryStore {
     const now=Date.now(),oldVersion=Number(before?.version??0),same=Boolean(before&&before.title===title&&before.content===content&&before.claim_type===claimType);
     const firstSource=this.getSourceById(refs[0]!);
     const priorPreference=parseJson<AgentStructuredPreference|null>(before?.preference_json,null);
+    if(priorPreference?.priority==="high"){
+      this.recordDreamOperation(runId,sequence,"note",id,"protected_high_priority_skip",before,before,reason);
+      return {id,created:false};
+    }
     const snapshot={
       id,scope_key:scopeKey,title,content,tags_json:JSON.stringify(safeTags(op.tags??parseJson(before?.tags_json,[]))),
       claim_type:claimType,validation_evidence_json:same?(before?.validation_evidence_json??null):null,
@@ -1190,7 +1215,8 @@ export class AgentMemoryStore {
     const before=this.getNoteRow(op.id,scopeKey);
     if(!before||before.status!=="active")throw new Error("只能归档当前 Workspace 的活动 Note："+op.id);
     if(Number(before.version)!==op.baseVersion)throw new Error("Memory Note 版本已变化，请重新检索："+op.id);
-    if(Number(before.pinned))throw new Error("置顶 Note 不能直接归档，请先取消置顶或保留它。");
+    const preference=parseJson<AgentStructuredPreference|null>(before.preference_json,null);
+    if(Number(before.pinned)||preference?.priority==="high")throw new Error("置顶或高优先级用户规则不能由 Dreaming 归档。");
     const after={...before,status:"archived",pinned:0,last_dreamed_at:Date.now(),source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100)),updated_at:Date.now(),version:Number(before.version)+1};
     this.replaceNoteSnapshot(op.id,after);
     this.recordEntityChange(runId,sequence,"note",op.id,before,this.getNoteRow(op.id,scopeKey),"archive_note",reason);
@@ -1201,6 +1227,7 @@ export class AgentMemoryStore {
     const before=this.getNoteRow(op.id,scopeKey),replacement=this.getNoteRow(op.replacementId,scopeKey);
     if(!before||before.status!=="active"||!replacement||replacement.status!=="active")throw new Error("supersede_note 必须引用同一 Workspace 的活动 Note。");
     if(Number(before.version)!==op.baseVersion)throw new Error("被替代 Note 的版本已变化："+op.id);
+    if(parseJson<AgentStructuredPreference|null>(before.preference_json,null)?.priority==="high")throw new Error("高优先级用户规则不能由 Dreaming 替代；必须由用户明确修改或撤销。");
     if(op.id===op.replacementId)throw new Error("Note 不能替代自己。");
     const after={...before,status:"superseded",superseded_by_id:op.replacementId,pinned:0,last_dreamed_at:Date.now(),updated_at:Date.now(),version:Number(before.version)+1,
       source_refs_json:JSON.stringify([...new Set([...parseJson<string[]>(before.source_refs_json,[]),...refs])].slice(-100))};
@@ -1549,7 +1576,8 @@ export class AgentMemoryStore {
     if(!domain||!key||!content||!operators.includes(input.operator as AgentPreferenceOperator)||!strengths.includes(input.strength as AgentPreferenceStrength))return null;
     const appliesTo=Array.isArray(input.appliesTo)?[...new Set(input.appliesTo.filter((item):item is string=>typeof item==="string").map(item=>item.trim().slice(0,80)).filter(Boolean))].slice(0,20):[domain];
     const validFrom=Number(input.validFrom),validUntil=input.validUntil==null?null:Number(input.validUntil);
-    return {domain,key,operator:input.operator as AgentPreferenceOperator,value:content,strength:input.strength as AgentPreferenceStrength,appliesTo,scope,
+    return {domain,key,operator:input.operator as AgentPreferenceOperator,value:content,strength:input.strength as AgentPreferenceStrength,
+      priority:input.priority==="high"?"high":"normal",appliesTo,scope,
       validFrom:Number.isFinite(validFrom)?validFrom:Date.now(),validUntil:validUntil!==null&&Number.isFinite(validUntil)?validUntil:null,
       sensitivity:input.sensitivity==="sensitive"?"sensitive":"normal"};
   }
@@ -1578,7 +1606,7 @@ export class AgentMemoryStore {
   }
   private preferenceAppliesTo(category:string):string[]{
     const mapping:Record<string,string[]>={food:["recipes","meal_plans","food_recommendations"],communication:["all_responses","explanations","summaries"],
-      diagrams:["architecture_diagrams","flowcharts","technical_documentation"],writing:["articles","reports","translation","documentation"],
+      interaction:["all_responses","all_tasks"],diagrams:["architecture_diagrams","flowcharts","technical_documentation"],writing:["articles","reports","translation","documentation"],
       coding:["code_generation","code_review","tests"],workflow:["agent_workflow","tool_execution","task_management"]};
     return mapping[category]??[category];
   }
