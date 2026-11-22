@@ -20,7 +20,7 @@ const fileCount = 256;
 const fileBytes = 32 * 1024;
 let measuredBytes = 0;
 
-function writeFixture(): void {
+function writeFixture() {
   mkdirSync(path.join(source, ".claude-plugin"), { recursive: true });
   mkdirSync(path.join(source, "skills", "research"), { recursive: true });
   mkdirSync(path.join(source, "bin"), { recursive: true });
@@ -47,7 +47,7 @@ function writeFixture(): void {
   }
 }
 
-async function main(): Promise<void> {
+async function main() {
   writeFixture();
   const histogram = monitorEventLoopDelay({ resolution: 1 });
   let lastTick = performance.now();
