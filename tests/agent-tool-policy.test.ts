@@ -59,6 +59,9 @@ describe("Expert host-tool allowlist", () => {
     { name: "workspace_search_files" },
     { name: "workspace_write_file" },
     { name: "browser_list_tabs" },
+    { name: "browser_execute_javascript" },
+    { name: "browser_inject_css" },
+    { name: "browser_cdp" },
     { name: "duckdb_query" },
     { name: "memory_search" },
   ];
@@ -79,7 +82,12 @@ describe("Expert host-tool allowlist", () => {
       "duckdb_query",
       "memory_search",
     ]);
-    expect(selected.some(tool => tool.name === "workspace_write_file")).toBe(false);
+    expect(selected.some(tool => [
+      "workspace_write_file",
+      "browser_execute_javascript",
+      "browser_inject_css",
+      "browser_cdp",
+    ].includes(tool.name))).toBe(false);
   });
 
   it("does not expose workspace tools when the user's permission is browser-only", () => {
@@ -90,5 +98,26 @@ describe("Expert host-tool allowlist", () => {
   it("retains only goal context tools when all tools are disabled", () => {
     const selected = filterAgentHostTools(tools, "none", [], true);
     expect(selected.map(tool => tool.name)).toEqual(["goal_context_list"]);
+  });
+});
+
+describe("Elevated Host tools", () => {
+  const elevated = [
+    { name: "workspace_write_file" },
+    { name: "browser_execute_javascript" },
+    { name: "browser_inject_css" },
+    { name: "browser_cdp" },
+  ];
+
+  it("keeps elevated file and browser operations exclusive to Allow all", () => {
+    for (const permission of ["none", "browser-only", "assisted"] as const) {
+      expect(filterAgentHostTools(elevated, permission, [], true)).toEqual([]);
+    }
+    expect(filterAgentHostTools(elevated, "allow-all", [], true)).toEqual(elevated);
+  });
+
+  it("still applies the Expert allowlist in Allow all mode", () => {
+    expect(filterAgentHostTools(elevated, "allow-all", ["workspace_write_file"], false))
+      .toEqual([{ name: "workspace_write_file" }]);
   });
 });

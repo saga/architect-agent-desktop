@@ -45,8 +45,15 @@ export function filterAgentHostTools<T extends { name: string }>(
   expertAllowsAllTools: boolean,
 ): T[] {
   const expertAllowsTool = (toolName: string) => expertAllowsAllTools || expertTools.includes(toolName);
-  return tools.filter(tool =>
-    (tool.name.startsWith("goal_context_") || permission === "allow-all" ||
+  const elevatedTools = new Set([
+    "workspace_write_file",
+    "browser_execute_javascript",
+    "browser_inject_css",
+    "browser_cdp",
+  ]);
+  return tools.filter(tool => {
+    const permissionAllowsTool =
+      tool.name.startsWith("goal_context_") || permission === "allow-all" ||
       (permission !== "none" && tool.name.startsWith("browser_")) ||
       (permission === "assisted" && (
         tool.name.startsWith("workspace_") ||
@@ -54,7 +61,10 @@ export function filterAgentHostTools<T extends { name: string }>(
         tool.name.startsWith("document_") ||
         tool.name.startsWith("memory_") ||
         tool.name.startsWith("a2ui_")
-      ))) &&
-    (expertAllowsTool(tool.name) || tool.name.startsWith("goal_context_"))
-  );
+      ));
+    const permissionDeniesElevatedTool = permission !== "allow-all" && elevatedTools.has(tool.name);
+    return permissionAllowsTool &&
+      !permissionDeniesElevatedTool &&
+      (expertAllowsTool(tool.name) || tool.name.startsWith("goal_context_"));
+  });
 }
