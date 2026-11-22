@@ -1137,6 +1137,7 @@ export class AgentMemoryStore {
       throw new Error("Personal Dreaming 只允许沉淀跨项目通用的用户偏好与用户意图；项目事实和知识必须保留在 Workspace Memory。");
     const now=Date.now(),oldVersion=Number(before?.version??0),same=Boolean(before&&before.title===title&&before.content===content&&before.claim_type===claimType);
     const firstSource=this.getSourceById(refs[0]!);
+    const priorPreference=parseJson<AgentStructuredPreference|null>(before?.preference_json,null);
     const snapshot={
       id,scope_key:scopeKey,title,content,tags_json:JSON.stringify(safeTags(op.tags??parseJson(before?.tags_json,[]))),
       claim_type:claimType,validation_evidence_json:same?(before?.validation_evidence_json??null):null,
@@ -1153,7 +1154,9 @@ export class AgentMemoryStore {
       quality_score:same?(before?.quality_score??null):null,
       last_quality_reviewed_at:same?(before?.last_quality_reviewed_at??null):null,
       external_verification_json:same?(before?.external_verification_json??null):null,
-      preference_json:claimType==="user_preference"?(before?.preference_json??null):null,
+      preference_json:claimType==="user_preference"&&priorPreference
+        ?JSON.stringify({...priorPreference,value:content})
+        :null,
     };
     this.replaceNoteSnapshot(id,snapshot);
     this.recordEntityChange(runId,sequence,"note",id,before,this.getNoteRow(id,scopeKey),"upsert_note",reason);
