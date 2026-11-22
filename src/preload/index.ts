@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspacePreferences, AgentWorkspaceSnapshot, BrowserApi, BrowserDownloadEvent, PluginSummary, McpServerConfig, AgentSkillSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject } from "../shared/types";
+import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspacePreferences, AgentWorkspaceSnapshot, BrowserApi, BrowserDownloadEvent, PluginSummary, McpServerConfig, AgentSkillSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject, AgentProactiveSettingsPatch, ProactiveFeedbackAction } from "../shared/types";
 
 const api: BrowserApi = {
   getWorkspaceProject: () => ipcRenderer.invoke("workspace:get-project"),
@@ -20,6 +20,9 @@ const api: BrowserApi = {
   saveAgentSchedule: (schedule): Promise<AgentSchedule[]> => ipcRenderer.invoke("agent-schedule:save", schedule),
   deleteAgentSchedule: (id: string): Promise<AgentSchedule[]> => ipcRenderer.invoke("agent-schedule:delete", id),
   runAgentScheduleNow: (id: string): Promise<void> => ipcRenderer.invoke("agent-schedule:run-now", id),
+  agentProactiveFeedback: (taskId: string, opportunityId: string, action: ProactiveFeedbackAction) => ipcRenderer.invoke("agent:proactive-feedback", { taskId, opportunityId, action }),
+  agentMemoryCandidateFeedback: (taskId: string, candidateId: string, action: "accept" | "reject") => ipcRenderer.invoke("agent:memory-candidate-feedback", { taskId, candidateId, action }),
+  agentProactiveSaveSettings: (settings: AgentProactiveSettingsPatch) => ipcRenderer.invoke("agent:proactive-save-settings", settings),
   saveAgentWorkspacePreferences: (preferences: AgentWorkspacePreferences): Promise<AgentWorkspacePreferences> => ipcRenderer.invoke("agent-workspace:save-preferences", preferences),
   onWorkspaceProjectUpdated: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, workspace: WorkspaceProject) => listener(workspace);
