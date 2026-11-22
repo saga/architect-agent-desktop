@@ -1,6 +1,6 @@
 # ADR-007：UtilityProcess 子进程树清理
 
-**状态：** 已采纳，第一阶段代码与单元测试已加入；等待 macOS / Windows 真实运行验收  
+**状态：** 已采纳；真实 OS 进程树自动化在 Ubuntu / macOS / Windows CI 通过，等待 Electron Agent Code Mode 人工验收  
 **日期：** 2026-11-22
 
 ## 背景
@@ -34,7 +34,8 @@ UtilityProcess 是进程隔离和崩溃隔离边界，不是安全沙箱。本 A
 
 - `tests/process-tree.integration.test.ts` 在当前操作系统真实启动三层 Node 进程树，调用 `terminateProcessTree`，并验证根进程与孙进程均不再运行。
 - `Build` workflow 使用 Ubuntu / macOS / Windows 矩阵执行 typecheck、全部 Vitest、应用 build 和 Layout Engine 测试。
-- Runtime 测试验证正常完成、工具请求结束后调用进程清理器；取消在 PID 未就绪时仍调用 Electron `kill()`。
+- Runtime 测试验证正常完成、超时和取消均调用进程清理器；PID 尚未就绪时仍调用 Electron `kill()` 根进程兜底。
+- GitHub Actions Build run [44999451094](https://github.com/saga/architect-agent-desktop/actions/runs/44999451094) 的 Ubuntu、macOS、Windows 三个平台均通过真实 Node 父/子/孙进程树清理测试、TypeScript、Vitest 和应用 build。
 - 该测试验证 OS 进程树算法和 Runtime 清理器接线，不替代完整 GUI Agent Code Mode 手工验收。
 
 ## 验收
@@ -43,4 +44,4 @@ UtilityProcess 是进程隔离和崩溃隔离边界，不是安全沙箱。本 A
 - POSIX：清理扫描期间新增的后代会在根进程被冻结的情况下被再次发现并停止。
 - Windows：使用 `taskkill /T /F`，并等待根进程退出。
 - 正常完成、失败、超时、取消和应用退出均不会绕过统一清理路径。
-- macOS / Windows 真实 Electron 环境完成取消、超时、多层子进程和应用退出测试。
+- macOS / Windows 真实 Electron GUI 环境完成 Code Mode 取消、超时和应用退出测试。
