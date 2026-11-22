@@ -2842,7 +2842,7 @@ function registerIpcHandlers(): void {
         .map(item => ({ role: item.kind as "user" | "assistant", content: item.content.slice(0, 12_000) }));
       const traceId = randomUUID();
       activeAgentTraceId = traceId;
-      copilotAgent.setMemoryContext(task.sessionId, traceId);
+      copilotAgent.setMemoryContext(task.sessionId, traceId, task.id, false);
       recordTaskTrace(task, "a2ui.renderer.action", { message: parsed.data.message });
       await copilotAgent.handleA2UIRendererMessage(parsed.data.message, history);
       task.updatedAt = Date.now();
