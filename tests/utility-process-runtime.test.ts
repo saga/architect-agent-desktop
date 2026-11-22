@@ -14,6 +14,7 @@ vi.mock("electron", () => ({
       const child: any = {
         pid: 1000 + runtimeMocks.children.length,
         messages: [] as unknown[],
+        killCalls: 0,
         on(event: string, callback: (value: any) => void) {
           listeners.set(event, [...(listeners.get(event) ?? []), callback]); return child;
         },
@@ -27,7 +28,7 @@ vi.mock("electron", () => ({
         emit(event: string, value: any) { for (const listener of [...(listeners.get(event) ?? [])]) listener(value); },
         removeAllListeners() { listeners.clear(); return child; },
         postMessage(message: unknown) { child.messages.push(message); },
-        kill() {},
+        kill() { child.killCalls += 1; },
       };
       runtimeMocks.children.push(child);
       return child;
@@ -84,6 +85,29 @@ describe("UtilityProcess Code Mode execution isolation", () => {
     expect(runtimeMocks.terminateProcessTree).toHaveBeenCalledTimes(2);
     expect(runtimeMocks.terminateProcessTree).toHaveBeenNthCalledWith(1, 1000);
     expect(runtimeMocks.terminateProcessTree).toHaveBeenNthCalledWith(2, 1001);
+    expect(childA.killCalls).toBe(1);
+    expect(childB.killCalls).toBe(1);
+    await runtime.dispose();
+  });
+
+  it("uses the Electron process handle when cancellation happens before a PID is available", async () => {
+    const runtime = new UtilityProcessAgentRuntime(workerPath);
+    const controller = new AbortController();
+    const execution = runtime.executeGeneratedCode({
+      mode: "generated-code",
+      code: "async () => 'never'",
+      providers: [],
+      capabilities: [],
+      signal: controller.signal,
+    }, vi.fn(async () => undefined));
+    const child = runtimeMocks.children[0]!;
+    child.pid = undefined;
+
+    controller.abort();
+
+    await expect(execution).resolves.toEqual(expect.objectContaining({ status: "cancelled" }));
+    expect(runtimeMocks.terminateProcessTree).toHaveBeenCalledWith(undefined);
+    expect(child.killCalls).toBe(1);
     await runtime.dispose();
   });
 });

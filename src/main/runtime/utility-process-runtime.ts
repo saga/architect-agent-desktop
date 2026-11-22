@@ -76,16 +76,19 @@ export class UtilityProcessAgentRuntime {
         void (async () => {
           let finalError = error;
           if (child) {
+            const pid = childPid ?? child.pid;
             try {
-              await terminateProcessTree(childPid ?? child.pid);
+              await terminateProcessTree(pid);
             } catch (cleanupError) {
-              if (process.platform !== "win32" && (childPid ?? child.pid)) {
-                try { process.kill((childPid ?? child.pid)!, "SIGCONT"); } catch { /* best effort */ }
+              if (process.platform !== "win32" && pid) {
+                try { process.kill(pid, "SIGCONT"); } catch { /* best effort */ }
               }
-              child.kill();
               const detail = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
               finalError = [finalError, "Process-tree cleanup failed: " + detail].filter(Boolean).join(" ");
             }
+            // Keep Electron's own handle as a root-process fallback. The PID
+            // may not be available yet when cancellation races with spawn.
+            child.kill();
             child.removeAllListeners();
           }
           this.active.delete(id);
@@ -174,12 +177,16 @@ export class UtilityProcessAgentRuntime {
   async dispose(): Promise<void> {
     const children = [...this.active.values()];
     await Promise.all(children.map(async (child) => {
+      const pid = child.pid;
       try {
-        await terminateProcessTree(child.pid);
+        await terminateProcessTree(pid);
       } catch {
-        if (process.platform !== "win32" && child.pid) {
-          try { process.kill(child.pid, "SIGCONT"); } catch { /* best effort */ }
+        if (process.platform !== "win32" && pid) {
+          try { process.kill(pid, "SIGCONT"); } catch { /* best effort */ }
         }
+      } finally {
+        // PID-based descendant discovery can be unavailable before spawn;
+        // Electron's process handle still owns the root process.
         child.kill();
       }
     }));
