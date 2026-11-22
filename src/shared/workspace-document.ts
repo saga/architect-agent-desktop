@@ -268,12 +268,20 @@ function replaceDockedPanelSplit(
 }
 
 /** Read the persistent dock state for a panel from the workspace tree. */
+function findWorkspacePanel(
+  root: LayoutNode,
+  panelId: string,
+): Extract<LayoutNode, { type: "panel" }> | null {
+  if (root.type === "panel") return root.id === panelId ? root : null;
+  return findWorkspacePanel(root.first, panelId) ?? findWorkspacePanel(root.second, panelId);
+}
+
 export function getWorkspacePanelLayout(
   document: WorkspaceDocument,
   panelId: string,
   otherPanelId: string,
 ): WorkspacePanelLayout {
-  const panel = findPanel(document.root, panelId);
+  const panel = findWorkspacePanel(document.root, panelId);
   const split = findDockedPanelSplit(document.root, panelId, otherPanelId);
   if (!split || !panel) {
     return { visible: Boolean(panel && panel.visible !== false), position: null, share: null };
