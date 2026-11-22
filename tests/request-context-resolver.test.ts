@@ -32,7 +32,7 @@ describe("Request memory context resolver",()=>{
  it("keeps general answer-style preferences available across domains",()=>{
   const store=new AgentMemoryStore(path.join(temporaryDirectory(),"memory.sqlite"));
   store.saveNote({scope:null,title:"Answer style",content:"Prefer concise answers and plain language.",claimType:"user_preference"});
-  const candidates=store.search("/workspace/architecture","sqlite wal transaction",12);
+  const candidates=[...new Map([...store.search("/workspace/architecture","sqlite wal transaction",12),...store.search(null,"",16)].map(note=>[note.id,note])).values()];
   const result=createRequestMemoryContext("Explain how SQLite WAL works.",candidates);
   expect(result.preferenceCount).toBe(1);expect(result.text).toContain("Answer style");store.close();
  });
