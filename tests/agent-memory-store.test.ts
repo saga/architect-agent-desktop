@@ -1410,8 +1410,22 @@ describe("Confirmed preference Memory", () => {
 
     expect(note.claimType).toBe("user_preference");
     expect(note.validation).toBe("unverified");
-    expect(note.preference).toMatchObject({ domain: "communication", key: "communication", operator: "instruction", strength: "explicit", scope: "/workspace/preferences", sensitivity: "normal" });
+    expect(note.preference).toMatchObject({ domain: "communication", key: "verbosity", operator: "instruction", strength: "explicit", scope: "/workspace/preferences", sensitivity: "normal" });
     expect(note.preference?.appliesTo).toContain("all_responses");
+    const another = store.saveConfirmedPreference({
+      id: "another-word-preference",
+      scope: "/workspace/preferences",
+      title: "Communication preference",
+      content: "Please use another concise example.",
+      category: "communication",
+      sourceSessionId: "session-another",
+      sourceTraceId: "trace-another",
+      createdAt: Date.now(),
+      crossWorkspaceConfirmed: false,
+      strength: "explicit",
+    });
+    expect(another.preference?.operator).toBe("instruction");
+    expect(another.preference?.key).toBe("verbosity");
     expect(note.sourceRefs).toHaveLength(1);
     expect(store.getSourceById(note.sourceRefs[0]!, "/workspace/preferences")?.evidenceClass).toBe("direct_user");
     expect(store.getDreamCursor("/workspace/preferences")).toEqual(before);
@@ -1444,6 +1458,68 @@ describe("Confirmed preference Memory", () => {
       operator: "instruction",
       value: "Please keep architecture reviews concise and state important trade-offs.",
       scope: "/workspace/preferences",
+    });
+    store.close();
+  });
+
+  it("preserves structured preference metadata across Memory Dreaming revisions", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const note = store.saveConfirmedPreference({
+      id: "dreaming-revised-preference",
+      scope: "/workspace/preferences-dreaming",
+      title: "Communication preference",
+      content: "Please keep architecture reviews concise.",
+      category: "communication",
+      sourceSessionId: "session-preference",
+      sourceTraceId: "trace-preference",
+      createdAt: Date.now(),
+      crossWorkspaceConfirmed: false,
+      strength: "explicit",
+    });
+    const run = store.prepareDreaming("/workspace/preferences-dreaming", [{
+      sessionId: "session-preference",
+      messageId: "message-preference-revision",
+      kind: "user",
+      content: "Keep the architecture review concise and retain trade-off details.",
+      createdAt: Date.now() + 1,
+    }]);
+    expect(run).not.toBeNull();
+    const revised = store.commitDreaming({
+      scope: "/workspace/preferences-dreaming",
+      runId: run!.id,
+      summary: "Refresh the existing communication preference wording.",
+      operations: [{
+        op: "upsert_note",
+        id: note.id,
+        baseVersion: note.version,
+        title: note.title,
+        content: "Please keep architecture reviews concise and retain trade-off details.",
+        claimType: "user_preference",
+        sourceRefs: [run!.evidence[0]!.sourceId],
+        reason: "Keep the existing user-confirmed preference metadata while incorporating the new direct statement.",
+      }],
+    });
+    expect(revised.status).toBe("completed");
+    const after = store.getNote(note.id, "/workspace/preferences-dreaming");
+    expect(after?.preference).toMatchObject({
+      domain: "communication",
+      operator: "instruction",
+      strength: "explicit",
+      scope: "/workspace/preferences-dreaming",
+    });
+    const rollback = store.rollbackDreaming(
+      "/workspace/preferences-dreaming",
+      run!.id,
+      "Verify structured preference metadata is restored by the Note snapshot.",
+    );
+    expect(rollback.rolledBackOperations).toBe(1);
+    const restored = store.getNote(note.id, "/workspace/preferences-dreaming");
+    expect(restored?.content).toBe("Please keep architecture reviews concise.");
+    expect(restored?.preference).toMatchObject({
+      domain: "communication",
+      operator: "instruction",
+      strength: "explicit",
+      value: "Please keep answers concise.",
     });
     store.close();
   });
