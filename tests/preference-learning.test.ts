@@ -14,13 +14,18 @@ describe("Preference learning",()=>{
   const candidate=detectPreferenceCandidate("不要让我反复提醒，不要再让我重复已经说过的要求。");
   expect(candidate).toMatchObject({category:"interaction",key:"avoid_repeating_user_requirements",strength:"repeated_correction",priority:"high",autoPersist:true});
  });
+ it("recognizes direct angry correction wording in English and Chinese",()=>{
+  expect(detectPreferenceCandidate("Don't make me remind you again: never regenerate the old diagram format.")).toMatchObject({category:"interaction",priority:"high",autoPersist:true});
+  expect(detectPreferenceCandidate("我已经说了很多次，不要再用 ASCII 图。")).toMatchObject({category:"interaction",priority:"high",autoPersist:true});
+ });
  it("recognizes a direct remember request as immediate persistence",()=>{
   expect(detectPreferenceCandidate("记住，以后架构图不要使用 ASCII，统一使用 Mermaid。")).toMatchObject({category:"diagrams",priority:"high",autoPersist:true,explicitSaveRequest:true});
  });
  it("requires explicit cross-project wording for Personal Memory",()=>{
   const candidate=detectPreferenceCandidate("Please remember across all projects: I prefer concise answers.");
   expect(candidate).toMatchObject({category:"communication",strength:"explicit",scopeSuggestion:"personal",explicitSaveRequest:true});
-  expect(preferenceCandidateInstruction(candidate!)).toContain("existing Memory write flow");
+  expect(candidate).toMatchObject({priority:"high",autoPersist:true});
+  expect(preferenceCandidateInstruction(candidate!)).toContain("save it immediately");
  });
  it("does not treat a one-off recipe request as a durable preference",()=>{
   expect(detectPreferenceCandidate("Give me a recipe with no added sugar.")).toBeNull();
