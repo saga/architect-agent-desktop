@@ -8,6 +8,7 @@ permissions:
   contents: read
 jobs:
   validate:
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -20,7 +21,9 @@ jobs:
           node-version: 24
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
-      - run: npm test
+      - name: Run Vitest with per-test output
+        run: npm test -- --reporter=verbose
+        timeout-minutes: 5
       - run: npm run build
       - run: npm run test:layout:run
       - run: npm run test:schedule-browser-session
