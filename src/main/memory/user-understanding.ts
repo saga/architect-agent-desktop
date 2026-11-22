@@ -61,7 +61,7 @@ export function assessUserTurn(prompt: string, history: readonly AgentChatMessag
   const satisfactionEvidence = matchedEvidence(latest, [SATISFACTION]);
   const explicitUrgency = HIGH_URGENCY.test(latest);
   const elevatedUrgency = ELEVATED_URGENCY.test(latest);
-  const patience: "normal" | "low" = elevatedUrgency || repeatedCorrectionCount >= 2 ? "low" : "normal";
+  const patience: "normal" | "low" = elevatedUrgency || (correctionEvidence.length > 0 && repeatedCorrectionCount >= 2) ? "low" : "normal";
 
   let emotion: UserEmotion = "neutral";
   let emotionIntensity: UserEmotionIntensity = "none";
@@ -73,7 +73,7 @@ export function assessUserTurn(prompt: string, history: readonly AgentChatMessag
     emotionIntensity = "high";
     emotionConfidence = 0.96;
     emotionEvidence = angerEvidence;
-  } else if (correctionEvidence.length || repeatedCorrectionCount >= 2) {
+  } else if (correctionEvidence.length) {
     emotion = "frustrated";
     emotionIntensity = repeatedCorrectionCount >= 2 || correctionEvidence.some(value => REPEATED_CORRECTION.test(value)) ? "high" : "moderate";
     emotionConfidence = repeatedCorrectionCount >= 2 ? 0.94 : 0.88;
