@@ -22,6 +22,11 @@ describe("Preference learning",()=>{
   expect(detectPreferenceCandidate("Remember my API key is abc123")).toBeNull();
   expect(detectPreferenceCandidate("I have diabetes and take medication")).toBeNull();
  });
+ it("excludes sensitive health and personal-attribute statements from automatic candidates",()=>{
+  expect(detectPreferenceCandidate("请记住，我有糖尿病，需要控制饮食。")).toBeNull();
+  expect(detectPreferenceCandidate("Remember my religious affiliation and political party.")).toBeNull();
+  expect(detectPreferenceCandidate("Please remember my API token is secret.")).toBeNull();
+ });
  it("does not infer a Personal scope from an ordinary preference statement",()=>{
   expect(detectPreferenceCandidate("我偏好简洁的架构说明。")).toMatchObject({scopeSuggestion:"workspace",explicitSaveRequest:false});
  });
