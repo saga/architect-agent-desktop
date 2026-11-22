@@ -80,3 +80,29 @@ export function scheduleBrowserDownloadPath(
 export function canOpenScheduleBrowserPopup(isSafeUrl: boolean, depth: number): boolean {
   return isSafeUrl && Number.isInteger(depth) && depth >= 0 && depth < 3;
 }
+
+
+/** Keep unattended downloads under a directory unique to each Schedule profile. */
+export function scheduleBrowserDownloadsDirectory(downloadsRoot: string, scheduleId: string): string {
+  if (!path.isAbsolute(downloadsRoot)) throw new Error("Schedule downloads root must be an absolute path.");
+  const profileId = scheduleBrowserPartition(scheduleId).slice("persist:".length);
+  return path.join(downloadsRoot, "Architect Agent Desktop", "Schedules", profileId);
+}
+
+/** Produce a unique, traversal-safe file path without showing a save dialog. */
+export function scheduleBrowserDownloadPath(
+  downloadDirectory: string,
+  downloadId: number,
+  originalFileName: string,
+  timestamp = Date.now(),
+): string {
+  if (!path.isAbsolute(downloadDirectory)) throw new Error("Schedule download directory must be an absolute path.");
+  if (!Number.isSafeInteger(downloadId) || downloadId < 0) throw new Error("Schedule download ID must be a non-negative safe integer.");
+  if (!Number.isSafeInteger(timestamp) || timestamp < 0) throw new Error("Schedule download timestamp must be a non-negative safe integer.");
+  const candidate = path.posix.basename(String(originalFileName ?? "").replace(/\\/g, "/"));
+  const safeName = candidate
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/[. ]+$/g, "")
+    .slice(0, 100) || "download";
+  return path.join(downloadDirectory, String(timestamp) + "-" + String(downloadId) + "-" + safeName);
+}
