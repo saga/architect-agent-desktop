@@ -1544,6 +1544,52 @@ describe("Confirmed preference Memory", () => {
     store.close();
   });
 
+  it("prevents Dreaming quality review from marking a high-priority rule as disputed", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const note = store.saveConfirmedPreference({
+      id: "protected-review-rule",
+      scope: "/workspace/protected-review",
+      title: "High-priority user rule",
+      content: "不要让我反复提醒。",
+      category: "interaction",
+      sourceSessionId: "session-protected-review",
+      sourceTraceId: "trace-protected-review",
+      createdAt: Date.now(),
+      crossWorkspaceConfirmed: false,
+      strength: "repeated_correction",
+      priority: "high",
+    });
+    const run = store.prepareDreaming("/workspace/protected-review", [{
+      sessionId: "session-protected-review",
+      messageId: "message-review-rule",
+      kind: "user",
+      content: "Please keep following the interaction rule.",
+      createdAt: Date.now() + 1,
+    }]);
+    expect(run).not.toBeNull();
+    const result = store.commitDreaming({
+      scope: "/workspace/protected-review",
+      runId: run!.id,
+      summary: "Attempt to dispute an explicit user rule.",
+      operations: [{
+        op: "review_note",
+        id: note.id,
+        baseVersion: note.version,
+        validation: "disputed",
+        confidence: 0.1,
+        sourceRefs: [run!.evidence[0]!.sourceId],
+        reason: "A quality reviewer must not invalidate a direct user instruction.",
+      }],
+    });
+    expect(result.status).toBe("completed");
+    expect(store.getNote(note.id, "/workspace/protected-review")).toMatchObject({
+      validation: "unverified",
+      pinned: true,
+      preference: { priority: "high" },
+    });
+    store.close();
+  });
+
   it("preserves structured preference metadata when a Note is revised", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const first = store.saveConfirmedPreference({
