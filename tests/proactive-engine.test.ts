@@ -105,6 +105,43 @@ describe("Proactive Opportunity Engine", () => {
     expect(engine.listActive("/workspace/a")[0]?.category).toBe("repeated_tool_failure");
   });
 
+  it("refreshes previously presented suggestions into the next day's daily budget", () => {
+    const { store } = setup();
+    const dayOne = new Date(2026, 10, 22, 10, 0, 0, 0).getTime();
+    const created = store.createOpportunity({
+      scope: "/workspace/a", taskId: "task-a", category: "blocker",
+      title: "阻塞 1", explanation: "检查来源 Trace。", suggestedAction: "查看 Trace",
+      sourceRefs: ["trace-a"], confidence: 0.9, impact: 0.8, urgency: 0.8,
+      dedupeKey: "blocker-a", eventId: "event-a",
+    })!;
+    const presented = store.listActive("/workspace/a", 30, dayOne);
+    expect(presented[0]?.id).toBe(created.id);
+    expect(presented[0]?.lastPresentedAt).toBe(dayOne);
+    const dayTwo = new Date(2026, 10, 23, 10, 0, 0, 0).getTime();
+    const refreshed = store.listActive("/workspace/a", 30, dayTwo);
+    expect(refreshed[0]?.id).toBe(created.id);
+    expect(refreshed[0]?.lastPresentedAt).toBe(dayTwo);
+  });
+
+  it("prunes old proactive events while preserving recent failure evidence", () => {
+    const { store } = setup();
+    const old = Date.now() - 31 * 24 * 60 * 60 * 1000;
+    for (let index = 0; index < 100; index += 1) {
+      store.recordEvent({
+        eventId: "old-event-" + index, scope: "/workspace/a", taskId: "task-a",
+        eventType: "agent.tool.failed", occurredAt: old, sourceRef: "trace-old-" + index,
+        payload: { toolName: "browser_snapshot" },
+      });
+    }
+    expect(store.recentToolFailures("/workspace/a", "task-a", "browser_snapshot", 0)).toHaveLength(0);
+    store.recordEvent({
+      eventId: "recent-event", scope: "/workspace/a", taskId: "task-a",
+      eventType: "agent.tool.failed", occurredAt: Date.now(), sourceRef: "trace-recent",
+      payload: { toolName: "browser_snapshot" },
+    });
+    expect(store.recentToolFailures("/workspace/a", "task-a", "browser_snapshot", Date.now() - 60_000)).toHaveLength(1);
+  });
+
   it("keeps a future follow-up hidden until the user confirms it and it becomes due", () => {
     const { engine, store } = setup();
     engine.ingest({
