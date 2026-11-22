@@ -7,7 +7,7 @@
 
 ## Phase 1 — 权限与边界
 
-- [x] **P1-01 CodeBuddy 文件工具收口。** 受限权限/Expert 不再把 `workspace_read_file` 映射成 CodeBuddy 内置 `Read/Glob/Grep`，而是通过应用 Workspace Host Handler 提供读写；`assisted` 不开放 Provider 原生文件工具。增加工具选择策略单元测试。
+- [x] **P1-01 CodeBuddy 文件工具收口。** 受限权限/Expert 不再把 `workspace_read_file` 映射成 CodeBuddy 内置 `Read/Glob/Grep`，而是通过应用 Workspace Host Handler 提供读写；`assisted` 不开放 Provider 原生文件工具。用户权限与 Expert allowlist 取交集：`none` 不开放任何 Host 工具，Goal Context 读写操作不得绕过 Expert 授权，`workspace_write_file` 及高权限 Browser 工具仅在 Allow all 下开放。CodeBuddy 原生文件/Shell/Skill/LSP 工具在受限 Expert 下全部禁用。增加原生工具与 Host 工具权限矩阵回归测试。
 - [x] **P1-02 插件指纹扫描有界化。** 在读取文件之前检查单文件 2 MB、总量 20 MB、文件数量和目录深度；打开文件后重新核对文件类型和大小。增加超大文件回归测试。
 - [x] **P2-01 插件组件授权拆分（第一阶段）。** 插件启用状态控制 Markdown 指令资源；独立运行授权只允许真实存在 Hooks/MCP/LSP/脚本/Mods 等可执行组件的插件。纯 Markdown 插件不能通过运行授权 IPC，也不会进入 Provider 原生插件目录；最后一个可执行组件被删除后，注册表会持久撤销旧运行授权。UI、注册表和回归测试已同步更新。
   - Copilot SDK：通过 `RuntimeConnection.forStdio` 逐个传递 `--plugin-dir`，并启用 `COPILOT_PLUGIN_DIR_ONLY=true`；CodeBuddy：通过 `CODEBUDDY_PLUGIN_DIRS` 传入目录，使用 `path.delimiter` 兼容 Windows 盘符。两者都只接收权限闸门批准并经指纹校验的临时快照。新增 Provider 入口构造单测，覆盖多插件、清理继承环境和空授权列表。
@@ -18,8 +18,8 @@
 - [x] **P1-03 统一 Main 操作冲突判断。** 使用共享忙碌判断覆盖 Schedule、Agent 请求、Task 切换、维护和 Provider busy；Memory 写操作不再只检查 Provider busy；Embedding 检查/重建在异步 I/O 前取得维护占用，并在 `finally` 释放。为冲突判断增加独立单元测试。
 - [x] **P1-04 AgentPanel 事件初始化竞态。** 在加载 Session 前订阅事件；加载期间暂存事件，恢复 Transcript 后按序回放；按 Task ID 严格过滤，未就绪时禁止提交。
 - [x] **P1-05 Pure Agent Snapshot 竞态。** 实时更新先到时，迟到的初始 Snapshot 不得覆盖新状态。
-- [x] **P1-06 Run 浏览器 Tab 固定。** 每次 Agent Run 固定工具目标 Tab（包括 Run 开始时没有 Active Tab 的情况），工具不再随 UI 的全局 Active Tab 漂移；应用侧阻止在 Run 期间关闭、导航、后退、前进、刷新或停止该 Tab，并保护键盘快捷键路径。为目标解析与操作阻断增加单元测试。
-- [ ] **P2-03 Browser Session 隔离（自动化跨平台已验证，仍待 GUI 验收）。** 已为每个 Schedule 建立独立、持久的 Electron Session partition；后台 Run 使用隐藏 BrowserWindow / WebContentsView，Browser Tools 通过 Schedule Context 路由，不再引用用户的 Active Tab；可打开专属 Profile 完成人工登录、配置起始 URL，并单独重置 Cookie / 站点存储 / HTTP Cache / HTTP Authentication Cache；Session 下载自动保存到 Downloads 下按 Schedule 哈希隔离的目录，文件名净化并附加唯一下载 ID，不弹出原生 Save 对话框；下载事件关联 Schedule ID 和保存路径；Memory Dreaming 明确不绑定任何可见 Browser Tab。Schedule 删除时会清除对应 Profile 的站点数据；Run finally 强制销毁隐藏窗口以绕过远程页面的 beforeunload 阻塞。应用退出时也会显式销毁所有已登记的 Run Context（包括仍在初始化、尚未挂到活动变量的 Context）、Profile 根窗口及 OAuth 子窗口，取消未完成下载并 flush 已初始化的 Session；退出开始后禁止新建 Session、BrowserWindow、Tab 和 OAuth 子窗口。等待中的 Session 初始化有 1.5 秒上限，不会无限阻塞退出。后台 WebContents 禁用背景节流。新增了部分初始化失败时的 context 回滚、Tab WebContents 先登记后挂载和容错式全量清理，避免准备阶段失败留下隐藏窗口。另新增真实 Electron `persist:` Session 多进程测试，覆盖重启后 Cookie 持久化、Schedule A/B 与普通浏览器隔离，以及只重置 A 不影响其他 Profile；测试接入 macOS / Windows CI。仍需 GUI 验证登录态持久化、弹窗、下载保存路径、超时/取消销毁和退出清理后才能标记 done。
+- [x] **P1-06 Run 浏览器 Tab 固定。** 普通 Agent 请求和 A2UI 交互请求均在 IPC 入口同步捕获 Browser Tab ID，早于异步 Task activation；请求开始时没有 Active Tab 时保留 `null`，不得绑定等待期间新建的 Tab。工具不随 UI 全局 Active Tab 漂移；应用侧阻止在 Run 期间关闭、导航、后退、前进、刷新或停止 Run 目标 Tab，并保护键盘快捷键路径。为目标解析与操作阻断增加单元测试。
+- [ ] **P2-03 Browser Session 隔离（自动化跨平台已验证，仍待 GUI 验收）。** 已为每个 Schedule 建立独立、持久的 Electron Session partition；后台 Run 使用隐藏 BrowserWindow / WebContentsView，Browser Tools 通过 Schedule Context 路由，不再引用用户的 Active Tab；可打开专属 Profile 完成人工登录、配置起始 URL，并单独重置 Cookie / 站点存储 / HTTP Cache / HTTP Authentication Cache；Session 下载自动保存到 Downloads 下按 Schedule 哈希隔离的目录，文件名净化并附加唯一下载 ID，不弹出原生 Save 对话框；下载事件关联 Schedule ID 和保存路径；Memory Dreaming 明确不绑定任何可见 Browser Tab。Schedule 删除时会清除对应 Profile 的站点数据；Run finally 强制销毁隐藏窗口以绕过远程页面的 beforeunload 阻塞。应用退出时也会显式销毁所有已登记的 Run Context（包括仍在初始化、尚未挂到活动变量的 Context）、Profile 根窗口及 OAuth 子窗口，取消未完成下载并 flush 已初始化的 Session；退出开始后禁止新建 Session、BrowserWindow、Tab 和 OAuth 子窗口。等待中的 Session 初始化有 1.5 秒上限，不会无限阻塞退出。后台 WebContents 禁用背景节流。新增了部分初始化失败时的 context 回滚、Tab WebContents 先登记后挂载和容错式全量清理，避免准备阶段失败留下隐藏窗口。另新增真实 Electron `persist:` Session 多进程测试，覆盖重启后 Cookie 持久化、Schedule A/B 与普通浏览器隔离，以及只重置 A 不影响其他 Profile；测试接入 macOS / Windows CI。Schedule 下载处理器已抽为生产/测试共用函数，并新增真实 Electron BrowserWindow + 本地 HTTP 下载 E2E，验证按 Profile 目录落盘、文件名净化、下载事件、完成回收和无 Save 对话框。GUI 验收仍需覆盖实际登录态复用、OAuth/SSO Popup、Schedule 后台 Run 可视化与完整应用退出清理，完成前本项保持未完成。
 - [x] **P2-04 当前阶段不实施完整操作状态机（范围决策已关闭）。** 保留共享忙碌判断和 maintenance lock；只对发现真实竞态的生命周期补局部状态与测试。没有证据证明当前布尔状态协调需要被全量替换，本项不作为当前实施任务。此勾选仅表示决策关闭，不表示完整状态机已实现。
 
 ## Phase 3 — Layout 唯一事实来源
@@ -54,9 +54,12 @@
 - [x] Schedule Browser Context 部分初始化失败会执行资源回滚，且清理失败不覆盖原始错误（Vitest 回归测试已加入）
 - [x] Schedule Profile 重置会依次清除站点存储、HTTP Cache、HTTP Authentication Cache，并在完成后 flush（Vitest 回归测试已加入）
 - [x] Schedule 下载路径按 Profile 隔离、远端文件名净化、唯一命名且不触发 Save 对话框（Vitest 路径测试已加入）
+- [x] 真实 Electron Schedule 下载回归：使用生产 `registerScheduleBrowserDownloadHandler`，在独立 BrowserWindow 中从本地 HTTP 服务下载，验证 Profile 专属保存目录、远端文件名净化、文件内容、started/completed 事件和活动下载回收（Build run [45007115270](https://github.com/saga/architect-agent-desktop/actions/runs/45007115270)，Windows 已通过，macOS 打包验证进行中）
 - [x] Schedule Profile 重置会关闭根登录窗口和所有嵌套 OAuth 子窗口，取消未完成下载但保留已完成文件；Storage/Cache/Auth Cache 清理即使单步失败也会继续执行并 flush（Vitest 回归测试已加入）
 - [x] 真实 Node 父/子/孙进程树在 macOS、Windows CI 中均被终止（GitHub Actions Build run 44999451094）
+- [x] CodeBuddy 原生工具与 Host 工具权限矩阵单元测试：受限 Expert 下禁用原生 Read/Write/Edit/Glob/Grep/Bash 等工具；`none` 模式不开放 Host 工具；Goal Context 不绕过 Expert allowlist。
 - [ ] CodeBuddy 真实运行验证：Expert 只授权 Workspace read 时，不能读取 Workspace 外文件
+- [x] Agent 请求在 IPC 入口、Task activation 前同步固定 Browser Tab ID；初始无 Tab 时保持 null，防止异步切换/新建 Tab 造成目标漂移（普通请求与 A2UI 交互均已修复，现有 resolver 回归测试覆盖 pin/null 语义）。
 - [ ] Copilot / CodeBuddy 各自的 Agent Run 期间切换 Tab 验证
 - [ ] Sidepanel：左右/上下停靠、隐藏、窗口缩放、Tab Group 切换、浮动/重新停靠
 - [ ] Pure Agent：右侧 Browser 显示/隐藏、切换 Files/Results、窗口缩放

@@ -1,6 +1,6 @@
 # ADR-006：Schedule 专属 Browser Session 与登录 Profile
 
-**状态：** 已采纳；真实 Electron Session 持久化/隔离自动化回归已在 macOS / Windows CI 通过；Schedule 登录、OAuth Popup、下载及 GUI 生命周期仍待验收  
+**状态：** 已采纳；真实 Electron Session 持久化/隔离及生产下载处理器自动化回归已接入 macOS / Windows CI；Schedule 登录、OAuth Popup 和 GUI Run 生命周期仍待验收  
 **日期：** 2026-11-22
 
 ## 背景
@@ -38,12 +38,12 @@ Schedule 运行此前复用全局 `persist:architect-agent-browser` Session，�
 - OAuth/SSO 弹窗继承同一 Profile，不能访问 Node.js 或 Electron 主进程 API；非 HTTP(S) 导航被阻止。
 - Run 完成、失败或取消后，隐藏 BrowserWindow 与关联 WebContents 均被销毁。
 - Browser Context 初始化中途失败时，已创建的窗口与 WebContents 会回滚；清理步骤单独失败不会阻止其他资源释放。
-- macOS 与 Windows 的真实 Electron `persist:` Session 持久化、Schedule 间 Cookie 隔离和单 Profile 重置自动化回归已通过；专属登录窗口、OAuth Popup、实际下载和 GUI Run 生命周期仍待人工验收。
+- macOS 与 Windows 的真实 Electron `persist:` Session 持久化、Schedule 间 Cookie 隔离和单 Profile 重置自动化回归已通过。实际下载已由独立 BrowserWindow + 本地 HTTP 服务进行 Electron 集成测试，并调用生产下载处理器，验证保存路径、净化后的文件名、文件内容、事件与活动下载回收；专属登录窗口、OAuth Popup 和 GUI Run 生命周期仍待人工验收。
 
 
 ## 自动化回归
 
-新增 `npm run test:schedule-browser-session`，在独立 Electron 主进程中使用项目实际的 `scheduleBrowserPartition()` 与 `clearScheduleBrowserProfileData()`：第一阶段写入 Schedule A、Schedule B 和普通浏览器 partition 的 Cookie；退出 Electron 后重新启动，验证三份 Cookie 仍分别存在；随后只清理 Schedule A，并再次启动 Electron，验证 A 已清除，而 B 和普通浏览器 Cookie 保留。该测试运行于现有 macOS / Windows CI matrix，不增加 Linux runner。它验证真实 Electron `persist:` Session 的持久化与 Cookie 隔离，不替代登录站点、OAuth 弹窗和下载窗口等 GUI 验收。
+新增 `npm run test:schedule-browser-session`，在独立 Electron 主进程中使用项目实际的 `scheduleBrowserPartition()` 与 `clearScheduleBrowserProfileData()`：第一阶段写入 Schedule A、Schedule B 和普通浏览器 partition 的 Cookie；退出 Electron 后重新启动，验证三份 Cookie 仍分别存在；随后只清理 Schedule A，并再次启动 Electron，验证 A 已清除，而 B 和普通浏览器 Cookie 保留。测试随后在真实 Electron BrowserWindow 中打开本地 HTTP 页面，触发下载，并调用与生产 Main 完全相同的 `registerScheduleBrowserDownloadHandler()`；验证下载落入 Schedule 专属目录、远端文件名被净化、文件内容正确、started/completed 事件完整、活动下载集合被清空。该测试运行于现有 macOS / Windows CI matrix，不增加 Linux runner。它验证真实 Electron `persist:` Session 的持久化/Cookie 隔离和生产下载处理器，不替代外部站点登录、OAuth 弹窗和完整 Schedule GUI Run 生命周期验收。
 
 
 ## 退出与初始化并发
