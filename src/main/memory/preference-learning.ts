@@ -20,10 +20,10 @@ const CATEGORIES:Array<{category:PreferenceCategory;pattern:RegExp}>= [
  {category:"workflow",pattern:/commit|merge|main branch|confirmation|ask first|ci|pull request|提交|合并|主分支|确认|先问|持续集成|拉取请求/iu},
  {category:"interaction",pattern:/don't make me repeat|don't make me remind you again|stop making me repeat|don't ask me again|stop asking me to repeat|i(?:'ve| have) already (?:told|said)|already told you|不要让我反复提醒|别让我反复提醒|不要让我重复|别让我重复|不要让我再说一遍|不要再问我已经说过|我已经说过|我已经说了|早就说过|已经告诉过你|之前说过很多次|反复提醒|反复说过|不需要我再重复|不必让我再说明/iu},
 ];
-const EXPLICIT=/always|never|from now on|going forward|in all future|for every (?:task|request|project)|以后|今后|从现在开始|始终|永远|以后都|今后都/iu;
+const EXPLICIT=/always|never(?!\\s+mind)|from now on|going forward|in all future|for every (?:task|request|project)|以后|今后|从现在开始|始终|永远|以后都|今后都/iu;
 const STRONG=/\bi prefer\b|\bi don't like\b|\bi do not like\b|\bi don't eat\b|\bi do not eat\b|\bi avoid\b|\bi dislike\b|我偏好|我更喜欢|我喜欢|我不喜欢|我不吃|我避免|我习惯|我倾向于/iu;
 const CORRECTION=/stop using|don't use .* again|do not use .* again|please stop|don't make me repeat|don't make me remind you again|stop making me repeat|don't ask me again|stop asking me to repeat|i(?:'ve| have) already (?:told|said)|already told you|不要再|别再|不要继续|之前已经说过|反复说过|不要让我反复提醒|别让我反复提醒|不要让我重复|别让我重复|我已经说过|我已经说了|早就说过|已经告诉过你/iu;
-const SAVE_REQUEST=/remember|save (?:this|that|it)|store (?:this|that)|keep this in mind|记住|保存到记忆|记下来|以后记得/iu;
+const SAVE_REQUEST=/(?:^|\\bplease\\s+|\\bkindly\\s+|\\bI want you to\\s+|\\bcan you\\s+|\\bmake sure you\\s+)remember\\b|\\bsave (?:this|that|it)\\b|\\bstore (?:this|that)\\b|\\bkeep this in mind\\b|(?:^|[，,：:]\\s*)记住|保存到记忆|记下来|以后记得/iu;
 const PERSONAL_SCOPE=/across (?:all )?(?:projects|workspaces|tasks)|in every (?:workspace|conversation)|all projects|all future (?:tasks|conversations|projects)|every conversation|所有项目|跨项目|所有工作区|所有任务|任何对话|所有对话|以后每个任务|今后每次对话/iu;
 const WORKSPACE_SCOPE=/this project|this workspace|current project|current workspace|within this project|本项目|这个项目|当前项目|当前工作区|本工作区|这个工作区/iu;
 const SECRET_OR_CREDENTIAL=/password|passcode|api[_ -]?key|access token|private key|bearer token|credential|secret|凭据|令牌|密码|口令|密钥|访问令牌/iu;
