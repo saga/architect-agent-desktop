@@ -15,8 +15,8 @@ describe("Preference learning",()=>{
   expect(candidate).toMatchObject({category:"interaction",key:"avoid_repeating_user_requirements",strength:"repeated_correction",priority:"high",autoPersist:true});
  });
  it("recognizes direct angry correction wording in English and Chinese",()=>{
-  expect(detectPreferenceCandidate("Don't make me remind you again: never regenerate the old diagram format.")).toMatchObject({category:"interaction",priority:"high",autoPersist:true});
-  expect(detectPreferenceCandidate("我已经说了很多次，不要再用 ASCII 图。")).toMatchObject({category:"interaction",priority:"high",autoPersist:true});
+  expect(detectPreferenceCandidate("Don't make me remind you again: never regenerate the old diagram format.")).toMatchObject({category:"diagrams",priority:"high",autoPersist:true});
+  expect(detectPreferenceCandidate("我已经说了很多次，不要再用 ASCII 图。")).toMatchObject({category:"diagrams",priority:"high",autoPersist:true});
  });
  it("recognizes a direct remember request as immediate persistence",()=>{
   expect(detectPreferenceCandidate("记住，以后架构图不要使用 ASCII，统一使用 Mermaid。")).toMatchObject({category:"diagrams",priority:"high",autoPersist:true,explicitSaveRequest:true});
