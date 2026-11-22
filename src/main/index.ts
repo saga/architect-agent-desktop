@@ -1782,7 +1782,7 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
       await activateAgentTask(eligibleTask.id, false, true);
       agentToolTabId = activeTabId;
       activeAgentTraceId = runId;
-      copilotAgent.setMemoryContext(eligibleTask.sessionId, runId);
+      copilotAgent.setMemoryContext(eligibleTask.sessionId, runId, eligibleTask.id, false);
       scheduledCapture = { taskId: eligibleTask.id, answer: "" };
       const maintenance = copilotAgent.getMemoryMaintenanceStatus(schedule.scope);
       recordTaskTrace(eligibleTask, "memory.dreaming.schedule.started", {
@@ -2761,7 +2761,7 @@ function registerIpcHandlers(): void {
     }
     const traceId = randomUUID();
     activeAgentTraceId = traceId;
-    copilotAgent.setMemoryContext(task.sessionId, traceId);
+    copilotAgent.setMemoryContext(task.sessionId, traceId, task.id, true);
     task.lastRunAt = Date.now();
     task.updatedAt = Date.now();
     persistAgentTasks();
