@@ -35,6 +35,11 @@ describe("Preference learning",()=>{
   expect(detectPreferenceCandidate("Please remember that trace reviews should be concise.")).not.toBeNull();
   expect(detectPreferenceCandidate("Please remember that archive workflows should stay simple.")).not.toBeNull();
  });
+ it("does not classify technical terms as sensitive personal attributes",()=>{
+  expect(detectPreferenceCandidate("Please remember that race condition reviews should be concise.")).not.toBeNull();
+  expect(detectPreferenceCandidate("Please remember that architecture trade-offs should be explicit.")).not.toBeNull();
+  expect(detectPreferenceCandidate("Please remember that archive workflows should stay simple.")).not.toBeNull();
+ });
  it("does not infer a Personal scope from an ordinary preference statement",()=>{
   expect(detectPreferenceCandidate("我偏好简洁的架构说明。")).toMatchObject({scopeSuggestion:"workspace",explicitSaveRequest:false});
  });
