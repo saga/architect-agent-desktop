@@ -127,8 +127,8 @@ export default function ProactiveInbox({ taskId, opportunities, candidates = [],
         安静模式下只保留列表内建议，不发送系统通知。当前版本不使用主动弹窗，也不会为建议启动模型调用。
       </Paragraph>
     </Card>
-    {!settings.enabled && <Alert type="info" showIcon message="主动建议已关闭" description="不会生成新的待处理建议。重新启用后，新的领域事件会继续评估。" />}
-    {settings.enabled && reviewCandidates.length > 0 && <Card size="small" title="待审核的偏好候选" style={{ marginBottom: 16 }}>
+    {!settings.enabled && <Alert type="info" showIcon message="主动建议已关闭" description="主动建议卡片已关闭，但偏好候选仍会保留在下方供你确认或拒绝。重新启用后，其他领域事件会继续评估。" />}
+    {reviewCandidates.length > 0 && <Card size="small" title="待审核的偏好候选" style={{ marginBottom: 16 }}>
       <Space direction="vertical" size={10} style={{ width: "100%" }}>
         {reviewCandidates.map(candidate => <div key={candidate.id}>
           <Space wrap style={{ marginBottom: 4 }}>
