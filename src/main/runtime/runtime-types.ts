@@ -11,18 +11,6 @@ export interface RuntimeLimits {
   maxLogEntries: number;
 }
 
-export interface SkillExecutionRequest {
-  /** Only locally trusted scripts may use the native Node.js backend. */
-  mode: "trusted-skill";
-  skillRoot: string;
-  entry: string;
-  args?: unknown;
-  workspaceRoot?: string;
-  capabilities: RuntimeCapability[];
-  limits?: Partial<RuntimeLimits>;
-  signal?: AbortSignal;
-}
-
 export interface CodeModeRequest {
   mode: "generated-code";
   code: string;

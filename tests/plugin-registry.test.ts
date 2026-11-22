@@ -94,8 +94,9 @@ describe("Claude Code Plugin packages", () => {
     expect(importPlugin(source, pluginRoot, registry).enabled).toBe(true);
     expect(listPlugins(pluginRoot, registry)).toHaveLength(1);
     expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
-    expect(setPluginRuntimeApproved("research-toolkit", true, pluginRoot, registry)[0]?.runtimeApproved).toBe(true);
-    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(1);
+    expect(() => setPluginRuntimeApproved("research-toolkit", true, pluginRoot, registry))
+      .toThrow("该插件没有可执行的运行时组件");
+    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
     expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("Use primary sources.");
     expect(readEnabledPluginInstructions(pluginRoot, registry, [])).not.toContain("Use primary sources.");
     expect(readEnabledPluginInstructions(pluginRoot, registry, ["research-toolkit:skills/research/SKILL.md"]))
@@ -270,6 +271,12 @@ describe("Claude Code Plugin packages", () => {
     expect(listPlugins(pluginRoot, registry)[0]?.runtimeApproved).toBe(false);
     expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toEqual([]);
     expect(setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry)[0]?.runtimeApproved).toBe(true);
+
+    rmSync(scriptPath);
+    expect(listPlugins(pluginRoot, registry)[0]?.runtimeApproved).toBe(false);
+    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
+    expect(() => setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry))
+      .toThrow("该插件没有可执行的运行时组件");
   });
 
   it("loads a manifest-less single-skill plugin with SKILL.md at the plugin root", () => {

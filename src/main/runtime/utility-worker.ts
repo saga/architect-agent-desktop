@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { pathToFileURL } from "node:url";
 
 type ParentPort = {
   on(event: "message", listener: (event: { data: unknown }) => void): void;
@@ -49,25 +48,6 @@ parentPort.on("message", (event) => {
     pending.delete(message.requestId);
     if (message.ok) item.resolve(message.value);
     else item.reject(new Error(String(message.error ?? "Capability call failed.")));
-    return;
-  }
-  if (message.type === "execute") {
-    if (typeof message.executionId !== "string" || typeof message.entry !== "string") return;
-    currentExecutionId = message.executionId;
-    void (async () => {
-      try {
-        const module = await import(pathToFileURL(message.entry as string).href);
-        const run = typeof module.run === "function" ? module.run : typeof module.default === "function" ? module.default : null;
-        if (!run) throw new Error("Skill module must export a run(args, api) function or a default function.");
-        send({ type: "result", value: await run(message.args, api) });
-      } catch (error) {
-        send({ type: "error", error: error instanceof Error ? error.stack ?? error.message : String(error) });
-      } finally {
-        for (const item of pending.values()) item.reject(new Error("Execution finished."));
-        pending.clear();
-        currentExecutionId = null;
-      }
-    })();
     return;
   }
   if (message.type === "execute-code" && typeof message.executionId === "string" && typeof message.code === "string") {

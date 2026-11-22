@@ -9,8 +9,8 @@
 
 - [x] **P1-01 CodeBuddy 文件工具收口。** 受限权限/Expert 不再把 `workspace_read_file` 映射成 CodeBuddy 内置 `Read/Glob/Grep`，而是通过应用 Workspace Host Handler 提供读写；`assisted` 不开放 Provider 原生文件工具。增加工具选择策略单元测试。
 - [x] **P1-02 插件指纹扫描有界化。** 在读取文件之前检查单文件 2 MB、总量 20 MB、文件数量和目录深度；打开文件后重新核对文件类型和大小。增加超大文件回归测试。
-- [ ] **P2-01 插件组件授权拆分。** 将 Markdown 指令组件（Skills/Commands/Agents）与可执行组件（Hooks/MCP/LSP/脚本/Mods）分成不同授权项，保留内容指纹与运行快照。需要同步调整 UI、注册表版本和 Provider adapter，避免一次改变授权语义。
-- [ ] **P2-02 插件目录扫描异步化。** 将目录指纹、Capability 探测和导入校验移出 Main 同步事件路径；先基于实际插件包规模测量，不引入通用线程池。
+- [x] **P2-01 插件组件授权拆分（第一阶段）。** 插件启用状态控制 Markdown 指令资源；独立运行授权只允许真实存在 Hooks/MCP/LSP/脚本/Mods 等可执行组件的插件。纯 Markdown 插件不能通过运行授权 IPC，也不会进入 Provider 原生插件目录；最后一个可执行组件被删除后，注册表会持久撤销旧运行授权。UI、注册表和回归测试已同步更新。
+- [x] **P2-02 归并到 P2-07。** 插件目录指纹、Capability 探测和导入校验与 Main 同步 I/O 治理统一跟踪，避免重复 Action；性能测量和异步化仍未完成，见 P2-07。
 
 ## Phase 2 — Agent 状态与运行上下文
 
@@ -19,7 +19,7 @@
 - [x] **P1-05 Pure Agent Snapshot 竞态。** 实时更新先到时，迟到的初始 Snapshot 不得覆盖新状态。
 - [x] **P1-06 Run 浏览器 Tab 固定。** 每次 Agent Run 固定工具目标 Tab（包括 Run 开始时没有 Active Tab 的情况），工具不再随 UI 的全局 Active Tab 漂移；应用侧阻止在 Run 期间关闭、导航、后退、前进、刷新或停止该 Tab，并保护键盘快捷键路径。为目标解析与操作阻断增加单元测试。
 - [ ] **P2-03 完整 Browser Session 隔离。** 当前 Tab pin 只解决应用 UI 切换导致的目标漂移，不阻止网页脚本或用户内容改变同一 Tab。Schedule 如需无人值守可靠性，应使用独立 Browser Session / 专用 Tab 生命周期，并测试登录态、下载和清理。
-- [ ] **P2-04 完整操作状态机替换。** 当前先统一忙碌判断并为长维护操作保留占用；只有在覆盖全部 IPC、Schedule、窗口退出和取消路径后，才考虑替换现有布尔状态。不要为了形式统一引入复杂状态机。
+- [x] **P2-04 当前阶段不实施完整操作状态机（范围决策已关闭）。** 保留共享忙碌判断和 maintenance lock；只对发现真实竞态的生命周期补局部状态与测试。没有证据证明当前布尔状态协调需要被全量替换，本项不作为当前实施任务。此勾选仅表示决策关闭，不表示完整状态机已实现。
 
 ## Phase 3 — Layout 唯一事实来源
 
@@ -30,16 +30,17 @@
 
 ## Phase 4 — 进程、性能和资源回收
 
-- [ ] **P2-07 Main 同步 I/O 治理。** Workspace 文件列表、读取、写入与搜索已改为异步文件 API，并保持文件描述符、符号链接和路径边界校验；插件指纹、Capability 探测和 ZIP 导入仍需异步化与性能基准，完成剩余部分后再标记 done。
+- [ ] **P2-07 Main 同步 I/O 治理（含 P2-02）。** Workspace 文件列表、读取、写入与搜索已改为异步文件 API，并保持文件描述符、符号链接和路径边界校验；插件指纹、Capability 探测、插件导入/快照及 Agent Skill ZIP 导入仍使用同步文件操作。先建立典型包规模下的 Main Event Loop 延迟和导入耗时基准，再将 I/O 改为异步；只有 CPU 密集工作出现可测量阻塞时才引入 Worker/UtilityProcess。
 - [ ] **P2-08 UtilityProcess 子进程树清理。** 实现跨平台进程树终止和等待退出；macOS/Linux 与 Windows 分别验证。不能把 UtilityProcess.kill() 当作整个进程树清理。
 - [x] **P2-09 CodeBuddy 总预算。** 一次用户请求最多 12 个模型轮次（6 次 Query、每次最多 2 轮）；应用 Host 工具与兼容模式文本工具调用共用 80 次请求级预算；兼容模式工具结果总输出最多 256 KiB；仍受现有 5 分钟请求超时约束。Provider 内部原生工具由 SDK 权限和轮次限制约束，不声称由应用计数器逐个计数。
-- [ ] **P2-10 未使用 Runtime 入口清理。** 对 `executeSkill()` 和 Native Skill Runtime 进行调用链盘点；未接入产品流程的入口应移除或明确标为实验能力。
+- [x] **P2-10 未使用 Runtime 入口清理。** 确认 `executeSkill()` / `SkillExecutionRequest` / Worker 的 `execute` 分支没有产品调用点；按 Agent Skills“脚本不会由导入器执行”的产品边界移除死入口，保留 Code Mode 使用的 UtilityProcess。同步修订 Runtime 和 Agent Skills 文档。
 
 ## 验证清单
 
 - [x] TypeScript typecheck
 - [x] 全部 Vitest 单元测试
 - [x] Layout Engine 独立测试
+- [x] Markdown-only Plugin 不能获得或保留可执行运行时授权（Vitest 回归测试已加入）
 - [ ] CodeBuddy 真实运行验证：Expert 只授权 Workspace read 时，不能读取 Workspace 外文件
 - [ ] Copilot / CodeBuddy 各自的 Agent Run 期间切换 Tab 验证
 - [ ] Sidepanel：左右/上下停靠、隐藏、窗口缩放、Tab Group 切换、浮动/重新停靠
@@ -51,5 +52,9 @@
 - 2026-11-22：GitHub Actions Build run [44970387078](https://github.com/saga/architect-agent-desktop/actions/runs/44970387078) 的 `validate` job 已通过：npm ci、TypeScript typecheck、全部 Vitest、应用 build、Layout Engine 独立测试均成功；该 run 包含 Workspace 文件 I/O 异步化。Windows 安装包仍在构建，macOS x64/ARM64 打包任务排队中。
 
 ## 本轮完成定义
+
+P2-01 当前完成的是授权边界第一阶段：插件启用与可执行运行时授权已经分开，纯 Markdown 插件无法获得运行时授权。混合插件在启用且运行时获批后仍由 Provider 原生加载整份插件快照；如未来要对 Skills、Commands、Agents 做逐组件授权，需要进一步收紧快照投影和 Provider Adapter，不能仅增加 UI 开关。
+
+P2-03、P2-05、P2-07、P2-08 仍未完成，本轮没有将其标记为完成。
 
 Action 项目勾选表示相关代码与自动化回归测试已经加入；上面的验证清单则需要实际 CI、Provider 或 GUI 环境确认。当前 CI 结果将在 Action Plan 更新记录中记录，不会仅因为提交成功就标记为通过。

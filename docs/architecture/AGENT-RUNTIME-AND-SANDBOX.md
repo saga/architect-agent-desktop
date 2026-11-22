@@ -1,8 +1,8 @@
 # Agent Runtime、Code Mode 与安全沙箱设计
 
-**状态：** Trusted Skill Runtime 与 JavaScript Code Mode 已实现；UtilityProcess 不构成安全沙箱  
+**状态：** JavaScript Code Mode 已实现；Native Skill Runtime 不属于当前产品执行路径；UtilityProcess 不构成安全沙箱  
 **范围：** Electron 主进程、Agent Skills、本地 Workspace 与 JavaScript Code Mode  
-**目标：** 保留可信 Skill 与现有 Agent 工具工作流，明确 JavaScript Code Mode 的权限和隔离边界；不提供独立的生成代码编译执行后端。
+**目标：** 明确 JavaScript Code Mode 的权限和隔离边界；Skill 文件仅作为 Agent 指令上下文，不提供本地脚本执行入口，也不提供独立的生成代码编译执行后端。
 
 ## 1. 设计结论
 
@@ -15,10 +15,10 @@ Electron 内置 Node.js 可以执行本地 JavaScript/TypeScript 编译产物，
 - **Capability API 是宿主授权接口，不是 OS 隔离。** 只有当执行环境无法绕过 API 直接调用宿主能力时，Capability 才能形成有效的访问边界。
 - **Workspace 路径不是沙箱。** 设置 cwd 或把工作目录传给 Agent，不会阻止脚本访问工作区以外的文件。
 
-当前有三条不同的执行路径：
+当前只有一条 Agent 代码执行路径：
 
-1. **trusted-skill**：由用户明确认可、来源可信的本地 Skill 脚本，继续使用 Electron UtilityProcess 中的 Node.js 执行。它只提供故障隔离，不提供恶意代码隔离保证。
-2. **JavaScript execute_code**：现有 Code Mode 用于组合 Agent 暴露的工具 API，继续保留在 UtilityProcess 中以兼容现有工作流。UtilityProcess 可直接访问 Node.js API，因此这条路径不是安全沙箱，不应承载需要抵御恶意代码的任务。
+1. **JavaScript execute_code**：Code Mode 用于组合 Agent 暴露的工具 API，运行在 Electron UtilityProcess 中。UtilityProcess 可直接访问 Node.js API，因此这条路径不是安全沙箱，不应承载需要抵御恶意代码的任务。
+2. **Skill 指令资源**：导入的 `SKILL.md`、Commands 和 Agents 是上下文内容，不是脚本执行请求。当前没有 Native Skill Runtime，也不根据 Skill 目录中的脚本自动执行代码。
 3. **Generated Code**：不提供独立的编译执行路径。JavaScript `execute_code` 仅用于编排当前已授权工具，不应被视为不可信代码的安全执行环境。
 
 不能把 UtilityProcess、node:vm、Worker Thread 或 Prompt 约束描述成不可信代码的安全边界。
@@ -31,8 +31,8 @@ Electron 内置 Node.js 可以执行本地 JavaScript/TypeScript 编译产物，
     Agent Runtime API
        |
        +-- Execution Policy
-       |     +-- trusted-skill -> Native UtilityProcess Backend
        |     +-- JavaScript execute_code -> UtilityProcess (tool orchestration only)
+       |     +-- SKILL.md -> instruction context only; no script execution entry
        |
        +-- Capability Host
        |     +-- Workspace: list / read / write
@@ -52,22 +52,12 @@ Runtime 后端只负责执行和生命周期；Capability Host 负责授权与�
 
 - **runtime-types.ts**：执行请求、结果、Capability 和 Handler 类型。
 - **runtime-capabilities.ts**：Workspace list/read/write 的宿主端实现。
-- **utility-process-runtime.ts**：启动 UtilityProcess、校验 Skill 入口路径、权限检查、超时、取消、进程退出和输出限制。
-- **utility-worker.ts**：在 UtilityProcess 中加载 Skill 模块，提供最小 API Facade，并通过 IPC 请求宿主 Capability。
-- **tests/agent-runtime-sandbox.spec.ts**：验证 Capability 未授权时拒绝调用。
+- **utility-process-runtime.ts**：启动 Code Mode UtilityProcess，执行超时、取消、进程退出、Tool Broker 调用计数及输出限制。
+- **utility-worker.ts**：运行 JavaScript Code Mode，并通过 IPC 向宿主请求 Tool Broker 能力。
+- **runtime-capabilities.ts**：Workspace list/read/write 的宿主端实现；是否开放由执行请求中的 Capability 集合控制。
+- **tests/utility-process-runtime.test.ts**：验证并发 Code Mode 请求的 Tool Broker 上下文隔离。
 
-Skill 模块应导出 run(args, api) 或默认函数。API 当前提供：
-
-    api.workspace.listFiles(path?, recursive?)
-    api.workspace.readFile(path)
-    api.workspace.writeFile(path, content)
-    api.log.info(message)
-    api.log.warn(message)
-    api.log.error(message)
-
-Workspace 文件操作只接受相对路径，拒绝路径穿越和符号链接；读写上限为 256 KB，列表限制 2,000 项和 8 层递归。写入要求父目录已经存在，不会自动创建目录。
-
-Capability 每次调用都在宿主端检查是否授权。自定义 Handler 可通过构造函数注入；尚未实现的 HTTP、Database、Browser、MCP 和 Tool Capability 不会被伪装成已可用功能。
+Code Mode 使用 Tool Broker 将模型生成的短程序限制在 Agent 当前已授权的工具 API 上；Worker 仍可直接访问 Node.js API，因此 Tool Broker 不是对 Worker 进程本身的安全隔离。
 
 ### 当前边界
 
@@ -78,21 +68,20 @@ Native UtilityProcess 中的 Skill 仍然可以直接调用 Node.js 的 fs、pro
 - 不要把 Capability 列表当成对任意 Node.js 代码的强制限制。
 - 不要把 Native UtilityProcess 后端用于执行未经审查的 LLM 生成代码。
 
-当前 Runtime 是可供宿主集成的基础模块，不会自动改变现有 Plugin Registry 的声明式插件行为；现有插件继续只提供 Markdown Skill、Workflow 和宿主 Tool 引用。
+当前 UtilityProcess Runtime 只用于 JavaScript Code Mode。Plugin Registry 中的 Markdown Skill、Command 和 Agent 仍然作为指令资源处理；插件脚本、Hook、MCP、LSP 和 Mod 走单独的插件运行时授权，不会调用 Native Skill Runtime。
 
-## 4. Skill 与 Code Mode 的关系
+## 4. Skill 指令与 Code Mode 的关系
 
-两者共享 Runtime API、Capability 定义、生命周期和 Trace 格式，但执行策略不同。
+Skill 与 Code Mode 不是同一种执行能力。
 
-| 项目 | Trusted Skill | JavaScript Code Mode |
+| 项目 | Markdown Skill | JavaScript Code Mode |
 |---|---|---|
-| 来源 | 用户认可的本地脚本 | LLM 生成的工具编排代码 |
-| Runtime | UtilityProcess / Node.js | UtilityProcess / Node.js |
-| Node.js 原生 API | 可用，仅限可信代码 | 技术上可访问，不是安全边界 |
-| Capability | 宿主授权检查 | 通过 Tool Broker，但直接 Node API 可绕过 |
-| 文件系统 | 进程仍可访问当前用户权限范围 | Broker 工具受限，但直接 Node API 可绕过 |
-| 依赖 | Skill 自身依赖 | 只编排当前声明的工具 |
-| 当前状态 | 已实现 | 已实现，不作为安全沙箱 |
+| 来源 | 用户导入或随插件提供的 Markdown | Agent 为组合已授权工具而生成的短程序 |
+| 处理方式 | 纳入指令上下文 | 在 UtilityProcess 中执行 |
+| 是否执行 Skill 目录脚本 | 否 | 不适用；Code Mode 不会自动发现或加载 Skill 脚本 |
+| Node.js 原生 API | 不适用 | 技术上可访问，不是安全边界 |
+| 工具权限 | 不会因为 Skill 文本而增加权限 | 每次调用经 Tool Broker 检查，但直接 Node API 可绕过 |
+| 当前状态 | 已实现，指令型资源 | 已实现，不作为安全沙箱 |
 
 Code Mode 的价值在于让模型把多个操作组合成一段程序，例如遍历架构文档、读取文件、查询数据、调用工具并生成报告。它不是“给模型一个 eval()”，而是让模型编排有明确输入输出和权限边界的 API。
 
@@ -156,13 +145,13 @@ Linux 的 Bubblewrap/NSJail 不能直接解决 macOS 和 Windows。桌面应用�
 ### Phase 1：Runtime 基础（本次）
 
 - [x] Runtime 请求/结果类型和 Capability 类型。
-- [x] UtilityProcess Native Node 执行后端。
-- [x] Trusted Skill 入口路径校验。
+- [x] UtilityProcess Code Mode 执行后端。
+- [x] 删除无调用路径的 Native Skill Runtime；Skill 入口不会被导入器或 Agent 自动执行。
 - [x] Workspace list/read/write Capability。
 - [x] 超时、AbortSignal 取消、进程退出处理。
 - [x] 输出和日志大小限制。
 - [x] Generated Code 默认拒绝执行。
-- [ ] 将 Runtime 工具接入 Agent 工具注册表。
+- [ ] 将 Code Mode 生命周期和结果接入 Agent 工具注册表。
 - [ ] 将 Runtime 事件接入现有 Agent Trace Store。
 - [ ] 增加进程级资源限制和运行状态 UI。
 

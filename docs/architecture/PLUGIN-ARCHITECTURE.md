@@ -6,9 +6,10 @@
 
 ## 1. 设计目标
 
-应用负责插件导入、结构校验、启用状态、独立运行授权和权限边界；Provider 原生插件运行时负责加载 Hooks、MCP、LSP、Skills、Commands、Agents 与插件脚本。Electron 主进程和 Renderer 不直接加载第三方插件代码。
+应用负责插件导入、结构校验、指令资源启用、独立可执行运行时授权和权限边界；Provider 原生插件运行时负责加载获批插件中的 Hooks、MCP、LSP、Skills、Commands、Agents 与插件脚本。Markdown 指令资源与可执行运行时是两类不同能力：启用插件不等于授权执行代码，运行时授权也不能代替 Agent 全局权限和 Expert 权限检查。Electron 主进程和 Renderer 不直接加载第三方插件代码。
 
 - 导入、启用和运行授权是不同状态。导入或启用不会执行代码。
+- enabled 控制 Markdown Skills、Commands、Agents 等指令资源是否可用；runtimeApproved 只针对 Hooks、MCP、LSP、脚本和 Mods 等可执行运行时组件。纯 Markdown 插件不能获得 runtimeApproved，也不会进入 Provider 原生插件目录。
 - Copilot SDK 和 CodeBuddy 都使用各自原生的 --plugin-dir 参数。
 - 插件必须启用、单独获准、全局权限为 Allow all，且 Expert 未收紧权限，才会进入 Provider。
 - 运行授权绑定插件目录的 SHA-256 内容指纹；任一文件变化都会令旧授权失效。
@@ -59,10 +60,10 @@ CodeBuddy 使用未经格式转换的 Claude Plugin 快照，原生加载 Skills
 每个插件在本地注册表中维护：
 
 - enabled：是否启用插件资源。
-- runtimeApproved：用户是否单独允许运行该插件的第三方代码。
+- runtimeApproved：用户是否单独允许 Provider 加载该插件实际包含的可执行运行时组件；Markdown-only 插件始终为 false。
 - runtimeApprovalHashes：用户授权时记录的插件目录 SHA-256 指纹。
 
-Provider 加载插件必须同时满足：
+只有插件包含至少一种可执行运行时能力时，Provider 才可能加载插件运行时。加载必须同时满足：
 
 1. 插件已启用。
 2. runtimeApproved === true。
@@ -71,6 +72,8 @@ Provider 加载插件必须同时满足：
 5. 当前 Expert 没有以 allowAllTools === false 收紧权限。
 6. 当前 Expert 的 Skills 白名单覆盖该插件全部原生加载 Skills。
 7. 当前 Provider 是 Copilot 或 CodeBuddy。
+
+只有 Skills、Commands、Agents 或 inline Commands 的 Markdown-only 插件只进入应用的指令上下文；即使用户调用运行时授权 IPC，也会被主进程拒绝。若已获批插件后来删除所有可执行组件，注册表会在下次枚举时持久撤销其运行授权和指纹。
 
 若 Expert 只选择某插件部分 Skills，宿主继续根据 Expert 白名单注入 Markdown，但不启动该插件的原生运行时，避免原生 Skill loader 暗中暴露未选择的 Skills。
 
@@ -88,7 +91,7 @@ plugin-content.ts 提供统一的内容指纹和快照功能：
 4. 如果快照指纹与批准指纹不一致，阻止 Provider 启动。
 5. Provider 只接收快照路径，不接收可变安装目录。
 
-Copilot 使用 SDK RuntimeConnection.forStdio({ args }) 在 Client 创建阶段传入重复的 --plugin-dir 参数。Copilot Client 的 baseDirectory 指向应用私有目录；环境变量 COPILOT_PLUGIN_DIR_ONLY=true 禁止自动发现用户个人插件，只加载本应用明确传入的插件目录。
+Copilot 使用 SDK RuntimeConnection.forStdio({ args }) 在 Client 创建阶段传入重复的 --plugin-dir 参数。Copilot Client 的 baseDirectory 指向应用私有目录；环境变量 COPILOT_PLUGIN_DIR_ONLY=true 禁止自动发现用户个人插件，只加载本应用明确传入的插件目录。纯 Markdown-only 插件不生成 Provider 临时目录。
 
 CodeBuddy 每次 Query 创建独立临时目录，把验证后的快照路径写入 CODEBUDDY_PLUGIN_DIRS。Query 的 finally 清理该目录以及临时配置文件。
 
@@ -96,7 +99,7 @@ CodeBuddy 每次 Query 创建独立临时目录，把验证后的快照路径写
 
 ## 6. Copilot 的最小工具权限
 
-应用以 SDK mode: empty 创建 Copilot Client。默认不开放运行时内置工具。
+应用以 SDK mode: empty 创建 Copilot Client。默认不开放运行时内置工具。纯 Markdown-only Plugin 不会开放 Bash、Skill、Task，也不会进入 Copilot 原生 Plugin Loader。
 
 只有插件运行授权通过后，Session 才会：
 

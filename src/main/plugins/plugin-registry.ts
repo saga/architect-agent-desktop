@@ -227,11 +227,6 @@ function hasRuntimeCapabilities(runtime: PluginRuntimeCapabilities): boolean {
     || runtime.scriptFiles > 0 || runtime.mods;
 }
 
-function hasPluginComponents(plugin: Pick<ClaudePlugin, "skills" | "commands" | "agents" | "inlineCommands"> & { runtime: PluginRuntimeCapabilities }): boolean {
-  return plugin.skills.length > 0 || plugin.commands.length > 0 || plugin.agents.length > 0
-    || plugin.inlineCommands.length > 0 || hasRuntimeCapabilities(plugin.runtime);
-}
-
 function collectMarkdownFiles(root: string, entryPath: string, kind: "skill" | "markdown"): string[] {
   const absolute = resolvePluginEntry(root, entryPath);
   const found: string[] = [];
@@ -386,12 +381,20 @@ export function listPlugins(pluginRoot: string, registryPath: string): PluginSum
         }
         const manifest = validatePluginDirectory(directory);
         if (manifest.id !== entry.name) return [];
+        const runtime = inspectPluginRuntimeCapabilities(directory);
+        if (registry.runtimeApproved[manifest.id] === true && !hasRuntimeCapabilities(runtime)) {
+          // A Markdown-only plugin must never retain executable-runtime trust.
+          registry.runtimeApproved[manifest.id] = false;
+          delete registry.runtimeApprovalHashes[manifest.id];
+          registryChanged = true;
+        }
         const runtimeApproved = currentFingerprint !== null
+          && hasRuntimeCapabilities(runtime)
           && registry.runtimeApproved[manifest.id] === true
           && registry.runtimeApprovalHashes[manifest.id] === currentFingerprint;
         return [{ ...manifest, enabled: registry.enabled[manifest.id] === true,
           runtimeApproved,
-          runtime: inspectPluginRuntimeCapabilities(directory) }];
+          runtime }];
       } catch { return []; }
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -441,7 +444,9 @@ export function setPluginRuntimeApproved(pluginId: string, approved: boolean, pl
   const plugin = listPlugins(pluginRoot, registryPath).find(item => item.id === pluginId);
   if (!plugin) throw new Error("找不到插件：" + pluginId);
   if (approved && !plugin.enabled) throw new Error("请先启用插件，再单独授权其运行时代码。");
-  if (approved && !hasPluginComponents(plugin)) throw new Error("该插件没有可加载的 Claude Plugin 组件。");
+  if (approved && !hasRuntimeCapabilities(plugin.runtime)) {
+    throw new Error("该插件没有可执行的运行时组件；Markdown Skills、Commands 和 Agents 无需单独运行时授权。");
+  }
   const registry = readRegistry(registryPath);
   registry.runtimeApproved[pluginId] = approved;
   if (approved) registry.runtimeApprovalHashes[pluginId] = pluginContentFingerprint(path.join(pluginRoot, pluginId));
@@ -455,7 +460,7 @@ export function listApprovedPluginRuntimeEntries(pluginRoot: string, registryPat
   const plugins = listPlugins(pluginRoot, registryPath);
   const registry = readRegistry(registryPath);
   return plugins
-    .filter(plugin => plugin.enabled && plugin.runtimeApproved && hasPluginComponents(plugin))
+    .filter(plugin => plugin.enabled && plugin.runtimeApproved && hasRuntimeCapabilities(plugin.runtime))
     .flatMap(plugin => {
       const directory = path.resolve(pluginRoot, plugin.id);
       try {

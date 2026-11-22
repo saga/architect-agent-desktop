@@ -36,7 +36,7 @@ description: Review code changes for correctness and maintainability.
 
 应用会校验 Skill ID 和描述，拒绝符号链接，并限制单文件与整个目录大小。导入后复制到应用管理目录；删除安装副本不会删除原始目录。启用的 Skill 正文会加入新 Agent Session 的系统指令上下文，并保留 frontmatter 作为元数据而不重复注入。
 
-Skill 包中的脚本或命令不会由导入器执行。Skill 内容属于用户提供的任务指引，不能覆盖应用级安全规则。
+Skill 包中的脚本或命令不会由导入器执行。当前产品不提供 Native Skill Runtime，也没有从 Skill 清单调用本地脚本的入口；Skill 内容属于用户提供的任务指引，不能覆盖应用级安全规则。需要执行脚本时，必须走独立的、明确授权的工具或插件运行时，而不是把 Skill Markdown 当作执行许可。
 
 ## 运行时与权限
 
