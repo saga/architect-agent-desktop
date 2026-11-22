@@ -1,6 +1,6 @@
 # ADR-006：Schedule 专属 Browser Session 与登录 Profile
 
-**状态：** 已采纳，第一阶段代码已实现；真实 Electron Session 自动化回归已接入 macOS / Windows CI（本次提交待验证）；仍等待 GUI 验收  
+**状态：** 已采纳；真实 Electron Session 持久化/隔离自动化回归已在 macOS / Windows CI 通过；Schedule 登录、OAuth Popup、下载及 GUI 生命周期仍待验收  
 **日期：** 2026-11-22
 
 ## 背景
@@ -38,7 +38,7 @@ Schedule 运行此前复用全局 `persist:architect-agent-browser` Session，�
 - OAuth/SSO 弹窗继承同一 Profile，不能访问 Node.js 或 Electron 主进程 API；非 HTTP(S) 导航被阻止。
 - Run 完成、失败或取消后，隐藏 BrowserWindow 与关联 WebContents 均被销毁。
 - Browser Context 初始化中途失败时，已创建的窗口与 WebContents 会回滚；清理步骤单独失败不会阻止其他资源释放。
-- macOS 与 Windows 均通过 GUI / CI 测试；Electron Session profile 数据保留行为经真实运行验证。
+- macOS 与 Windows 的真实 Electron `persist:` Session 持久化、Schedule 间 Cookie 隔离和单 Profile 重置自动化回归已通过；专属登录窗口、OAuth Popup、实际下载和 GUI Run 生命周期仍待人工验收。
 
 
 ## 自动化回归

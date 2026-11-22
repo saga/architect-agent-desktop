@@ -18,7 +18,7 @@
 - [x] **P1-04 AgentPanel 事件初始化竞态。** 在加载 Session 前订阅事件；加载期间暂存事件，恢复 Transcript 后按序回放；按 Task ID 严格过滤，未就绪时禁止提交。
 - [x] **P1-05 Pure Agent Snapshot 竞态。** 实时更新先到时，迟到的初始 Snapshot 不得覆盖新状态。
 - [x] **P1-06 Run 浏览器 Tab 固定。** 每次 Agent Run 固定工具目标 Tab（包括 Run 开始时没有 Active Tab 的情况），工具不再随 UI 的全局 Active Tab 漂移；应用侧阻止在 Run 期间关闭、导航、后退、前进、刷新或停止该 Tab，并保护键盘快捷键路径。为目标解析与操作阻断增加单元测试。
-- [ ] **P2-03 Browser Session 隔离（第一阶段代码已实现，待跨平台验收）。** 已为每个 Schedule 建立独立、持久的 Electron Session partition；后台 Run 使用隐藏 BrowserWindow / WebContentsView，Browser Tools 通过 Schedule Context 路由，不再引用用户的 Active Tab；可打开专属 Profile 完成人工登录、配置起始 URL，并单独重置 Cookie / 站点存储 / HTTP Cache / HTTP Authentication Cache；Session 下载自动保存到 Downloads 下按 Schedule 哈希隔离的目录，文件名净化并附加唯一下载 ID，不弹出原生 Save 对话框；下载事件关联 Schedule ID 和保存路径；Memory Dreaming 明确不绑定任何可见 Browser Tab。Schedule 删除时会清除对应 Profile 的站点数据；Run finally 强制销毁隐藏窗口以绕过远程页面的 beforeunload 阻塞。应用退出时也会显式销毁所有已登记的 Run Context（包括仍在初始化、尚未挂到活动变量的 Context）、Profile 根窗口及 OAuth 子窗口，取消未完成下载并 flush 已初始化的 Session；退出开始后禁止新建 Session、BrowserWindow、Tab 和 OAuth 子窗口。等待中的 Session 初始化有 1.5 秒上限，不会无限阻塞退出。后台 WebContents 禁用背景节流。新增了部分初始化失败时的 context 回滚、Tab WebContents 先登记后挂载和容错式全量清理，避免准备阶段失败留下隐藏窗口。另新增真实 Electron `persist:` Session 多进程测试，覆盖重启后 Cookie 持久化、Schedule A/B 与普通浏览器隔离，以及只重置 A 不影响其他 Profile；测试接入 macOS / Windows CI。仍需 GUI 验证登录态持久化、弹窗、下载保存路径、超时/取消销毁和退出清理后才能标记 done。
+- [ ] **P2-03 Browser Session 隔离（自动化跨平台已验证，仍待 GUI 验收）。** 已为每个 Schedule 建立独立、持久的 Electron Session partition；后台 Run 使用隐藏 BrowserWindow / WebContentsView，Browser Tools 通过 Schedule Context 路由，不再引用用户的 Active Tab；可打开专属 Profile 完成人工登录、配置起始 URL，并单独重置 Cookie / 站点存储 / HTTP Cache / HTTP Authentication Cache；Session 下载自动保存到 Downloads 下按 Schedule 哈希隔离的目录，文件名净化并附加唯一下载 ID，不弹出原生 Save 对话框；下载事件关联 Schedule ID 和保存路径；Memory Dreaming 明确不绑定任何可见 Browser Tab。Schedule 删除时会清除对应 Profile 的站点数据；Run finally 强制销毁隐藏窗口以绕过远程页面的 beforeunload 阻塞。应用退出时也会显式销毁所有已登记的 Run Context（包括仍在初始化、尚未挂到活动变量的 Context）、Profile 根窗口及 OAuth 子窗口，取消未完成下载并 flush 已初始化的 Session；退出开始后禁止新建 Session、BrowserWindow、Tab 和 OAuth 子窗口。等待中的 Session 初始化有 1.5 秒上限，不会无限阻塞退出。后台 WebContents 禁用背景节流。新增了部分初始化失败时的 context 回滚、Tab WebContents 先登记后挂载和容错式全量清理，避免准备阶段失败留下隐藏窗口。另新增真实 Electron `persist:` Session 多进程测试，覆盖重启后 Cookie 持久化、Schedule A/B 与普通浏览器隔离，以及只重置 A 不影响其他 Profile；测试接入 macOS / Windows CI。仍需 GUI 验证登录态持久化、弹窗、下载保存路径、超时/取消销毁和退出清理后才能标记 done。
 - [x] **P2-04 当前阶段不实施完整操作状态机（范围决策已关闭）。** 保留共享忙碌判断和 maintenance lock；只对发现真实竞态的生命周期补局部状态与测试。没有证据证明当前布尔状态协调需要被全量替换，本项不作为当前实施任务。此勾选仅表示决策关闭，不表示完整状态机已实现。
 
 ## Phase 3 — Layout 唯一事实来源
@@ -35,7 +35,7 @@
   **性能验收：** GitHub Actions Benchmark run [44998687395](https://github.com/saga/architect-agent-desktop/actions/runs/44998687395)，Linux / Node.js 24.22.3，同一组 8 MiB 插件目录（259 个文件）和 8 MiB 未压缩 Skill ZIP（5 个文件），同步基线 `7dfd411` 对比当前异步实现：插件导入 34.76 → 110.45 ms；运行授权/指纹 31.42 → 96.64 ms；重复扫描 126.56 → 340.31 ms；Skill ZIP 导入 326.53 → 42.05 ms；组合总耗时 520.67 → 591.33 ms（增加 13.6%）。最大定时器延迟 520.17 → 21.11 ms（下降约 96%）。异步 I/O 牺牲少量整体 wall-clock 时间，换得 Main Event Loop 不再被目录扫描/文件复制长时间阻塞；CRC 查表消除了 ZIP 校验的主要 CPU 热点。没有证据支持再引入 Worker/UtilityProcess，因此不增加新的进程层。
 
   **验证：** Build run [44998687413](https://github.com/saga/architect-agent-desktop/actions/runs/44998687413) 的 `npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均通过。
-- [x] **P2-08 UtilityProcess 子进程树清理。** POSIX 使用冻结根进程、重复发现后代、冻结新后代、叶节点优先终止并等待退出；Windows 使用 `taskkill /T /F`。Runtime 正常完成、失败、超时、取消和 `dispose()` 均调用进程树清理；无论 PID 是否已就绪，都会调用 Electron `UtilityProcess.kill()` 兜底关闭根进程。新增真实 Node 父/子/孙进程树集成测试，在 macOS 和 Windows runner 上执行真实 OS 清理路径；Runtime 单元测试覆盖正常结束、PID 未就绪时取消和超时。最新三平台 Build run [44999748352](https://github.com/saga/architect-agent-desktop/actions/runs/44999748352) 全部成功。完整 Electron GUI Agent Code Mode 的打包运行/取消/退出人工验收仍单独保留，不影响进程树清理代码项关闭。
+- [x] **P2-08 UtilityProcess 子进程树清理。** POSIX 使用冻结根进程、重复发现后代、冻结新后代、叶节点优先终止并等待退出；Windows 使用 `taskkill /T /F`。Runtime 正常完成、失败、超时、取消和 `dispose()` 均调用进程树清理；无论 PID 是否已就绪，都会调用 Electron `UtilityProcess.kill()` 兜底关闭根进程。新增真实 Node 父/子/孙进程树集成测试，在 macOS 和 Windows runner 上执行真实 OS 清理路径；Runtime 单元测试覆盖正常结束、PID 未就绪时取消和超时。Build run [45002723035](https://github.com/saga/architect-agent-desktop/actions/runs/45002723035) 的 macOS 与 Windows job 均通过真实 OS 进程树集成测试；当前目标平台仅为 macOS / Windows。完整 Electron GUI Agent Code Mode 的打包运行/取消/退出人工验收仍单独保留，不影响进程树清理代码项关闭。
 - [x] **P2-09 CodeBuddy 总预算。** 一次用户请求最多 12 个模型轮次（6 次 Query、每次最多 2 轮）；应用 Host 工具与兼容模式文本工具调用共用 80 次请求级预算；兼容模式工具结果总输出最多 256 KiB；仍受现有 5 分钟请求超时约束。Provider 内部原生工具由 SDK 权限和轮次限制约束，不声称由应用计数器逐个计数。
 - [x] **P2-10 未使用 Runtime 入口清理。** 确认 `executeSkill()` / `SkillExecutionRequest` / Worker 的 `execute` 分支没有产品调用点；按 Agent Skills“脚本不会由导入器执行”的产品边界移除死入口，保留 Code Mode 使用的 UtilityProcess。同步修订 Runtime 和 Agent Skills 文档。
 
@@ -48,7 +48,7 @@
 - [x] Layout Engine 独立测试
 - [x] Markdown-only Plugin 不能获得或保留可执行运行时授权（Vitest 回归测试已加入）
 - [x] Schedule Browser Profile partition ID 稳定且按 Schedule 隔离（Vitest 回归测试已加入）
-- [ ] 真实 Electron `persist:` Session 多进程回归：跨进程重启持久化、Schedule A/B 与普通浏览器 Cookie 隔离、重置 A 不影响 B 和普通浏览器（本次新增，等待 macOS / Windows CI 验证）
+- [x] 真实 Electron `persist:` Session 多进程回归：跨进程重启持久化、Schedule A/B 与普通浏览器 Cookie 隔离、重置 A 不影响 B 和普通浏览器（Build runs [45002307524](https://github.com/saga/architect-agent-desktop/actions/runs/45002307524) 与 [45003096172](https://github.com/saga/architect-agent-desktop/actions/runs/45003096172) 的 macOS / Windows job 均通过）
 - [x] Schedule Browser Tool Context 不会回退到用户 Active Tab（Vitest 回归测试已加入）
 - [x] Schedule Browser Context 部分初始化失败会执行资源回滚，且清理失败不覆盖原始错误（Vitest 回归测试已加入）
 - [x] Schedule Profile 重置会依次清除站点存储、HTTP Cache、HTTP Authentication Cache，并在完成后 flush（Vitest 回归测试已加入）
@@ -62,9 +62,11 @@
 - [x] WorkspaceDocument v1 偏好迁移、四方向停靠、显隐和面板比例的 v2 往返回归测试（Layout Engine 自动化测试已覆盖）
 - [ ] macOS：Electron Agent Code Mode 中真实 UtilityProcess 取消、超时及应用退出清理验证
 - [ ] Windows：Electron Agent Code Mode 中真实 UtilityProcess 取消、超时及应用退出清理验证
-- [ ] macOS DMG / ZIP 与 Windows NSIS 安装包构建验证及 CI 产物检查（本次新增打包步骤，等待 CI 运行）
+- [x] macOS ARM64 DMG / ZIP 与 Windows x64 NSIS 构建及 CI artifact 检查（run [45003096172](https://github.com/saga/architect-agent-desktop/actions/runs/45003096172) 两平台均成功；artifact 仅包含安装文件，约 830 MB / 328 MB。当前产物未签名，macOS 未公证）
 
 ## CI 更新记录
+
+- 2026-11-22：提交 `e503c86` 的 Build run [45003096172](https://github.com/saga/architect-agent-desktop/actions/runs/45003096172) 在 macOS / Windows 两个目标 runner 均成功，包含 TypeScript、全部 Vitest、应用 build、Layout Engine、真实 Electron Session 多进程测试及原生安装包构建。artifact 规则仅上传 macOS `.dmg` / `*-mac.zip` 与 Windows `.exe`，体积分别约 830 MB / 328 MB；当前未配置平台代码签名或 macOS 公证。后续提交 `c793759` 增加 Schedule Browser 初始化/退出竞态保护，其双平台验证仍在进行。
 
 - 2026-11-22：UtilityProcess 子进程树清理提交 `e860a6b` 的历史 Build run [44999451094](https://github.com/saga/architect-agent-desktop/actions/runs/44999451094) 曾额外运行 Ubuntu job；项目目标平台的 macOS 与 Windows jobs 均通过：`npm ci`、TypeScript typecheck、全部 Vitest（包含真实 Node 父/子/孙进程树集成测试）、应用 build 和 Layout Engine 独立测试均成功。该结果验证当前 OS 的进程树算法和 Runtime 测试接线，但不替代在 Electron GUI 中验证完整 Agent Code Mode 取消、超时和应用退出。
 
@@ -75,7 +77,7 @@
 - 2026-11-22：最新 Schedule Browser OAuth / cleanup 修复提交 `71ce796` 的 GitHub Actions Build run [44995645403](https://github.com/saga/architect-agent-desktop/actions/runs/44995645403) 已通过：`npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均成功。此轮包括 Electron 45 popup 类型修正、Profile 子窗口安全策略和 WebContents 生命周期清理。
 - 2026-11-22：Schedule Browser Session 主体提交 `0499fed` 的 GitHub Actions Build run [44994616328](https://github.com/saga/architect-agent-desktop/actions/runs/44994616328) 已通过；follow-up 生命周期清理提交 `2e839da` 的 Build run [44994804904](https://github.com/saga/architect-agent-desktop/actions/runs/44994804904) 也已通过。两次 validate 均完成 `npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试。
 - 2026-11-22：最新提交 `64e7e0b` 的 GitHub Actions Build run [44989449265](https://github.com/saga/architect-agent-desktop/actions/runs/44989449265) 已完成且成功。validate job 中 `npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均通过；本次加入的 Markdown-only Plugin 授权回归测试包含在该 Vitest 结果中。当前工作流仅验证构建，不执行 Windows/macOS 安装包打包，因此不能据此声称安装包已通过跨平台验证。
-- 当前 CI 仅验证构建，不执行 Windows/macOS 安装包打包，也不替代真实 Electron BrowserWindow / Session 的 GUI 验收。
+- 当前 CI 在 macOS runner 构建 ARM64 DMG / ZIP，在 Windows runner 构建 x64 NSIS，并上传安装文件 artifact；CI 仍不替代真实 Provider 和 BrowserWindow / OAuth / 下载 GUI 验收。构建产物未接入代码签名或 Apple 公证。
 
 ## 本轮完成定义
 
