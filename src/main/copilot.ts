@@ -1053,7 +1053,7 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
   // verified session snapshots may be exposed to the CodeBuddy plugin loader.
   delete runtimeEnv.CODEBUDDY_PLUGIN_DIRS;
   const configuredMcpServers=this.configuredMcpServers("codebuddy",runtimeEnv);
-  const queryEnvironment={...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})};
+  const queryEnvironment: NodeJS.ProcessEnv={...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})};
   delete queryEnvironment.CODEBUDDY_PLUGIN_DIRS;
   if(stagedCodeBuddyPluginDirectories.length){
    queryEnvironment.CODEBUDDY_PLUGIN_DIRS=stagedCodeBuddyPluginDirectories.map(entry=>entry.directory).join(path.delimiter);
