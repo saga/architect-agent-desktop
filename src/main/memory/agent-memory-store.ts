@@ -438,7 +438,7 @@ export class AgentMemoryStore {
         sourceRefs:[sourceId],importance:priority==="high"?1:0.8,pinned:priority==="high"?true:undefined,allowHighPriorityRewrite:true,
       preference:{
         domain:input.category,key:preferenceKey,
-        operator:/\\b(?:don't|do not|never|avoid|not|dislike|cannot|can't)\\b|不吃|不要|别再|避免|不能|不得|不喜欢/iu.test(content)?"avoid":
+        operator:/\b(?:don't|do not|never|avoid|not|dislike|cannot|can't)\b|不吃|不要|别再|避免|不能|不得|不喜欢/iu.test(content)?"avoid":
           /\\b(?:prefer|like|love)\\b|喜欢|偏好|更愿意/iu.test(content)?"prefer":"instruction",
         value:content,strength:input.strength,priority,
         appliesTo:this.preferenceAppliesTo(input.category),scope:input.scope,
