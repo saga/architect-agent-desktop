@@ -113,7 +113,7 @@ export class ProactiveStore{
   return row?this.toCandidate(row):null;
  }
  listCandidates(scope:string|null,limit=30):AgentMemoryCandidate[]{
-  const keys=keysOf(scope),rows=this.db.prepare("SELECT * FROM memory_candidates WHERE scope_key IN ("+keys.map(()=>"?").join(",")+") AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT ?").all({},...keys,now,clamp(Math.floor(limit),1,100)) as Array<Record<string,unknown>>;
+  const keys=keysOf(scope),rows=this.db.prepare("SELECT * FROM memory_candidates WHERE scope_key IN ("+keys.map(()=>"?").join(",")+") AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT ?").all({},...keys,Date.now(),clamp(Math.floor(limit),1,100)) as Array<Record<string,unknown>>;
   return rows.map(row=>this.toCandidate(row));
  }
  updateCandidate(id:string,scope:string|null,status:ProactiveCandidateStatus,noteId?:string):void{
