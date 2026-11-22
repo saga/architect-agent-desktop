@@ -49,7 +49,7 @@
 
 ## CI 更新记录
 
-- 2026-11-22：GitHub Actions Build run [44970387078](https://github.com/saga/architect-agent-desktop/actions/runs/44970387078) 的 `validate` job 已通过：npm ci、TypeScript typecheck、全部 Vitest、应用 build、Layout Engine 独立测试均成功；该 run 包含 Workspace 文件 I/O 异步化。Windows 安装包仍在构建，macOS x64/ARM64 打包任务排队中。
+- 2026-11-22：最新提交 `64e7e0b` 的 GitHub Actions Build run [44989449265](https://github.com/saga/architect-agent-desktop/actions/runs/44989449265) 已完成且成功。validate job 中 `npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均通过；本次加入的 Markdown-only Plugin 授权回归测试包含在该 Vitest 结果中。当前工作流仅验证构建，不执行 Windows/macOS 安装包打包，因此不能据此声称安装包已通过跨平台验证。
 
 ## 本轮完成定义
 
