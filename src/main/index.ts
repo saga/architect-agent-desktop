@@ -8,6 +8,7 @@ import {
   Menu,
   Notification,
   type MenuItemConstructorOptions,
+  type DownloadItem,
   screen,
   session,
   shell,
@@ -37,7 +38,7 @@ import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./logi
 import { clampBrowserBounds } from "./layout/browser-bounds";
 import { isAgentOperationBusy } from "./agent-operation-policy";
 import { resolveAgentBrowserTab, resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
-import { canOpenScheduleBrowserPopup, clearScheduleBrowserProfileData, initializeScheduleBrowserContext, scheduleBrowserDownloadPath, scheduleBrowserDownloadsDirectory, scheduleBrowserPartition } from "./schedule-browser-profile";
+import { canOpenScheduleBrowserPopup, cancelScheduleBrowserDownloads, clearScheduleBrowserProfileData, destroyScheduleBrowserProfileWindows, initializeScheduleBrowserContext, scheduleBrowserDownloadPath, scheduleBrowserDownloadsDirectory, scheduleBrowserPartition } from "./schedule-browser-profile";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { setPanelVisibility } from "./layout/layout-tree";
 
@@ -77,6 +78,8 @@ interface ScheduleBrowserContext {
 const scheduleBrowserSessions = new Map<string, Session>();
 const scheduleBrowserSessionPromises = new Map<string, Promise<Session>>();
 const scheduleBrowserProfileWindows = new Map<string, BrowserWindow>();
+const scheduleBrowserProfilePopupWindows = new Map<string, Set<BrowserWindow>>();
+const scheduleBrowserDownloads = new Map<string, Set<DownloadItem>>();
 let scheduleBrowserContext: ScheduleBrowserContext | null = null;
 
 const tabs = new Map<string, BrowserTab>();
@@ -751,6 +754,12 @@ async function getScheduleBrowserSession(scheduleId: string): Promise<Session> {
         try { item.cancel(); } catch { /* preserve the original save-path failure */ }
         return; // Never allow a hidden Schedule Browser to open a native Save dialog.
       }
+      let activeDownloads = scheduleBrowserDownloads.get(scheduleId);
+      if (!activeDownloads) {
+        activeDownloads = new Set<DownloadItem>();
+        scheduleBrowserDownloads.set(scheduleId, activeDownloads);
+      }
+      activeDownloads.add(item);
       const publish = (status: BrowserDownloadEvent["status"]) => {
         const payload: BrowserDownloadEvent = {
           id, scheduleId, fileName: item.getFilename(), status,
@@ -763,6 +772,10 @@ async function getScheduleBrowserSession(scheduleId: string): Promise<Session> {
       item.on("updated", () => publish("progress"));
       item.once("done", (_downloadEvent, state) => {
         publish(state === "completed" ? "completed" : "cancelled");
+        activeDownloads?.delete(item);
+        if (activeDownloads?.size === 0 && scheduleBrowserDownloads.get(scheduleId) === activeDownloads) {
+          scheduleBrowserDownloads.delete(scheduleId);
+        }
         recordOperation("schedule-browser", "download " + scheduleId + " " + item.getFilename() + " " + state);
       });
     });
@@ -934,12 +947,27 @@ function attachScheduleBrowserWindowDiagnostics(window: BrowserWindow, label: st
   });
 }
 
+function trackScheduleBrowserProfileWindow(scheduleId: string, window: BrowserWindow): void {
+  let windows = scheduleBrowserProfilePopupWindows.get(scheduleId);
+  if (!windows) {
+    windows = new Set<BrowserWindow>();
+    scheduleBrowserProfilePopupWindows.set(scheduleId, windows);
+  }
+  windows.add(window);
+  window.once("closed", () => {
+    const current = scheduleBrowserProfilePopupWindows.get(scheduleId);
+    current?.delete(window);
+    if (current?.size === 0) scheduleBrowserProfilePopupWindows.delete(scheduleId);
+  });
+}
+
 function secureScheduleProfilePopup(
   popup: BrowserWindow,
   profile: Session,
   scheduleId: string,
   depth = 0,
 ): void {
+  trackScheduleBrowserProfileWindow(scheduleId, popup);
   popup.webContents.on("will-navigate", (event, url) => {
     if (!safeWebUrl(url)) {
       event.preventDefault();
@@ -1025,9 +1053,28 @@ async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
 
 async function resetScheduleBrowserProfile(scheduleId: string): Promise<void> {
   if (scheduleBrowserContext?.scheduleId === scheduleId) throw new Error("该 Schedule 正在运行，不能重置其 Browser Profile。");
-  const window = scheduleBrowserProfileWindows.get(scheduleId);
-  if (window && !window.isDestroyed()) window.destroy();
+
+  // Stop in-flight downloads before clearing the profile; completed files remain untouched.
+  const downloads = scheduleBrowserDownloads.get(scheduleId);
+  if (downloads) {
+    for (const error of cancelScheduleBrowserDownloads(downloads)) {
+      recordOperation("schedule-browser", "download cancellation failed for " + scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
+    }
+    scheduleBrowserDownloads.delete(scheduleId);
+  }
+
+  // Destroy nested OAuth popups first, then the Profile's root window. A live child
+  // window must not continue writing cookies or site data after the reset completes.
+  const root = scheduleBrowserProfileWindows.get(scheduleId);
+  const popups = [...(scheduleBrowserProfilePopupWindows.get(scheduleId) ?? [])]
+    .filter(window => window !== root);
+  const windows = [...popups, ...(root ? [root] : [])];
+  for (const error of destroyScheduleBrowserProfileWindows(windows)) {
+    recordOperation("schedule-browser", "Profile window destroy failed for " + scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
+  }
+  scheduleBrowserProfilePopupWindows.delete(scheduleId);
   scheduleBrowserProfileWindows.delete(scheduleId);
+
   const profile = await getScheduleBrowserSession(scheduleId);
   await clearScheduleBrowserProfileData(profile);
 }

@@ -38,10 +38,61 @@ export interface ScheduleBrowserProfileStore {
 
 /** Explicit Profile reset clears browser storage, network caches and HTTP authentication state. */
 export async function clearScheduleBrowserProfileData(profile: ScheduleBrowserProfileStore): Promise<void> {
-  await profile.clearStorageData();
-  await profile.clearCache();
-  await profile.clearAuthCache();
-  profile.flushStorageData();
+  let firstError: unknown;
+  let hasError = false;
+  const operations = [
+    () => profile.clearStorageData(),
+    () => profile.clearCache(),
+    () => profile.clearAuthCache(),
+  ];
+  for (const operation of operations) {
+    try { await operation(); }
+    catch (error) {
+      if (!hasError) { firstError = error; hasError = true; }
+    }
+  }
+  try { profile.flushStorageData(); }
+  catch (error) {
+    if (!hasError) { firstError = error; hasError = true; }
+  }
+  if (hasError) throw firstError;
+}
+
+export interface ScheduleBrowserProfileWindow {
+  isDestroyed(): boolean;
+  destroy(): void;
+}
+
+export function destroyScheduleBrowserProfileWindows(
+  windows: Iterable<ScheduleBrowserProfileWindow>,
+): unknown[] {
+  const failures: unknown[] = [];
+  const seen = new Set<ScheduleBrowserProfileWindow>();
+  for (const window of windows) {
+    if (seen.has(window)) continue;
+    seen.add(window);
+    try { if (!window.isDestroyed()) window.destroy(); }
+    catch (error) { failures.push(error); }
+  }
+  return failures;
+}
+
+export interface ScheduleBrowserDownloadItem {
+  cancel(): void;
+}
+
+export function cancelScheduleBrowserDownloads(
+  downloads: Iterable<ScheduleBrowserDownloadItem>,
+): unknown[] {
+  const failures: unknown[] = [];
+  const seen = new Set<ScheduleBrowserDownloadItem>();
+  for (const item of downloads) {
+    if (seen.has(item)) continue;
+    seen.add(item);
+    try { item.cancel(); }
+    catch (error) { failures.push(error); }
+  }
+  return failures;
 }
 
 /** Keep unattended downloads under a directory unique to each Schedule profile. */

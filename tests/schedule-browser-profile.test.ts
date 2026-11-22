@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { canOpenScheduleBrowserPopup, clearScheduleBrowserProfileData, initializeScheduleBrowserContext, scheduleBrowserDownloadPath, scheduleBrowserDownloadsDirectory, scheduleBrowserPartition } from "../src/main/schedule-browser-profile";
+import { canOpenScheduleBrowserPopup, cancelScheduleBrowserDownloads, clearScheduleBrowserProfileData, destroyScheduleBrowserProfileWindows, initializeScheduleBrowserContext, scheduleBrowserDownloadPath, scheduleBrowserDownloadsDirectory, scheduleBrowserPartition } from "../src/main/schedule-browser-profile";
 
 describe("Schedule Browser Context initialization", () => {
   it("disposes partially-created resources when initialization fails", async () => {
@@ -35,6 +35,38 @@ describe("Schedule Browser Profile reset", () => {
       flushStorageData: () => { calls.push("flush"); },
     });
     expect(calls).toEqual(["storage", "cache", "auth", "flush"]);
+  });
+
+  it("attempts every profile clear and flush step even if an earlier step fails", async () => {
+    const calls: string[] = [];
+    const originalError = new Error("cache clear failed");
+    await expect(clearScheduleBrowserProfileData({
+      clearStorageData: async () => { calls.push("storage"); },
+      clearCache: async () => { calls.push("cache"); throw originalError; },
+      clearAuthCache: async () => { calls.push("auth"); },
+      flushStorageData: () => { calls.push("flush"); },
+    })).rejects.toBe(originalError);
+    expect(calls).toEqual(["storage", "cache", "auth", "flush"]);
+  });
+
+  it("destroys every Profile and OAuth popup window even if one destroy fails", () => {
+    const first = { isDestroyed: () => false, destroy: vi.fn(() => { throw new Error("popup close failed"); }) };
+    const second = { isDestroyed: () => false, destroy: vi.fn() };
+    const third = { isDestroyed: () => true, destroy: vi.fn() };
+    const failures = destroyScheduleBrowserProfileWindows([first, second, third, second]);
+    expect(failures).toHaveLength(1);
+    expect(first.destroy).toHaveBeenCalledTimes(1);
+    expect(second.destroy).toHaveBeenCalledTimes(1);
+    expect(third.destroy).not.toHaveBeenCalled();
+  });
+
+  it("cancels all pending Profile downloads even if one cancellation fails", () => {
+    const first = { cancel: vi.fn(() => { throw new Error("download cancel failed"); }) };
+    const second = { cancel: vi.fn() };
+    const failures = cancelScheduleBrowserDownloads([first, second, second]);
+    expect(failures).toHaveLength(1);
+    expect(first.cancel).toHaveBeenCalledTimes(1);
+    expect(second.cancel).toHaveBeenCalledTimes(1);
   });
 });
 
