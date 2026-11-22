@@ -32,6 +32,15 @@ describe("approved plugin content snapshots", () => {
     expect(pluginContentFingerprint(staged!.directory)).toBe(fingerprint);
   });
 
+
+  it("rejects oversized files before reading them into the fingerprint", () => {
+    const root = temp();
+    const source = path.join(root, "oversized-plugin");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(path.join(source, "payload.bin"), Buffer.alloc(2 * 1024 * 1024 + 1));
+    expect(() => pluginContentFingerprint(source)).toThrow(/超过 2 MB/);
+  });
+
   it("blocks execution when plugin files change after the user approved them", () => {
     const root = temp();
     const source = path.join(root, "installed", "mutable-plugin");

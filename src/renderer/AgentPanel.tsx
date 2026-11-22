@@ -149,25 +149,15 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     let cancelled = false;
     setSessionReady(false);
     setItems([]);
-    let unsubscribe: () => void = () => undefined;
+    let eventsReady = false;
+    const queuedEvents: CopilotEvent[] = [];
+    let unsubscribeEvents: () => void = () => undefined;
     void window.browser.getWorkspaceProject().then((workspace) => { if (!cancelled) setWorkspaceProject(workspace); }).catch(() => undefined);
     const unsubscribeProject = window.browser.onWorkspaceProjectUpdated((workspace) => {
       setWorkspaceProject(workspace);
       void window.browser.agentLoadSession(taskId).then((saved) => { if (!cancelled) setItems(saved); }).catch(() => undefined);
     });
-    void (async () => {
-      try {
-        if (typeof window.browser.agentLoadSession === "function") {
-          const saved = await window.browser.agentLoadSession(taskId);
-          if (!cancelled && saved.length) setItems(saved);
-        }
-      } catch {
-        // A missing or unreadable session file starts an empty conversation.
-      }
-      if (cancelled) return;
-      loadedTaskId.current = taskId;
-      setSessionReady(true);
-      const off = window.browser.onCopilotEvent((event: CopilotEvent) => {
+    const processCopilotEvent = (event: CopilotEvent) => {
         if (event.taskId && taskId && event.taskId !== taskId) return;
         const finalizeThinking = (next: ChatItem[]) => {
           for (let i = next.length - 1; i >= 0; i -= 1) {
@@ -267,7 +257,29 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
             { id: crypto.randomUUID(), kind: "error", content: event.text ?? "Request failed.", createdAt: Date.now() },
           ]);
         }
-      });
+      };
+    unsubscribeEvents = window.browser.onCopilotEvent((event: CopilotEvent) => {
+      if (event.taskId !== taskId) return;
+      if (!eventsReady) {
+        queuedEvents.push(event);
+        return;
+      }
+      processCopilotEvent(event);
+    });
+    void (async () => {
+      try {
+        if (typeof window.browser.agentLoadSession === "function") {
+          const saved = await window.browser.agentLoadSession(taskId);
+          if (!cancelled && saved.length) setItems(saved);
+        }
+      } catch {
+        // A missing or unreadable session file starts an empty conversation.
+      }
+      if (cancelled) return;
+      loadedTaskId.current = taskId;
+      eventsReady = true;
+      for (const event of queuedEvents.splice(0)) processCopilotEvent(event);
+      setSessionReady(true);
       if (cancelled) { off(); return; }
       unsubscribe = off;
     })();
@@ -275,7 +287,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     void Promise.all([window.browser.agentGetSettings(), window.browser.copilotStatus()])
       .then(([saved, result]) => { setSettings(saved); setStatus(result.status); setStatusMessage(result.message ?? ""); })
       .catch(() => setStatus("error"));
-    return () => { cancelled = true; unsubscribe(); unsubscribeProject(); unsubscribeSettings(); };
+    return () => { cancelled = true; eventsReady = false; unsubscribeEvents(); unsubscribeProject(); unsubscribeSettings(); };
   }, [taskId]);
 
   useEffect(() => {
@@ -340,7 +352,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
 
   const send = async (value: string) => {
     const prompt = value.trim();
-    if (!prompt || loading) return;
+    if (!taskId || !sessionReady || !prompt || loading) return;
     const contextLines = [
       ...(attachments.length ? ["Attached files (parsed locally):", ...attachments.map((file) => "- " + shortPath(file))] : []),
       ...(references.length ? ["References:", ...references.map((url) => "- " + url)] : []),
@@ -487,7 +499,7 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
     </div>
     <div className="agent-composer">
       <Sender rootClassName="agent-sender" value={input} onChange={setInput} submitType="enter"
-        onSubmit={(value) => { setInput(""); void send(value); }}
+        onSubmit={(value) => { if (!taskId || !sessionReady) return; setInput(""); void send(value); }}
         onCancel={() => void window.browser.copilotCancel()}
         loading={loading} autoSize={{ minRows: 1, maxRows: 6 }}
         placeholder={"使用 " + (settings.provider === "copilot" ? "GitHub Copilot" : "CodeBuddy") + " 询问页面或操作当前网页…"}

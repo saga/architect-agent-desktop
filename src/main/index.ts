@@ -33,7 +33,9 @@ import { writeJsonAtomic } from "./json-store";
 import { exportPlugin, importPlugin, listApprovedPluginRuntimeEntries, listPlugins, readEnabledPluginInstructions, removePlugin, setPluginEnabled, setPluginRuntimeApproved } from "./plugins/plugin-registry";
 import { importAgentSkill, importAgentSkillArchive, listAgentSkills, listMcpServers, readEnabledAgentSkillInstructions, removeAgentSkill, removeMcpServer, saveMcpServer, setAgentSkillEnabled, setMcpServerEnabled } from "./agent-extensions";
 import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./login-shell-env";
-import { calculateLayout } from "./layout/layout-engine";
+import { clampBrowserBounds } from "./layout/browser-bounds";
+import { isAgentOperationBusy } from "./agent-operation-policy";
+import { resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { findPanel, setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
@@ -45,8 +47,6 @@ import { listWorkspaceFiles, readWorkspaceFile } from "./workspace-files";
 const APP_ID = "com.saga.architectagentdesktop";
 const HOME_URL = "https://www.google.com/";
 const BROWSER_PARTITION = "persist:architect-agent-browser";
-const DEFAULT_CONTENT_TOP = 91;
-
 const ASKABLE_PERMISSIONS = new Set(["media", "display-capture", "geolocation", "notifications", "clipboard-read"]);
 
 interface BrowserTab {
@@ -72,14 +72,17 @@ let closingAgentPanelForRedock = false;
 let isQuitting = false;
 let browserSession: Session;
 let activeTabId: string | null = null;
+let agentToolTabId: string | null | undefined = undefined;
+function agentBrowserTab(): BrowserTab | null {
+  const id = resolveAgentBrowserTabId(agentToolTabId, activeTabId);
+  return id ? tabs.get(id) ?? null : null;
+}
 let attachedView: WebContentsView | null = null;
 let snapshotView: WebContentsView | null = null;
 let snapshotActive = false;
 let snapshotCapturing = false;
 let currentBrowserBounds: { x: number; y: number; width: number; height: number } | null = null;
-let contentTop = DEFAULT_CONTENT_TOP;
-let contentLeft = 0;
-let contentWidth: number | null = null;
+let reportedBrowserBounds: { x: number; y: number; width: number; height: number } | null = null;
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
 const AGENT_SESSION_ROOT = path.join(app.getPath("userData"), "agent-sessions");
 const AGENT_TASKS_PATH = path.join(app.getPath("userData"), "agent-tasks.json");
@@ -116,6 +119,7 @@ let activeAgentTaskId = "";
 const approvedAgentFiles = new Map<string, Set<string>>();
 let agentRequestPending = false;
 let taskActivationPending = false;
+let maintenanceOperationPending = false;
 let scheduledCapture: { taskId: string; answer: string; error?: string } | null = null;
 function currentTraceSessionId(): string {
   const task = agentTasks.find(item => item.id === activeAgentTaskId);
@@ -357,7 +361,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
   if (agentPanelWindow && !agentPanelWindow.isDestroyed()) agentPanelWindow.webContents.send("copilot:event", event);
 }, {
   async getCurrentPage() {
-    const tab = activeTabId ? tabs.get(activeTabId) : null;
+    const tab = agentBrowserTab();
     if (!tab) return "No active browser tab.";
     return await tab.view.webContents.executeJavaScript(`(() => {
       const clean = (s) => (s || "").replace(/\\s+/g, " ").trim();
@@ -370,67 +374,68 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     })()`);
   },
   async snapshot() {
-    const tab = activeTabId ? tabs.get(activeTabId) : null;
+    const tab = agentBrowserTab();
     if (!tab) throw new Error("No active tab.");
     const result = await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.snapshot(tab.view.webContents), "snapshot");
     const tree = result.tree.length > 120000 ? result.tree.slice(0, 120000) + "\n… (snapshot truncated)" : result.tree;
     return "URL: " + result.url + "\nTitle: " + result.title + "\n\nAccessibility tree (use the eN uid with browser_click or browser_fill):\n" + tree;
   },
   async screenshot(fullPage) {
-    const tab = activeTabId ? tabs.get(activeTabId) : null;
+    const tab = agentBrowserTab();
     if (!tab) throw new Error("No active tab.");
     const image = await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.screenshot(tab.view.webContents, { fullPage }), "screenshot");
     return { text: "Captured " + (fullPage ? "full-page " : "") + "screenshot of " + (tab.url || "the active tab") + ".", image };
   },
   async console(limit) {
-    const tab = activeTabId ? tabs.get(activeTabId) : null;
+    const tab = agentBrowserTab();
     if (!tab) throw new Error("No active tab.");
     const messages = await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.console(tab.view.webContents, limit), "console");
     if (!messages.length) return "No console messages.";
     return messages.map((entry, index) => `${index + 1}. [${entry.type}] ${entry.text.slice(0, 2000)}`).join("\n");
   },
   async listTabs() {
-    return JSON.stringify({ activeTabId, tabs: currentState().tabs.map(t => ({ id:t.id, title:t.title, url:t.url, active:t.id===activeTabId, loading:t.isLoading })) });
+    const selectedTabId = resolveAgentBrowserTabId(agentToolTabId, activeTabId);
+    return JSON.stringify({ activeTabId: selectedTabId, tabs: currentState().tabs.map(t => ({ id:t.id, title:t.title, url:t.url, active:t.id===selectedTabId, loading:t.isLoading })) });
   },
   async navigate(url) {
     if (!safeWebUrl(url)) throw new Error("Only http(s) URLs are allowed.");
-    if (!activeTabId) throw new Error("No active tab.");
-    const tab=tabs.get(activeTabId); if (!tab) throw new Error("Active tab not found.");
+    const tab=agentBrowserTab(); if (!tab) throw new Error("No active tab.");
     await tab.view.webContents.loadURL(url); return "Navigated active tab to " + url;
   },
   async openTab(url) {
     if (!safeWebUrl(url)) throw new Error("Only http(s) URLs are allowed.");
-    const id=await createTab(url); return "Opened new tab " + id + " at " + url;
+    const id=await createTab(url); if (agentToolTabId !== undefined) agentToolTabId=id; return "Opened new tab " + id + " at " + url;
   },
   async switchTab(tabId) {
     if (!tabs.has(tabId)) throw new Error("Unknown tab ID.");
-    activateTab(tabId); return "Switched to tab " + tabId;
+    if (agentToolTabId !== undefined) agentToolTabId=tabId; else activateTab(tabId);
+    return "Switched to tab " + tabId;
   },
   async click(uid) {
-    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    const tab=agentBrowserTab(); if (!tab) throw new Error("No active tab.");
     await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.click(tab.view.webContents, uid), "click");
     return "Clicked element " + uid + ". Call browser_snapshot again if you need updated uids.";
   },
   async fill(uid, value) {
-    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    const tab=agentBrowserTab(); if (!tab) throw new Error("No active tab.");
     await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.fill(tab.view.webContents, uid, value), "fill");
     return "Filled element " + uid + ". Form was not submitted.";
   },
   async scroll(direction, amount) {
-    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    const tab=agentBrowserTab(); if (!tab) throw new Error("No active tab.");
     await tab.view.webContents.executeJavaScript("window.scrollBy({top:" + (direction==="down" ? amount : -amount) + ",behavior:'smooth'})");
     return "Scrolled " + direction + " by " + amount + " pixels.";
   },
   async executeJavaScript(code) {
     if (!code.trim()) throw new Error("No JavaScript provided.");
-    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    const tab=agentBrowserTab(); if (!tab) throw new Error("No active tab.");
     const result=await tab.view.webContents.executeJavaScript(`(async () => {\n${code}\n})()`, true);
     if (result===undefined || result===null) return "JavaScript executed.";
     return typeof result==="string" ? result : JSON.stringify(result);
   },
   async injectCss(css) {
     if (!css.trim()) throw new Error("No CSS provided.");
-    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    const tab=agentBrowserTab(); if (!tab) throw new Error("No active tab.");
     await tab.view.webContents.executeJavaScript(`(() => {
       let style=document.querySelector("style[data-agent-injected-css]");
       if (!style) { style=document.createElement("style"); style.setAttribute("data-agent-injected-css","true"); document.head.appendChild(style); }
@@ -440,7 +445,7 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
     return "Injected CSS into " + tab.url + ".";
   },
   async cdp(method, params) {
-    const tab=activeTabId ? tabs.get(activeTabId) : null; if (!tab) throw new Error("No active tab.");
+    const tab=agentBrowserTab(); if (!tab) throw new Error("No active tab.");
     const result=await withCdpDeadline(tab.cdp, tab.view.webContents, () => tab.cdp.send(tab.view.webContents, method, params), method);
     if (result === undefined || result === null) return "CDP " + method + " completed.";
     const text=typeof result === "string" ? result : JSON.stringify(result);
@@ -622,68 +627,24 @@ function sendState(): void {
 }
 
 function updateActiveBounds(): void {
-  if (!mainWindow || mainWindow.isDestroyed() || !attachedView) return;
+  if (!mainWindow || mainWindow.isDestroyed() || !attachedView || !activeTabId) return;
   const [width, height] = mainWindow.getContentSize();
-  const left = Math.max(0, Math.min(contentLeft, width));
-  const top = Math.max(0, Math.min(contentTop, height));
-  const viewport = {
-    x: left,
-    y: 0,
-    width: Math.max(0, Math.min(contentWidth ?? (width - left), width - left)),
-    height,
-  };
-  if (agentWorkspacePreferences.mode === "pure") {
-    const visible = agentWorkspacePreferences.rightPanelVisible && agentWorkspacePreferences.rightPanelTab === "browser";
-    const pureBounds = visible
-      ? { x: left, y: top, width: viewport.width, height: Math.max(0, height - top) }
-      : { x: 0, y: 0, width: 0, height: 0 };
-    currentBrowserBounds = visible ? pureBounds : null;
-    if (!visible) hideSnapshot();
-    if (activeTabId) nativeViewStack.setBounds("browser:" + activeTabId, pureBounds);
-    if (snapshotActive && currentBrowserBounds) nativeViewStack.setBounds("snapshot", currentBrowserBounds);
-    return;
-  }
-  const panelGroup = workspaceDocument.tabGroups.find((group) => group.panelIds.includes("browser") && group.panelIds.includes("agent"));
-  let layoutTree = workspaceDocument.root;
-  if (panelGroup) {
-    layoutTree = setPanelVisibility(layoutTree, "browser", workspaceDocument.activePanelId === "browser");
-    layoutTree = setPanelVisibility(layoutTree, "agent", workspaceDocument.activePanelId === "agent");
-  } else {
-    layoutTree = setPanelVisibility(layoutTree, "agent", workspaceLayout.agentPanelVisible);
-    if (layoutTree.type === "split" && layoutTree.first.type === "panel" && layoutTree.second.type === "panel"
-      && [layoutTree.first.id, layoutTree.second.id].includes("browser") && [layoutTree.first.id, layoutTree.second.id].includes("agent")) {
-      const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
-      const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
-      const available = Math.max(1, (isHorizontal ? viewport.width : viewport.height) - (workspaceLayout.agentPanelVisible ? 6 : 0));
-      const agentSize = workspaceLayout.agentPanelVisible ? Math.min(workspaceLayout.agentPanelWidth, available - 320) : 0;
-      const browserSize = Math.max(0, available - agentSize);
-      const browserNode = layoutTree.first.id === "browser" ? layoutTree.first : layoutTree.second;
-      const agentNode = layoutTree.first.id === "agent" ? layoutTree.first : layoutTree.second;      layoutTree = {
-        ...layoutTree,
-        axis: isHorizontal ? "horizontal" : "vertical",
-        splitterSize: workspaceLayout.agentPanelVisible ? 6 : 0,
-        ratio: workspaceLayout.agentPanelVisible ? Math.max(0.05, Math.min(0.95, (agentFirst ? agentSize : browserSize) / available)) : 0.5,
-        first: agentFirst ? agentNode : browserNode,
-        second: agentFirst ? browserNode : agentNode,
-      };
-    }
-  }
-  const layout = calculateLayout(layoutTree, viewport, { pixelRatio: 1 });
-  const browserBounds = layout.bounds.browser;
-  if (!browserBounds) {
-    currentBrowserBounds = null;
-    hideSnapshot();
-    if (activeTabId) nativeViewStack.setBounds("browser:" + activeTabId, { x: 0, y: 0, width: 0, height: 0 });
-    return;
-  }
-  currentBrowserBounds = {
-    x: browserBounds.x, y: browserBounds.y + top,
-    width: browserBounds.width, height: Math.max(0, browserBounds.height - top),
-  };
-  nativeViewStack.setBounds("browser:" + activeTabId, currentBrowserBounds);
-  if (snapshotActive && currentBrowserBounds) nativeViewStack.setBounds("snapshot", currentBrowserBounds);
-}
+  const tab = tabs.get(activeTabId);
+  if (!tab || tab.view !== attachedView) return;
 
+  if (!reportedBrowserBounds) {
+    currentBrowserBounds = null;
+    nativeViewStack.setBounds("browser:" + activeTabId, { x: 0, y: 0, width: 0, height: 0 });
+    hideSnapshot();
+    return;
+  }
+
+  const bounds = clampBrowserBounds(reportedBrowserBounds, width, height);
+  currentBrowserBounds = bounds.width > 0 && bounds.height > 0 ? bounds : null;
+  nativeViewStack.setBounds("browser:" + activeTabId, bounds);
+  if (currentBrowserBounds && snapshotActive) nativeViewStack.setBounds("snapshot", currentBrowserBounds);
+  else if (!currentBrowserBounds) hideSnapshot();
+}
 function hideSnapshot(restoreFocus = false): void {
   if (!snapshotView) { snapshotActive = false; return; }
   nativeViewStack.unregister("snapshot", true);
@@ -929,6 +890,7 @@ function handleBrowserShortcut(event: Electron.Event, input: Electron.Input): vo
     }
     if (key === "r") {
       event.preventDefault();
+      if (activeTabId && shouldBlockAgentTabOperation(activeTabId, agentToolTabId, agentOperationBusy())) return;
       const tab = activeTabId ? tabs.get(activeTabId) : undefined;
       tab?.view.webContents.reload();
       return;
@@ -959,12 +921,14 @@ function handleBrowserShortcut(event: Electron.Event, input: Electron.Input): vo
 
   if (input.alt && (key === "arrowleft" || key === "left")) {
     event.preventDefault();
+    if (activeTabId && shouldBlockAgentTabOperation(activeTabId, agentToolTabId, agentOperationBusy())) return;
     const tab = activeTabId ? tabs.get(activeTabId) : undefined;
     if (tab?.view.webContents.navigationHistory.canGoBack()) {
       tab.view.webContents.navigationHistory.goBack();
     }
   } else if (input.alt && (key === "arrowright" || key === "right")) {
     event.preventDefault();
+    if (activeTabId && shouldBlockAgentTabOperation(activeTabId, agentToolTabId, agentOperationBusy())) return;
     const tab = activeTabId ? tabs.get(activeTabId) : undefined;
     if (tab?.view.webContents.navigationHistory.canGoForward()) {
       tab.view.webContents.navigationHistory.goForward();
@@ -1026,6 +990,10 @@ async function createTab(url = HOME_URL): Promise<string> {
 }
 
 function closeTab(id: string): void {
+  if (shouldBlockAgentTabOperation(id, agentToolTabId, agentOperationBusy())) {
+    recordOperation("browser", "blocked close of Agent-run tab " + id);
+    return;
+  }
   const index = tabOrder.indexOf(id);
   const tab = tabs.get(id);
   if (!tab || index < 0) return;
@@ -1428,7 +1396,7 @@ function redockAgentPanel(position?: "left" | "right" | "top" | "bottom"): void 
     const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
     const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
     const [windowWidth, windowHeight] = mainWindow?.getContentSize() ?? [1200, 800];
-    const available = Math.max(1, (isHorizontal ? (contentWidth ?? windowWidth) : windowHeight) - 6);
+    const available = Math.max(1, (isHorizontal ? windowWidth : windowHeight) - 6);
     const agentSize = workspaceLayout.agentPanelWidth;
     const browserSize = Math.max(0, available - agentSize);
     const browserNode = root.first.id === "browser" ? root.first : root.second;
@@ -1620,9 +1588,7 @@ function openAgentSettingsWindow(): void {
 }
 
 function assertAgentExtensionsIdle(): void {
-  if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
-    throw new Error("Agent 正在运行或切换 Task，请等待当前请求结束后再修改 MCP 和 Agent Skills。");
-  }
+  assertAgentOperationIdle("修改 MCP 和 Agent Skills");
 }
 
 function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
@@ -1639,6 +1605,25 @@ function assertTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 
 let scheduleRunnerActive = false;
 let schedulerTimer: NodeJS.Timeout | null = null;
+
+function agentOperationBusy(): boolean {
+  return isAgentOperationBusy({
+    scheduleRunnerActive,
+    maintenanceOperationPending,
+    agentRequestPending,
+    taskActivationPending,
+    providerBusy: copilotAgent.isBusy(),
+  });
+}
+function assertAgentOperationIdle(action: string): void {
+  if (agentOperationBusy()) throw new Error("Agent 正在运行或切换 Task，请稍后" + action + "。");
+}
+async function withAgentMaintenance<T>(action: string, operation: () => Promise<T>): Promise<T> {
+  assertAgentOperationIdle(action);
+  maintenanceOperationPending = true;
+  try { return await operation(); }
+  finally { maintenanceOperationPending = false; }
+}
 
 function notifyScheduleRun(title: string, succeeded: boolean): void {
   try {
@@ -1707,6 +1692,7 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
     let skipped = false;
     try {
       await activateAgentTask(eligibleTask.id, false, true);
+      agentToolTabId = activeTabId;
       activeAgentTraceId = runId;
       copilotAgent.setMemoryContext(eligibleTask.sessionId, runId);
       scheduledCapture = { taskId: eligibleTask.id, answer: "" };
@@ -1766,6 +1752,7 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
         error: errorText || undefined,
       });
       activeAgentTraceId = null;
+      agentToolTabId = undefined;
       if (agentTasks.some(task => task.id === previousTaskId)) {
         try { await activateAgentTask(previousTaskId, false, true); }
         catch (error) { recordOperation("memory-dreaming", "failed to restore Task: " + (error instanceof Error ? error.message : String(error))); }
@@ -1780,7 +1767,7 @@ async function processDueMemoryDreamingSchedules(): Promise<void> {
 
 async function processDueAgentSchedules(manualScheduleId?: string): Promise<void> {
   const manual = Boolean(manualScheduleId);
-  if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+  if (agentOperationBusy()) {
     if (manual) throw new Error("Agent 正在运行，请完成当前请求后再立即运行定时任务。");
     return;
   }
@@ -1833,6 +1820,7 @@ async function processDueAgentSchedules(manualScheduleId?: string): Promise<void
         runRecord.taskId = runTask.id;
         persistAgentScheduleRuns();
         await activateAgentTask(runTask.id, false, true);
+        agentToolTabId = activeTabId;
         activeAgentTraceId = runId;
         scheduledCapture = { taskId: runTask.id, answer: "" };
         recordAgentTrace("schedule.started", {
@@ -1905,6 +1893,7 @@ async function processDueAgentSchedules(manualScheduleId?: string): Promise<void
           status: succeeded ? "success" : "error", durationMs: finishedAt - runStartedAt,
         }, succeeded ? "completed" : "failed");
         activeAgentTraceId = null;
+        agentToolTabId = undefined;
         if (agentTasks.some(item => item.id === previousTaskId)) {
           try { await activateAgentTask(previousTaskId, false, true); }
           catch (error) { recordOperation("schedule", "failed to restore Task: " + (error instanceof Error ? error.message : String(error))); }
@@ -1945,7 +1934,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("agent-task:create", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后新建 Task。");
-    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再新建 Task。");
+    if (agentOperationBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再新建 Task。");
     const parsed = z.object({
       title: z.string().trim().max(120).optional(),
       workspacePath: z.string().max(4096).nullable().optional(),
@@ -1966,7 +1955,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-task:activate", async (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    if (agentOperationBusy()) {
       throw new Error("Agent 正在运行或切换 Task，请稍后重试。");
     }
     const parsed = z.string().min(1).max(100).safeParse(input);
@@ -1978,7 +1967,7 @@ function registerIpcHandlers(): void {
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Expert。");
     const parsed = z.object({ taskId: z.string().min(1).max(100), expertId: z.string().max(100).nullable() }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Task Expert assignment.");
-    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再切换 Expert。");
+    if (agentOperationBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再切换 Expert。");
     if (parsed.data.expertId && !agentExperts.some(item => item.id === parsed.data.expertId)) throw new Error("所选 Expert 不存在。");
     const task = taskForId(parsed.data.taskId);
     task.expertId = parsed.data.expertId;
@@ -1991,7 +1980,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("agent-workspace:add", async (event) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后添加 Workspace。");
-    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再添加 Workspace。");
+    if (agentOperationBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再添加 Workspace。");
     taskActivationPending = true;
     try {
       const { canceled, filePaths } = await dialog.showOpenDialog({ title: "添加 Workspace 文件夹", properties: ["openDirectory"] });
@@ -2009,7 +1998,7 @@ function registerIpcHandlers(): void {
     ipcMain.handle("agent-expert:save", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后修改 Expert。");
-    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再修改 Expert。");
+    if (agentOperationBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再修改 Expert。");
     const parsed = z.object({
       id: z.string().min(1).max(100),
       name: z.string().trim().min(1).max(80),
@@ -2038,7 +2027,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("agent-expert:delete", async (event, input: unknown) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后删除 Expert。");
-    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再删除 Expert。");
+    if (agentOperationBusy()) throw new Error("Agent 正在运行，请完成或取消当前任务后再删除 Expert。");
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Expert ID.");
     const activeTaskUsesExpert = taskForId().expertId === parsed.data;
@@ -2137,7 +2126,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("workspace:select-project", async (event) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Workspace。");
-    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再切换工作区。");
+    if (agentOperationBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再切换工作区。");
     taskActivationPending = true;
     try {
       const { canceled, filePaths } = await dialog.showOpenDialog({ title: "选择本地工作区", properties: ["openDirectory"] });
@@ -2159,7 +2148,7 @@ function registerIpcHandlers(): void {
     ipcMain.handle("workspace:clear-project", async (event) => {
     assertTrustedSender(event);
     if (scheduleRunnerActive) throw new Error("本地 Schedule 正在执行，请稍后切换 Workspace。");
-    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再清除工作区。");
+    if (agentOperationBusy()) throw new Error("Agent 正在处理请求，请完成或取消当前任务后再清除工作区。");
     const task = taskForId();
     task.workspacePath = null;
     task.updatedAt = Date.now();
@@ -2201,7 +2190,7 @@ function registerIpcHandlers(): void {
     if (root.type === "split" && root.first.type === "panel" && root.second.type === "panel" && new Set([root.first.id, root.second.id]).size === 2 && [root.first.id, root.second.id].includes("browser") && [root.first.id, root.second.id].includes("agent")) {
       const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
       const [windowWidth, windowHeight] = mainWindow?.getContentSize() ?? [1200, 800];
-      const available = Math.max(1, (isHorizontal ? (contentWidth ?? windowWidth) : windowHeight) - (workspaceLayout.agentPanelVisible ? 6 : 0));
+      const available = Math.max(1, (isHorizontal ? windowWidth : windowHeight) - (workspaceLayout.agentPanelVisible ? 6 : 0));
       const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
       const agentSize = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;
       const browserSize = Math.max(0, available - agentSize);
@@ -2421,7 +2410,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent-data:select-directory", async (event) => {
     assertTrustedSender(event);
-    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等待当前请求结束后再切换 Agent Data 目录。");
+    if (agentOperationBusy()) throw new Error("Agent 正在运行，请等待当前请求结束后再切换 Agent Data 目录。");
     const { canceled, filePaths } = await dialog.showOpenDialog({ title: "选择 Agent Data 目录", properties: ["openDirectory", "createDirectory"] });
     if (canceled || !filePaths[0]) return agentTraceStore.getDirectory();
     const directory = path.resolve(filePaths[0]);
@@ -2467,6 +2456,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("browser:navigate", (event, id: string, url: string) => {
     assertTrustedSender(event);
+    if (shouldBlockAgentTabOperation(id, agentToolTabId, agentOperationBusy())) throw new Error("Agent 正在使用当前 Tab，暂时不能导航。");
     const tab = tabs.get(id);
     if (!tab || typeof url !== "string") return;
     const target = resolveAddress(url);
@@ -2483,23 +2473,27 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("browser:go-back", (event, id: string) => {
     assertTrustedSender(event);
+    if (shouldBlockAgentTabOperation(id, agentToolTabId, agentOperationBusy())) throw new Error("Agent 正在使用当前 Tab，暂时不能后退。");
     const webContents = tabs.get(id)?.view.webContents;
     if (webContents?.navigationHistory.canGoBack()) webContents.navigationHistory.goBack();
   });
 
   ipcMain.handle("browser:go-forward", (event, id: string) => {
     assertTrustedSender(event);
+    if (shouldBlockAgentTabOperation(id, agentToolTabId, agentOperationBusy())) throw new Error("Agent 正在使用当前 Tab，暂时不能前进。");
     const webContents = tabs.get(id)?.view.webContents;
     if (webContents?.navigationHistory.canGoForward()) webContents.navigationHistory.goForward();
   });
 
   ipcMain.handle("browser:reload", (event, id: string) => {
     assertTrustedSender(event);
+    if (shouldBlockAgentTabOperation(id, agentToolTabId, agentOperationBusy())) throw new Error("Agent 正在使用当前 Tab，暂时不能刷新。");
     tabs.get(id)?.view.webContents.reload();
   });
 
   ipcMain.handle("browser:stop", (event, id: string) => {
     assertTrustedSender(event);
+    if (shouldBlockAgentTabOperation(id, agentToolTabId, agentOperationBusy())) throw new Error("Agent 正在使用当前 Tab，暂时不能停止加载。");
     tabs.get(id)?.view.webContents.stop();
   });
 
@@ -2517,11 +2511,19 @@ function registerIpcHandlers(): void {
 
   ipcMain.on("browser:set-content-bounds", (event, bounds: unknown) => {
     if (!isTrustedAppSender(event.sender) || !event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isTrustedAppUrl(event.senderFrame.url, path.join(__dirname, "../renderer/index.html"), process.env.VITE_DEV_SERVER_URL)) return;
-    const parsed = z.object({ top: z.number().finite().min(0).max(300), left: z.number().finite().min(0).max(10000), width: z.number().finite().min(0).max(10000) }).safeParse(bounds);
+    const parsed = z.object({
+      x: z.number().finite().min(0).max(10000),
+      y: z.number().finite().min(0).max(10000),
+      width: z.number().finite().min(0).max(10000),
+      height: z.number().finite().min(0).max(10000),
+    }).safeParse(bounds);
     if (!parsed.success) return;
-    contentTop = Math.round(parsed.data.top);
-    contentLeft = Math.round(parsed.data.left);
-    contentWidth = Math.round(parsed.data.width);
+    reportedBrowserBounds = {
+      x: Math.round(parsed.data.x),
+      y: Math.round(parsed.data.y),
+      width: Math.round(parsed.data.width),
+      height: Math.round(parsed.data.height),
+    };
     updateActiveBounds();
   });
 
@@ -2540,7 +2542,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:save-settings", async (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) throw new Error("Agent 正在运行或切换 Task，请稍后修改 Agent 配置。");
+    if (agentOperationBusy()) throw new Error("Agent 正在运行或切换 Task，请稍后修改 Agent 配置。");
     const parsed = z.object({
       provider: z.enum(["copilot", "codebuddy"]),
       copilotModel: z.string().max(200),
@@ -2571,13 +2573,15 @@ function registerIpcHandlers(): void {
       attachments: z.array(z.string().min(1).max(1000)).max(20).optional(),
     }).safeParse(input);
     if (!parsed.success) throw new Error("Message must contain 1–30,000 characters.");
-    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    if (agentOperationBusy()) {
       throw new Error("Agent 正在处理其他请求或切换 Task，请稍后重试。");
     }
     agentRequestPending = true;
+    agentToolTabId = null;
     try {
     const task = taskForId(parsed.data.taskId);
     if (activeAgentTaskId !== task.id) await activateAgentTask(task.id);
+    agentToolTabId = activeTabId;
     const allowedAttachments = approvedAgentFiles.get(task.id) ?? new Set<string>();
     const attachments = parsed.data.attachments ?? [];
     if (attachments.some(file => !allowedAttachments.has(file))) throw new Error("附件列表包含未经系统文件选择器授权的文件，请重新选择。");
@@ -2607,6 +2611,7 @@ function registerIpcHandlers(): void {
       publishAgentWorkspaceSnapshot();
     }
     } finally {
+      agentToolTabId = undefined;
       agentRequestPending = false;
     }
   });
@@ -2641,13 +2646,15 @@ function registerIpcHandlers(): void {
     if (Buffer.byteLength(JSON.stringify(parsed.data.message), "utf8") > 32 * 1024) {
       throw new Error("A2UI renderer message exceeds the 32 KiB limit.");
     }
-    if (agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    if (agentOperationBusy()) {
       throw new Error("Agent 正在处理其他请求或切换 Task，请稍后重试。");
     }
     agentRequestPending = true;
+    agentToolTabId = null;
     try {
       const task = taskForId(parsed.data.taskId);
       if (activeAgentTaskId !== task.id) await activateAgentTask(task.id);
+      agentToolTabId = activeTabId;
       const previousTranscript = loadAgentSession(task.id);
       const actionContent = JSON.stringify(parsed.data.message);
       const interactionItem = {
@@ -2674,6 +2681,7 @@ function registerIpcHandlers(): void {
       publishAgentWorkspaceSnapshot();
     } finally {
       activeAgentTraceId = null;
+      agentToolTabId = undefined;
       agentRequestPending = false;
     }
   });
@@ -2684,7 +2692,7 @@ function registerIpcHandlers(): void {
   }).safeParse(input);
   ipcMain.handle("agent:memory-set-pinned", async (event, input: unknown) => {
     assertTrustedSender(event);
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等当前任务完成后再修改 Memory。");
+    assertAgentOperationIdle("修改 Memory");
     const parsed = z.object({
       taskId: z.string().min(1).max(100),
       noteId: z.string().min(1).max(100),
@@ -2698,7 +2706,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:memory-archive-note", async (event, input: unknown) => {
     assertTrustedSender(event);
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等当前任务完成后再归档 Memory。");
+    assertAgentOperationIdle("修改 Memory");
     const parsed = z.object({
       taskId: z.string().min(1).max(100),
       noteId: z.string().min(1).max(100),
@@ -2728,7 +2736,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:memory-abandon", async (event, input: unknown) => {
     assertTrustedSender(event);
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等待当前任务结束后再放弃 Dreaming。");
+    assertAgentOperationIdle("修改 Memory");
     const parsed = z.object({
       taskId: z.string().min(1).max(100),
       runId: z.string().min(1).max(100),
@@ -2741,7 +2749,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle("agent:memory-rollback", async (event, input: unknown) => {
     assertTrustedSender(event);
-    if (copilotAgent.isBusy()) throw new Error("Agent 正在运行，请等待当前任务结束后再回滚 Memory。");
+    assertAgentOperationIdle("修改 Memory");
     const parsed = z.object({
       taskId: z.string().min(1).max(100),
       runId: z.string().min(1).max(100),
@@ -2756,7 +2764,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("agent:memory-check-embedding", async (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    if (agentOperationBusy()) {
       throw new Error("Agent 正在运行，请等当前任务完成后再测试本机 Embedding。");
     }
     const parsed = z.object({
@@ -2765,27 +2773,27 @@ function registerIpcHandlers(): void {
       model: z.string().min(1).max(120),
     }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid local Embedding connection test.");
-    const result = await copilotAgent.checkMemoryEmbedding(parsed.data);
+    const result = await withAgentMaintenance("测试本机 Embedding", () => copilotAgent.checkMemoryEmbedding(parsed.data));
     recordOperation("memory-embedding", "local Ollama check passed: " + result.model + " · " + result.dimensions + " dimensions");
     return result;
   });
 
   ipcMain.handle("agent:memory-reindex-embeddings", async (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    if (agentOperationBusy()) {
       throw new Error("Agent 正在运行，请等当前任务完成后再建立 Memory 向量索引。");
     }
     const parsed = z.object({ taskId: z.string().min(1).max(100), limit: z.number().int().min(1).max(500).optional().default(200) }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Memory embedding index request.");
     const task = taskForId(parsed.data.taskId);
-    const result = await copilotAgent.reindexMemoryEmbeddings(task.workspacePath, parsed.data.limit);
+    const result = await withAgentMaintenance("建立 Memory 向量索引", () => copilotAgent.reindexMemoryEmbeddings(task.workspacePath, parsed.data.limit));
     recordTaskTrace(task, "memory.embedding.indexed", result);
     return result;
   });
 
   ipcMain.handle("agent:memory-record-external-sources", (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    if (agentOperationBusy()) {
       throw new Error("Agent 正在运行，请完成当前任务后再记录外部来源。");
     }
     const parsed = z.object({
@@ -2815,7 +2823,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("agent:memory-confirm-external-verification", (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    if (agentOperationBusy()) {
       throw new Error("Agent 正在运行，请完成当前任务后再确认外部事实来源。");
     }
     const parsed = z.object({
@@ -2836,7 +2844,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("agent:memory-save-dream-schedule", (event, input: unknown) => {
     assertTrustedSender(event);
-    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    if (agentOperationBusy()) {
       throw new Error("Agent 正在运行，请在当前任务结束后修改 Dreaming 自动整理设置。");
     }
     const parsed = z.object({
@@ -2870,7 +2878,7 @@ function registerIpcHandlers(): void {
     if (Buffer.byteLength(serialized, "utf8") > 5 * 1024 * 1024) throw new Error("Agent session exceeds the 5 MiB limit.");
     const targetTaskId = parsed.data.taskId ?? activeAgentTaskId;
     if (targetTaskId !== activeAgentTaskId) throw new Error("Cannot save a transcript for a Task that is no longer active.");
-    if (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy()) {
+    if (agentOperationBusy()) {
       // Renderer autosave is debounced and can land while a turn or Task switch is in flight.
       // Skipping is safe: the transcript is resaved on "done"/"error" or after the switch.
       recordOperation("session", "save skipped while agent busy: " + targetTaskId);
@@ -2885,7 +2893,7 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     const taskId = input === undefined ? activeAgentTaskId : z.string().min(1).max(100).parse(input);
     const task = taskForId(taskId);
-    if (taskId === activeAgentTaskId && (scheduleRunnerActive || agentRequestPending || taskActivationPending || copilotAgent.isBusy())) throw new Error("Agent 正在运行，不能清理当前 Task 的会话。");
+    if (taskId === activeAgentTaskId && (agentOperationBusy())) throw new Error("Agent 正在运行，不能清理当前 Task 的会话。");
     const previousItemCount = loadAgentSession(taskId).length;
     agentTraceStore.clearSessionItems(task.sessionId);
     copilotAgent.resetA2UIForTask(task.sessionId);
@@ -2894,12 +2902,6 @@ function registerIpcHandlers(): void {
     recordTaskTrace(task, "session.cleared", { previousItemCount });
   });
 
-  ipcMain.on("browser:set-content-top", (event, height: number) => {
-    if (!isTrustedAppSender(event.sender) || !event.senderFrame || event.senderFrame !== event.sender.mainFrame || !isTrustedAppUrl(event.senderFrame.url, path.join(__dirname, "../renderer/index.html"), process.env.VITE_DEV_SERVER_URL)) return;
-    if (!Number.isFinite(height)) return;
-    contentTop = Math.max(0, Math.min(240, Math.round(height)));
-    updateActiveBounds();
-  });
 }
 
 app.setAppUserModelId(APP_ID);

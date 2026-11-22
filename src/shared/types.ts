@@ -272,7 +272,7 @@ export interface BrowserApi {
   goForward(id: string): Promise<void>;
   reload(id: string): Promise<void>;
   stop(id: string): Promise<void>;
-  setContentBounds(bounds: { top: number; left: number; width: number }): void;
+  setContentBounds(bounds: { x: number; y: number; width: number; height: number }): void;
   onToggleAgent(listener: () => void): () => void;
   copilotStatus(): Promise<{ status: string; message?: string; provider: AgentProvider }>;
   openAgentSettings(): Promise<void>;

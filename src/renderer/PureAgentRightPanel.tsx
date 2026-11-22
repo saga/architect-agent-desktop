@@ -40,16 +40,18 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
     const pane = paneRef.current;
     const chrome = chromeRef.current;
     if (!pane || !chrome || activeTab !== "browser") {
-      window.browser.setContentBounds({ top: 0, left: 0, width: 0 });
+      window.browser.setContentBounds({ x: 0, y: 0, width: 0, height: 0 });
       return;
     }
     const update = () => {
       const paneBounds = pane.getBoundingClientRect();
       const chromeBounds = chrome.getBoundingClientRect();
+      const y = Math.max(0, Math.floor(chromeBounds.bottom));
       window.browser.setContentBounds({
-        top: Math.max(0, Math.floor(chromeBounds.bottom)),
-        left: Math.max(0, Math.floor(paneBounds.left)),
+        x: Math.max(0, Math.floor(paneBounds.left)),
+        y,
         width: Math.max(0, Math.floor(paneBounds.width)),
+        height: Math.max(0, Math.floor(paneBounds.bottom - y)),
       });
     };
     const observer = new ResizeObserver(update);
@@ -60,7 +62,7 @@ export default function PureAgentRightPanel({ snapshot, browserState, activeTab,
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", update);
-      window.browser.setContentBounds({ top: 0, left: 0, width: 0 });
+      window.browser.setContentBounds({ x: 0, y: 0, width: 0, height: 0 });
     };
   }, [activeTab, paneRef, chromeRef]);
 

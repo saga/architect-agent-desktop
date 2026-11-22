@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
-import { cpSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { constants as fsConstants, closeSync, cpSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
+
+const MAX_PLUGIN_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_PLUGIN_TOTAL_BYTES = 20 * 1024 * 1024;
+const MAX_PLUGIN_FILES = 4096;
+const MAX_PLUGIN_DEPTH = 32;
+const NO_FOLLOW = fsConstants.O_NOFOLLOW ?? 0;
 
 export interface PluginRuntimeEntry {
   id: string;
@@ -17,21 +23,41 @@ export interface StagedPluginRuntimeEntry {
 /** Deterministic SHA-256 over every file, relative path and entry type. */
 export function pluginContentFingerprint(root: string): string {
   const hash = createHash("sha256");
-  const visit = (directory: string): void => {
+  let totalBytes = 0;
+  let fileCount = 0;
+  const visit = (directory: string, depth: number): void => {
+    if (depth > MAX_PLUGIN_DEPTH) throw new Error("插件目录层级超过限制。");
     for (const entry of readdirSync(directory).sort((a, b) => a.localeCompare(b))) {
       const fullPath = path.join(directory, entry);
       const stat = lstatSync(fullPath);
       const relative = path.relative(root, fullPath).split(path.sep).join("/");
       if (stat.isSymbolicLink()) throw new Error("插件运行时目录不能包含符号链接：" + relative);
-      hash.update(relative).update("\0");
-      hash.update(String(stat.mode & 0o7777)).update("\0");
+      hash.update(relative).update("\\0");
+      hash.update(String(stat.mode & 0o7777)).update("\\0");
       if (stat.isDirectory()) {
-        hash.update("directory\0");
-        visit(fullPath);
+        hash.update("directory\\0");
+        visit(fullPath, depth + 1);
       } else if (stat.isFile()) {
-        hash.update("file\0");
-        hash.update(readFileSync(fullPath));
-        hash.update("\0");
+        fileCount += 1;
+        totalBytes += stat.size;
+        if (fileCount > MAX_PLUGIN_FILES) throw new Error("插件文件数量超过限制。");
+        if (stat.size > MAX_PLUGIN_FILE_BYTES) throw new Error("插件文件超过 2 MB 限制：" + relative);
+        if (totalBytes > MAX_PLUGIN_TOTAL_BYTES) throw new Error("插件总大小超过 20 MB 限制。");
+        const descriptor = openSync(fullPath, fsConstants.O_RDONLY | NO_FOLLOW);
+        try {
+          const opened = fstatSync(descriptor);
+          const sameIdentity = !stat.ino || !opened.ino
+            ? stat.dev === opened.dev
+            : stat.dev === opened.dev && stat.ino === opened.ino;
+          if (!opened.isFile() || opened.size > MAX_PLUGIN_FILE_BYTES || opened.size !== stat.size || !sameIdentity) {
+            throw new Error("插件文件在指纹计算期间发生变化：" + relative);
+          }
+          hash.update("file\\0");
+          hash.update(readFileSync(descriptor));
+          hash.update("\\0");
+        } finally {
+          closeSync(descriptor);
+        }
       } else {
         throw new Error("插件运行时目录包含不支持的文件类型：" + relative);
       }
@@ -39,7 +65,7 @@ export function pluginContentFingerprint(root: string): string {
   };
   const rootStat = lstatSync(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error("插件运行时源目录必须是普通目录。");
-  visit(root);
+  visit(root, 0);
   return hash.digest("hex");
 }
 

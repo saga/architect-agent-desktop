@@ -5,6 +5,8 @@
 | [ADR-001](./ADR-001-plugin-host-boundary.md) | 由宿主应用管理声明式插件包 | 已采纳并实现第一版 |
 | [ADR-002](./ADR-002-agent-data-and-tracing.md) | Agent Data、Session 与运行轨迹持久化 | 已采纳并实现第一版 |
 | [ADR-003](./ADR-003-session-explorer.md) | 内置 Session Explorer 与完整会话持久化 | 已采纳并实现 |
+| [ADR-004](./ADR-004-agent-operation-coordination-and-run-context.md) | Agent 操作协调与 Run 上下文 | 已采纳，第一阶段已实现 |
+| [ADR-005](./ADR-005-renderer-owned-browser-geometry.md) | Renderer 提供 Browser View 实际几何 | 已采纳并实现 |
 
 Layout Engine 和 Electron 原生视图相关决策记录在以下文档中：
 

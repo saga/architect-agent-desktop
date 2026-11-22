@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import path from "node:path";
 import { UtilityProcessAgentRuntime } from "./runtime/utility-process-runtime";
+import { codeBuddyBuiltinToolSelection } from "./agent-tool-policy";
 import { CODE_MODE_SYSTEM_INSTRUCTIONS, createCodeModeDescription, createToolProviders, normalizeCode, resolveProvider } from "./runtime/codemode";
 import { detachedCliOptions, isManagedSession, parseCredits } from "./agent-runtime.js";
 import { agentProcessEnvironment, proxyUrlFromRules } from "./login-shell-env.js";
@@ -549,12 +550,12 @@ export class CopilotDesktopAgent {
    {name:"browser_fill",description:"Fill a visible non-password text field or textarea by its eN uid from browser_snapshot. Does not submit the form.",schema:z.object({uid:z.string().regex(/^e\d+$/).max(20),value:z.string().max(10000)}),handler:({uid,value}:{uid:string;value:string})=>report("Fill field",()=>b.fill(uid,value))},
    {name:"browser_scroll",description:"Scroll active page up or down.",schema:z.object({direction:z.enum(["up","down"]),amount:z.number().int().min(100).max(2000).default(650)}),handler:({direction,amount}:{direction:"up"|"down";amount:number})=>report("Scroll page",()=>b.scroll(direction,amount))}
   ];
-  if(this.settings.provider==="copilot"&&this.workspacePath&&permission!=="browser-only")tools.push(
+  if(this.workspacePath&&permission!=="browser-only")tools.push(
    {name:"workspace_list_files",description:"List project files under the selected local workspace. Dependency and build output directories are omitted.",schema:z.object({}),handler:()=>report("List workspace files",async()=>listWorkspaceFiles(this.workspacePath as string))},
    {name:"workspace_read_file",description:"Read a UTF-8 text file by a path relative to the selected workspace root. Files over 256 KB and binary files are rejected.",schema:z.object({path:z.string().min(1).max(1000)}),handler:({path:relativePath}:{path:string})=>report("Read workspace file",async()=>readWorkspaceFile(this.workspacePath as string,relativePath))},
    {name:"workspace_search_files",description:"Search text in files under the selected workspace. Dependency and build output directories are omitted.",schema:z.object({query:z.string().min(2).max(200)}),handler:({query}:{query:string})=>report("Search workspace",async()=>searchWorkspaceFiles(this.workspacePath as string,query))}
   );
-  if(this.settings.provider==="copilot"&&this.workspacePath&&permission==="allow-all")tools.push(
+  if(this.workspacePath&&permission==="allow-all")tools.push(
    {name:"workspace_write_file",description:"Create or replace a UTF-8 text file under the selected workspace. Parent directories must already exist; paths cannot escape the workspace or traverse symlinks.",schema:z.object({path:z.string().min(1).max(1000),content:z.string().max(262144)}),handler:({path:relativePath,content}:{path:string;content:string})=>report("Write workspace file",async()=>writeWorkspaceFile(this.workspacePath as string,relativePath,content))}
   );
   if(permission==="allow-all")tools.push(
@@ -1033,17 +1034,12 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
   let timeout:ReturnType<typeof setTimeout>|undefined;
   try{
   const permission=this.effectivePermission();
-  const expertTools=this.taskContext?.tools??[];
-  const READ_ONLY_BUILTINS=["Read","Glob","Grep","WebFetch","WebSearch","ListMcpResources","ReadMcpResource","ViewImage"];
-  const expertBuiltinSelection = this.taskContext !== null && !this.taskContext.allowAllTools
-    ? [
-        ...(expertTools.some(name => ["workspace_list_files","workspace_read_file","workspace_search_files","workspace_write_file"].includes(name)) ? ["Read","Glob","Grep"] : []),
-        ...(permission === "allow-all" && expertTools.includes("workspace_write_file") ? ["Write","Edit"] : []),
-      ]
-    : null;
-  const allowedBuiltinTools = permission === "none"
-    ? []
-    : expertBuiltinSelection ?? (permission === "assisted" ? READ_ONLY_BUILTINS : null);
+  const READ_ONLY_BUILTINS=["WebFetch","WebSearch","ListMcpResources","ReadMcpResource","ViewImage"];
+  const allowedBuiltinTools = codeBuddyBuiltinToolSelection(
+    permission,
+    this.taskContext?.allowAllTools ?? true,
+    READ_ONLY_BUILTINS,
+  );
   const disallowedBuiltinTools = permission === "none" || permission === "browser-only"
     ? builtinToolNames
     : allowedBuiltinTools

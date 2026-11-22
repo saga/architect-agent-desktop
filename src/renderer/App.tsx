@@ -37,7 +37,6 @@ function App() {
   const splitterDrag = useRef<{ startCoordinate: number; startWidth: number; width: number } | null>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
   const browserWorkspaceRef = useRef<HTMLDivElement>(null);
-  const appShellRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
   const findRef = useRef<HTMLInputElement>(null);
 
@@ -123,26 +122,34 @@ function App() {
 
   useEffect(() => {
     const chrome = chromeRef.current;
-    const workspace = appShellRef.current;
-    if (!chrome || !workspace) return;
+    const browserWorkspace = browserWorkspaceRef.current;
+    if (!chrome || !browserWorkspace) return;
 
     const updateBounds = () => {
-      const workspaceBounds = workspace.getBoundingClientRect();
-      const nextChromeHeight = Math.ceil(chrome.getBoundingClientRect().height);
+      const workspaceBounds = browserWorkspace.getBoundingClientRect();
+      const chromeBounds = chrome.getBoundingClientRect();
+      const nextChromeHeight = Math.ceil(chromeBounds.height);
       setChromeHeight(nextChromeHeight);
+      const y = Math.max(0, Math.floor(chromeBounds.bottom));
       window.browser.setContentBounds({
-        top: nextChromeHeight,
-        left: Math.max(0, Math.floor(workspaceBounds.left)),
+        x: Math.max(0, Math.floor(workspaceBounds.left)),
+        y,
         width: Math.max(0, Math.floor(workspaceBounds.width)),
+        height: Math.max(0, Math.floor(workspaceBounds.bottom - y)),
       });
     };
 
     const observer = new ResizeObserver(updateBounds);
     observer.observe(chrome);
-    observer.observe(workspace);
+    observer.observe(browserWorkspace);
+    window.addEventListener("resize", updateBounds);
     updateBounds();
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateBounds);
+      window.browser.setContentBounds({ x: 0, y: 0, width: 0, height: 0 });
+    };
   }, [agentOpen, agentPosition, groupedWorkspace, activeWorkspacePanel, agentWorkspacePreferences?.mode]);
 
   useEffect(() => {
@@ -250,7 +257,7 @@ function App() {
   }
 
   return (
-    <div ref={appShellRef} className={"app-shell" + (IS_MAC ? " is-mac" : "") + (agentOpen && !groupedWorkspace ? " agent-open" : "") + (groupedWorkspace ? " agent-grouped" : "")} data-agent-position={agentPosition} style={shellStyle}>
+    <div className={"app-shell" + (IS_MAC ? " is-mac" : "") + (agentOpen && !groupedWorkspace ? " agent-open" : "") + (groupedWorkspace ? " agent-grouped" : "")} data-agent-position={agentPosition} style={shellStyle}>
       <div className="browser-workspace" ref={browserWorkspaceRef} style={browserPlacement}>
       <div className={"browser-chrome" + (IS_MAC ? " is-mac" : "")} ref={chromeRef}>
         <div className="tab-strip">

@@ -37,25 +37,28 @@ export default function PureAgentWorkspace({ browserState }: PureAgentWorkspaceP
 
   useEffect(() => {
     let active = true;
+    let receivedLiveUpdate = false;
+    const unsubscribe = window.browser.onAgentWorkspaceUpdated(result => {
+      receivedLiveUpdate = true;
+      latestSnapshot.current = result;
+      setSnapshot(result);
+      setLoading(false);
+    });
     void window.browser.getAgentWorkspaceSnapshot().then(result => {
-      if (!active) return;
+      if (!active || receivedLiveUpdate) return;
       latestSnapshot.current = result;
       setSnapshot(result);
       setLoading(false);
     }).catch(error => {
-      if (active) {
+      if (active && !receivedLiveUpdate) {
         setLoading(false);
         message.error(error instanceof Error ? error.message : String(error));
       }
     });
-    const unsubscribe = window.browser.onAgentWorkspaceUpdated(result => {
-      latestSnapshot.current = result;
-      setSnapshot(result);
-    });
     return () => {
       active = false;
       unsubscribe();
-      window.browser.setContentBounds({ top: 0, left: 0, width: 0 });
+      window.browser.setContentBounds({ x: 0, y: 0, width: 0, height: 0 });
     };
   }, []);
 
