@@ -146,9 +146,7 @@ describe("Claude Code Plugin packages", () => {
     const nativeInstructions = readEnabledPluginInstructions(pluginRoot, registry, undefined, {
       "research-toolkit": ["skills", "commands", "agents"],
     });
-    expect(nativeInstructions).not.toContain("Use primary sources.");
-    expect(nativeInstructions).toContain("Write a concise evidence-based summary.");
-    expect(nativeInstructions).not.toContain("Check citations and unsupported claims.");
+    expect(nativeInstructions).toBe(""); // Copilot Legacy Plugin natively loads Skills, Commands and Agents.
   });
 
   it("supports declared Claude Code custom component paths and inline commands", () => {
