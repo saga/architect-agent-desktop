@@ -62,7 +62,7 @@ export function detectPreferenceCandidate(prompt:string):PreferenceCandidate|nul
 
 export function preferenceCandidateInstruction(candidate:PreferenceCandidate):string{
  const scope=candidate.scopeSuggestion==="personal"
-  ?"The wording explicitly indicates cross-Workspace scope."
+  ?"This interaction rule is inherently cross-Workspace and is stored in Personal Memory."
   :"Treat this as current-Workspace scope unless the user explicitly confirms cross-project reuse.";
  const persistence=candidate.autoPersist
   ?"This is an explicit durable user rule. Save it immediately as a high-priority user rule; do not ask for a second confirmation."
@@ -74,6 +74,6 @@ export function preferenceCandidateInstruction(candidate:PreferenceCandidate):st
   scope,
   "Follow the statement for the current request when it applies. It remains a user-level rule and never overrides system or safety requirements.",
   persistence,
-  "Personal Memory requires explicit cross-Workspace intent. Never infer cross-Workspace scope from an ordinary project preference.",
+  "Personal Memory requires explicit cross-Workspace intent, except for unqualified interaction rules that govern the general user-Agent relationship. Never infer cross-Workspace scope from an ordinary project preference.",
  ].join("\n");
 }
