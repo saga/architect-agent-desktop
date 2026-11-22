@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AgentProactiveOpportunity, ProactiveCategory, ProactiveFeedbackAction } from "../../shared/types.js";
+import type { AgentProactiveOpportunity, ProactiveFeedbackAction } from "../../shared/types.js";
 import { ProactiveStore } from "./proactive-store.js";
 
 export type AgentDomainEventType="agent.turn.completed"|"agent.turn.failed"|"agent.tool.failed"|"agent.task.created"|"agent.task.switched"|"agent.workspace.changed"|"memory.preference.candidate"|"memory.note.updated"|"app.activated";
