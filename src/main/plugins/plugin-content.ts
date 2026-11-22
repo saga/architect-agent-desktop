@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
-import { cp, lstat, mkdir, opendir, open, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, open, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 const MAX_PLUGIN_FILE_BYTES = 2 * 1024 * 1024;
@@ -29,82 +29,106 @@ export async function pluginContentFingerprint(root: string): Promise<string> {
   let fileCount = 0;
   let entryCount = 0;
 
-  const visit = async (directory: string, depth: number): Promise<void> => {
-    if (depth > MAX_PLUGIN_DEPTH) throw new Error("插件目录层级超过限制。");
-    const handle = await opendir(directory);
-    const entries: import("node:fs").Dirent[] = [];
-    try {
+  async function mapLimited<T, R>(
+    items: readonly T[],
+    concurrency: number,
+    operation: (item: T) => Promise<R>,
+  ): Promise<R[]> {
+    const results = new Array<R>(items.length);
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
       while (true) {
-        const entry = await handle.read();
-        if (!entry) break;
-        entryCount += 1;
-        if (entryCount > MAX_PLUGIN_ENTRIES) throw new Error("插件目录条目数量超过限制。");
-        entries.push(entry);
+        const index = cursor++;
+        if (index >= items.length) return;
+        results[index] = await operation(items[index]!);
       }
-    } finally {
-      await handle.close();
-    }
+    });
+    const outcomes = await Promise.allSettled(workers);
+    const failed = outcomes.find((item): item is PromiseRejectedResult => item.status === "rejected");
+    if (failed) throw failed.reason;
+    return results;
+  }
 
+  interface PreparedEntry {
+    relative: string;
+    mode: number;
+    type: "directory" | "file";
+    fullPath: string;
+    contents?: Buffer;
+  }
+
+  async function collect(directory: string, depth: number): Promise<Buffer[]> {
+    if (depth > MAX_PLUGIN_DEPTH) throw new Error("插件目录层级超过限制。");
+    const entries = await readdir(directory, { withFileTypes: true });
+    entryCount += entries.length;
+    if (entryCount > MAX_PLUGIN_ENTRIES) throw new Error("插件目录条目数量超过限制。");
     entries.sort((a, b) => a.name.localeCompare(b.name));
-    for (const entry of entries) {
+
+    // Directory entries are inspected concurrently; hashing remains in sorted
+    // depth-first order so identical trees always produce the same fingerprint.
+    const prepared = await mapLimited(entries, 8, async (entry): Promise<PreparedEntry> => {
       const fullPath = path.join(directory, entry.name);
       const stat = await lstat(fullPath);
       const relative = path.relative(root, fullPath).split(path.sep).join("/");
       if (stat.isSymbolicLink()) throw new Error("插件运行时目录不能包含符号链接：" + relative);
-      hash.update(relative).update("\\0");
-      hash.update(String(stat.mode & 0o7777)).update("\\0");
-      if (stat.isDirectory()) {
-        hash.update("directory\\0");
-        await visit(fullPath, depth + 1);
-      } else if (stat.isFile()) {
-        fileCount += 1;
-        totalBytes += stat.size;
-        if (fileCount > MAX_PLUGIN_FILES) throw new Error("插件文件数量超过限制。");
-        if (stat.size > MAX_PLUGIN_FILE_BYTES) throw new Error("插件文件超过 2 MB 限制：" + relative);
-        if (totalBytes > MAX_PLUGIN_TOTAL_BYTES) throw new Error("插件总大小超过 20 MB 限制。");
 
-        const file = await open(fullPath, fsConstants.O_RDONLY | NO_FOLLOW);
-        try {
-          const opened = await file.stat();
-          const sameIdentity = !stat.ino || !opened.ino
-            ? stat.dev === opened.dev
-            : stat.dev === opened.dev && stat.ino === opened.ino;
-          if (!opened.isFile() || opened.size > MAX_PLUGIN_FILE_BYTES || opened.size !== stat.size || !sameIdentity) {
-            throw new Error("插件文件在指纹计算期间发生变化：" + relative);
-          }
+      if (stat.isDirectory()) return { relative, mode: stat.mode & 0o7777, type: "directory", fullPath };
+      if (!stat.isFile()) throw new Error("插件运行时目录包含不支持的文件类型：" + relative);
 
-          hash.update("file\\0");
-          const contents = Buffer.allocUnsafe(opened.size);
-          let offset = 0;
-          while (offset < contents.length) {
-            const { bytesRead } = await file.read(contents, offset, contents.length - offset, offset);
-            if (bytesRead === 0) break;
-            offset += bytesRead;
-          }
-          const after = await file.stat();
-          const stableIdentity = !opened.ino || !after.ino
-            ? opened.dev === after.dev
-            : opened.dev === after.dev && opened.ino === after.ino;
-          if (offset !== opened.size || after.size !== opened.size || !stableIdentity) {
-            throw new Error("插件文件在指纹计算期间发生变化：" + relative);
-          }
-          hash.update(contents);
-          hash.update("\\0");
-        } finally {
-          await file.close();
+      fileCount += 1;
+      totalBytes += stat.size;
+      if (fileCount > MAX_PLUGIN_FILES) throw new Error("插件文件数量超过限制。");
+      if (stat.size > MAX_PLUGIN_FILE_BYTES) throw new Error("插件文件超过 2 MB 限制：" + relative);
+      if (totalBytes > MAX_PLUGIN_TOTAL_BYTES) throw new Error("插件总大小超过 20 MB 限制。");
+
+      const file = await open(fullPath, fsConstants.O_RDONLY | NO_FOLLOW);
+      try {
+        const opened = await file.stat();
+        const sameIdentity = !stat.ino || !opened.ino
+          ? stat.dev === opened.dev
+          : stat.dev === opened.dev && stat.ino === opened.ino;
+        if (!opened.isFile() || opened.size > MAX_PLUGIN_FILE_BYTES || opened.size !== stat.size || !sameIdentity) {
+          throw new Error("插件文件在指纹计算期间发生变化：" + relative);
         }
+
+        const contents = Buffer.allocUnsafe(opened.size);
+        let offset = 0;
+        while (offset < contents.length) {
+          const { bytesRead } = await file.read(contents, offset, contents.length - offset, offset);
+          if (bytesRead === 0) break;
+          offset += bytesRead;
+        }
+        const after = await file.stat();
+        const stableIdentity = !opened.ino || !after.ino
+          ? opened.dev === after.dev
+          : opened.dev === after.dev && opened.ino === after.ino;
+        if (offset !== opened.size || after.size !== opened.size || !stableIdentity) {
+          throw new Error("插件文件在指纹计算期间发生变化：" + relative);
+        }
+        return { relative, mode: stat.mode & 0o7777, type: "file", fullPath, contents };
+      } finally {
+        await file.close();
+      }
+    });
+
+    const chunks: Buffer[] = [];
+    for (const entry of prepared) {
+      chunks.push(Buffer.from(entry.relative + "\\0" + String(entry.mode) + "\\0", "utf8"));
+      if (entry.type === "directory") {
+        chunks.push(Buffer.from("directory\\0", "utf8"));
+        chunks.push(...await collect(entry.fullPath, depth + 1));
       } else {
-        throw new Error("插件运行时目录包含不支持的文件类型：" + relative);
+        chunks.push(Buffer.from("file\\0", "utf8"), entry.contents!, Buffer.from("\\0", "utf8"));
       }
     }
-  };
+    return chunks;
+  }
 
   const rootStat = await lstat(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error("插件运行时源目录必须是普通目录。");
-  await visit(root, 0);
+  for (const chunk of await collect(root, 0)) hash.update(chunk);
   return hash.digest("hex");
 }
-
 /** Stage a verified, immutable-per-session snapshot; never pass the mutable install path to a provider. */
 export async function stagePluginRuntimeDirectories(
   entries: readonly PluginRuntimeEntry[],

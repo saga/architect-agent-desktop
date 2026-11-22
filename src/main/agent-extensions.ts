@@ -239,11 +239,17 @@ export async function removeAgentSkill(id: string, root: string, registryFile: s
 const MAX_SKILL_ARCHIVE_BYTES = 20 * 1024 * 1024;
 const MAX_SKILL_ARCHIVE_ENTRIES = 256;
 
+const CRC32_TABLE = new Uint32Array(256);
+for (let index = 0; index < CRC32_TABLE.length; index += 1) {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0);
+  CRC32_TABLE[index] = value >>> 0;
+}
+
 function crc32(data: Buffer): number {
   let crc = 0xffffffff;
-  for (const byte of data) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  for (let index = 0; index < data.length; index += 1) {
+    crc = CRC32_TABLE[(crc ^ data[index]!) & 0xff]! ^ (crc >>> 8);
   }
   return (crc ^ 0xffffffff) >>> 0;
 }
