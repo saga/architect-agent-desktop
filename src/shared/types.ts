@@ -68,6 +68,24 @@ export interface CopilotEvent { type: "status" | "delta" | "thinking" | "message
 
 export type AgentPreferenceStrength = "explicit" | "strong_signal" | "repeated_correction";
 export type AgentPreferencePriority = "normal" | "high";
+export type AgentUserGoalLevel = "project" | "task";
+export type AgentUserGoalStatus = "active" | "blocked" | "completed" | "cancelled";
+export interface AgentUserGoal {
+  id: string;
+  level: AgentUserGoalLevel;
+  objective: string;
+  expectedOutcome: string;
+  constraints: string[];
+  acceptanceCriteria: string[];
+  status: AgentUserGoalStatus;
+  confidence: number;
+  evidence: string[];
+  sourceSessionId: string | null;
+  sourceTraceId: string | null;
+  createdAt: number;
+  updatedAt: number;
+  version: number;
+}
 export type AgentPreferenceOperator = "prefer" | "avoid" | "require" | "exclude" | "format" | "tone" | "instruction";
 export interface AgentStructuredPreference {
   domain: string;
