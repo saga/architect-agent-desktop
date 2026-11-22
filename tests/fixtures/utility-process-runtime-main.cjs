@@ -1,5 +1,8 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const { execFile: execFileCallback } = require("node:child_process");
+const { promisify } = require("node:util");
+const execFile = promisify(execFileCallback);
 const { app } = require("electron");
 const { UtilityProcessAgentRuntime } = require(path.resolve(__dirname, "../../dist/main/runtime/utility-process-runtime.js"));
 
@@ -15,6 +18,36 @@ function deferred() {
   let reject;
   const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
   return { promise, resolve, reject };
+}
+
+async function processIsRunning(pid) {
+  if (process.platform === "win32") {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return error && error.code === "EPERM";
+    }
+  }
+  try {
+    const { stdout } = await execFile("ps", ["-o", "stat=", "-p", String(pid)], {
+      encoding: "utf8",
+      timeout: 1_000,
+    });
+    const state = String(stdout).trim().toUpperCase();
+    return Boolean(state) && !state.startsWith("Z");
+  } catch {
+    return false;
+  }
+}
+
+async function assertProcessExited(pid) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (!(await processIsRunning(pid))) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("UtilityProcess worker is still running after cleanup: " + pid);
 }
 
 async function runPendingExecution(runtime, timeoutMs) {
@@ -52,6 +85,7 @@ async function run() {
       pending.controller.abort();
       const result = await pending.execution;
       assert.equal(result.status, "cancelled", "AbortSignal must cancel a real UtilityProcess execution.");
+      await assertProcessExited(pending.pid);
       return;
     }
 
@@ -59,6 +93,7 @@ async function run() {
       const pending = await runPendingExecution(runtime, 1_500);
       const result = await pending.execution;
       assert.equal(result.status, "timed-out", "Runtime time budget must terminate a real UtilityProcess execution.");
+      await assertProcessExited(pending.pid);
       return;
     }
 
@@ -70,6 +105,7 @@ async function run() {
         new Promise((_, reject) => setTimeout(() => reject(new Error("Runtime dispose did not settle the active UtilityProcess.")), 5_000)),
       ]);
       assert.equal(result.status, "failed", "Disposing Runtime must terminate the UtilityProcess and settle the active execution.");
+      await assertProcessExited(pending.pid);
       return;
     }
 
