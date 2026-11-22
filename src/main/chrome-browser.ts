@@ -13,7 +13,9 @@ export function findChromeExecutable(
   env: NodeJS.ProcessEnv = process.env,
   exists: Exists = existsSync,
 ): ChromeLaunchTarget | null {
-  const join = platform === "win32" ? path.win32.join : path.join;
+  // Use the target platform's path semantics even when discovery is tested
+  // or invoked from a different host platform (e.g. Windows CI checking macOS).
+  const join = platform === "win32" ? path.win32.join : path.posix.join;
 
   if (platform === "darwin") {
     const appPaths = [
