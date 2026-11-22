@@ -55,7 +55,7 @@ async function runPendingExecution(runtime, timeoutMs) {
   const controller = new AbortController();
   const execution = runtime.executeGeneratedCode({
     mode: "generated-code",
-    code: "async (runtime) => { await runtime.started({ pid: process.pid }); return await new Promise(() => {}); }",
+    code: "async () => { await runtime.started({ pid: process.pid }); return await new Promise(() => {}); }",
     providers: ["runtime"],
     capabilities: ["tools.call"],
     limits: { timeoutMs, maxOutputBytes: 64 * 1024, maxLogEntries: 20 },
@@ -69,6 +69,11 @@ async function runPendingExecution(runtime, timeoutMs) {
   });
 
   const startupTimer = setTimeout(() => started.reject(new Error("UtilityProcess did not announce startup within 8 seconds.")), 8_000);
+  execution.then(result => {
+    if (result.status !== "completed") {
+      started.reject(new Error("UtilityProcess ended before its startup handshake: " + result.status + (result.error ? " — " + result.error : "")));
+    }
+  }, error => started.reject(error));
   try {
     const pid = await started.promise;
     return { pid, controller, execution };
