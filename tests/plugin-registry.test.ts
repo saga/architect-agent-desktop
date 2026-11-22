@@ -91,7 +91,7 @@ describe("Claude Code Plugin packages", () => {
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
 
-    expect(await importPlugin(source, pluginRoot, registry).enabled).toBe(true);
+    expect((await importPlugin(source, pluginRoot, registry)).enabled).toBe(true);
     expect(await listPlugins(pluginRoot, registry)).toHaveLength(1);
     expect(await listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
     await expect(setPluginRuntimeApproved("research-toolkit", true, pluginRoot, registry)).rejects.toThrow("该插件没有可执行的运行时组件");
@@ -106,7 +106,7 @@ describe("Claude Code Plugin packages", () => {
 
     const exported = await exportPlugin("research-toolkit", pluginRoot, path.join(root, "export"), registry);
     expect(exported).toContain("research-toolkit");
-    expect(await setPluginEnabled("research-toolkit", false, pluginRoot, registry)[0].enabled).toBe(false);
+    expect((await setPluginEnabled("research-toolkit", false, pluginRoot, registry))[0].enabled).toBe(false);
     expect(await readEnabledPluginInstructions(pluginRoot, registry)).toBe("");
     expect(await removePlugin("research-toolkit", pluginRoot, registry)).toHaveLength(0);
   });
@@ -233,13 +233,13 @@ describe("Claude Code Plugin packages", () => {
     writeFileSync(path.join(source, "bin", "run.sh"), "echo safe");
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
-    importPlugin(source, pluginRoot, registry);
+    await importPlugin(source, pluginRoot, registry);
     writeFileSync(registry, JSON.stringify({
       version: 2,
       enabled: { "legacy-approved-plugin": true },
       runtimeApproved: { "legacy-approved-plugin": true },
     }));
-    const plugin = await listPlugins(pluginRoot, registry)[0];
+    const plugin = (await listPlugins(pluginRoot, registry))[0];
     expect(plugin?.enabled).toBe(true);
     expect(plugin?.runtimeApproved).toBe(false);
     expect(await listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
@@ -255,7 +255,7 @@ describe("Claude Code Plugin packages", () => {
 
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
-    importPlugin(source, pluginRoot, registry);
+    await importPlugin(source, pluginRoot, registry);
     expect((await setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry))[0]?.runtimeApproved).toBe(true);
     expect(await listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(1);
 
@@ -285,7 +285,7 @@ describe("Claude Code Plugin packages", () => {
 
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
-    importPlugin(source, pluginRoot, registry);
+    await importPlugin(source, pluginRoot, registry);
     expect(await readEnabledPluginInstructions(pluginRoot, registry)).toContain("Use the root-level skill instructions.");
   });
 
@@ -310,8 +310,8 @@ describe("Claude Code Plugin packages", () => {
     writeFileSync(path.join(source, "bin", "run.sh"), "echo approved");
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");
-    importPlugin(source, pluginRoot, registry);
-    setPluginRuntimeApproved("mode-fingerprinted-plugin", true, pluginRoot, registry);
+    await importPlugin(source, pluginRoot, registry);
+    await setPluginRuntimeApproved("mode-fingerprinted-plugin", true, pluginRoot, registry);
     const script = path.join(pluginRoot, "mode-fingerprinted-plugin", "bin", "run.sh");
     chmodSync(script, 0o755);
     expect((await listPlugins(pluginRoot, registry))[0]?.runtimeApproved).toBe(false);
