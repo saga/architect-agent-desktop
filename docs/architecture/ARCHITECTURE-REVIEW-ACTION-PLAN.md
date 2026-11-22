@@ -19,7 +19,7 @@
 - [x] **P1-04 AgentPanel 事件初始化竞态。** 在加载 Session 前订阅事件；加载期间暂存事件，恢复 Transcript 后按序回放；按 Task ID 严格过滤，未就绪时禁止提交。
 - [x] **P1-05 Pure Agent Snapshot 竞态。** 实时更新先到时，迟到的初始 Snapshot 不得覆盖新状态。
 - [x] **P1-06 Run 浏览器 Tab 固定。** 普通 Agent 请求和 A2UI 交互请求均在 IPC 入口同步捕获 Browser Tab ID，早于异步 Task activation；请求开始时没有 Active Tab 时保留 `null`，不得绑定等待期间新建的 Tab。工具不随 UI 全局 Active Tab 漂移；应用侧阻止在 Run 期间关闭、导航、后退、前进、刷新或停止 Run 目标 Tab，并保护键盘快捷键路径。为目标解析与操作阻断增加单元测试。
-- [ ] **P2-03 Browser Session 隔离（自动化跨平台已验证，仍待 GUI 验收）。** 已为每个 Schedule 建立独立、持久的 Electron Session partition；后台 Run 使用隐藏 BrowserWindow / WebContentsView，Browser Tools 通过 Schedule Context 路由，不再引用用户的 Active Tab；可打开专属 Profile 完成人工登录、配置起始 URL，并单独重置 Cookie / 站点存储 / HTTP Cache / HTTP Authentication Cache；Session 下载自动保存到 Downloads 下按 Schedule 哈希隔离的目录，文件名净化并附加唯一下载 ID，不弹出原生 Save 对话框；下载事件关联 Schedule ID 和保存路径；Memory Dreaming 明确不绑定任何可见 Browser Tab。Schedule 删除时会清除对应 Profile 的站点数据；Run finally 强制销毁隐藏窗口以绕过远程页面的 beforeunload 阻塞。应用退出时也会显式销毁所有已登记的 Run Context（包括仍在初始化、尚未挂到活动变量的 Context）、Profile 根窗口及 OAuth 子窗口，取消未完成下载并 flush 已初始化的 Session；退出开始后禁止新建 Session、BrowserWindow、Tab 和 OAuth 子窗口。等待中的 Session 初始化有 1.5 秒上限，不会无限阻塞退出。后台 WebContents 禁用背景节流。新增了部分初始化失败时的 context 回滚、Tab WebContents 先登记后挂载和容错式全量清理，避免准备阶段失败留下隐藏窗口。另新增真实 Electron `persist:` Session 多进程测试，覆盖重启后 Cookie 持久化、Schedule A/B 与普通浏览器隔离，以及只重置 A 不影响其他 Profile；测试接入 macOS / Windows CI。Schedule 下载处理器已抽为生产/测试共用函数，并新增真实 Electron BrowserWindow + 本地 HTTP 下载 E2E，验证按 Profile 目录落盘、文件名净化、下载事件、完成回收和无 Save 对话框。GUI 验收仍需覆盖实际登录态复用、OAuth/SSO Popup、Schedule 后台 Run 可视化与完整应用退出清理，完成前本项保持未完成。
+- [ ] **P2-03 Browser Session 隔离（自动化跨平台已验证，仍待 GUI 验收）。** 已为每个 Schedule 建立独立、持久的 Electron Session partition；后台 Run 使用隐藏 BrowserWindow / WebContentsView，Browser Tools 通过 Schedule Context 路由，不再引用用户的 Active Tab；可打开专属 Profile 完成人工登录、配置起始 URL，并单独重置 Cookie / 站点存储 / HTTP Cache / HTTP Authentication Cache；Session 下载自动保存到 Downloads 下按 Schedule 哈希隔离的目录，文件名净化并附加唯一下载 ID，不弹出原生 Save 对话框；下载事件关联 Schedule ID 和保存路径；Memory Dreaming 明确不绑定任何可见 Browser Tab。Schedule 删除时会清除对应 Profile 的站点数据；Run finally 强制销毁隐藏窗口以绕过远程页面的 beforeunload 阻塞。应用退出时也会显式销毁所有已登记的 Run Context（包括仍在初始化、尚未挂到活动变量的 Context）、Profile 根窗口及 OAuth 子窗口，取消未完成下载并 flush 已初始化的 Session；退出开始后禁止新建 Session、BrowserWindow、Tab 和 OAuth 子窗口。等待中的 Session 初始化有 1.5 秒上限，不会无限阻塞退出。后台 WebContents 禁用背景节流。新增了部分初始化失败时的 context 回滚、Tab WebContents 先登记后挂载和容错式全量清理，避免准备阶段失败留下隐藏窗口。另新增真实 Electron `persist:` Session 多进程测试，覆盖重启后 Cookie 持久化、Schedule A/B 与普通浏览器隔离，以及只重置 A 不影响其他 Profile；测试接入 macOS / Windows CI。Schedule 下载处理器已抽为生产/测试共用函数，并新增真实 Electron BrowserWindow + 本地 HTTP 下载 E2E，验证按 Profile 目录落盘、文件名净化、下载事件、完成回收和无 Save 对话框。GUI 验收仍需覆盖实际站点登录态复用、OAuth/SSO Popup、Schedule 后台 Run 可视化与完整应用退出清理，完成前本项保持未完成。实际下载保存路径、文件内容与下载状态已由生产处理器的真实 Electron 集成测试验证。
 - [x] **P2-04 当前阶段不实施完整操作状态机（范围决策已关闭）。** 保留共享忙碌判断和 maintenance lock；只对发现真实竞态的生命周期补局部状态与测试。没有证据证明当前布尔状态协调需要被全量替换，本项不作为当前实施任务。此勾选仅表示决策关闭，不表示完整状态机已实现。
 
 ## Phase 3 — Layout 唯一事实来源
@@ -54,7 +54,7 @@
 - [x] Schedule Browser Context 部分初始化失败会执行资源回滚，且清理失败不覆盖原始错误（Vitest 回归测试已加入）
 - [x] Schedule Profile 重置会依次清除站点存储、HTTP Cache、HTTP Authentication Cache，并在完成后 flush（Vitest 回归测试已加入）
 - [x] Schedule 下载路径按 Profile 隔离、远端文件名净化、唯一命名且不触发 Save 对话框（Vitest 路径测试已加入）
-- [x] 真实 Electron Schedule 下载回归：使用生产 `registerScheduleBrowserDownloadHandler`，在独立 BrowserWindow 中从本地 HTTP 服务下载，验证 Profile 专属保存目录、远端文件名净化、文件内容、started/completed 事件和活动下载回收（Build run [45007115270](https://github.com/saga/architect-agent-desktop/actions/runs/45007115270)，Windows 已通过，macOS 打包验证进行中）
+- [x] 真实 Electron Schedule 下载回归：使用生产 `registerScheduleBrowserDownloadHandler`，在独立 BrowserWindow 中从本地 HTTP 服务下载，验证 Profile 专属保存目录、远端文件名净化、文件内容、started/completed 事件和活动下载回收（Build run [45007115270](https://github.com/saga/architect-agent-desktop/actions/runs/45007115270)，macOS / Windows 均通过）
 - [x] Schedule Profile 重置会关闭根登录窗口和所有嵌套 OAuth 子窗口，取消未完成下载但保留已完成文件；Storage/Cache/Auth Cache 清理即使单步失败也会继续执行并 flush（Vitest 回归测试已加入）
 - [x] 真实 Node 父/子/孙进程树在 macOS、Windows CI 中均被终止（GitHub Actions Build run 44999451094）
 - [x] CodeBuddy 原生工具与 Host 工具权限矩阵单元测试：受限 Expert 下禁用原生 Read/Write/Edit/Glob/Grep/Bash 等工具；`none` 模式不开放 Host 工具；Goal Context 不绕过 Expert allowlist。
@@ -70,6 +70,8 @@
 - [x] macOS ARM64 DMG / ZIP 与 Windows x64 NSIS 构建及 CI artifact 检查（run [45003096172](https://github.com/saga/architect-agent-desktop/actions/runs/45003096172) 两平台均成功；artifact 仅包含安装文件，约 830 MB / 328 MB。当前产物未签名，macOS 未公证）
 
 ## CI 更新记录
+
+- 2026-11-22：Build run [45007115270](https://github.com/saga/architect-agent-desktop/actions/runs/45007115270) 对应提交 `45b9bdc`，macOS / Windows 两个目标平台全部成功。覆盖 `npm ci`、TypeScript、全部 Vitest、应用构建、Layout Engine、真实 Electron Schedule Session 持久化/隔离/重置与生产下载处理器 E2E、真实 Electron UtilityProcess Worker + 后代进程取消/超时/`dispose()` 清理，以及 macOS ARM64 DMG/ZIP、Windows x64 NSIS 构建和 artifact 上传。产物约 792 MiB / 313 MiB；未配置代码签名或 Apple 公证。
 
 - 2026-11-22：Build run [45005886227](https://github.com/saga/architect-agent-desktop/actions/runs/45005886227) 在 macOS / Windows 两个平台全部成功。除了 TypeScript、完整 Vitest、Layout 和 Schedule Session 持久化/隔离测试外，新增真实 Electron UtilityProcess 生命周期测试：实际 Worker 派生 Node 子进程，取消、超时、`dispose()` 三种路径都确认根 Worker 与派生进程 PID 退出。macOS ARM64 DMG/ZIP 与 Windows x64 NSIS 安装包均生成并上传；Artifact 仅保留安装文件。安装包未签名，macOS 未公证。
 

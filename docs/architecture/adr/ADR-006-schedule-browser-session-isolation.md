@@ -43,7 +43,7 @@ Schedule 运行此前复用全局 `persist:architect-agent-browser` Session，�
 
 ## 自动化回归
 
-新增 `npm run test:schedule-browser-session`，在独立 Electron 主进程中使用项目实际的 `scheduleBrowserPartition()` 与 `clearScheduleBrowserProfileData()`：第一阶段写入 Schedule A、Schedule B 和普通浏览器 partition 的 Cookie；退出 Electron 后重新启动，验证三份 Cookie 仍分别存在；随后只清理 Schedule A，并再次启动 Electron，验证 A 已清除，而 B 和普通浏览器 Cookie 保留。测试随后在真实 Electron BrowserWindow 中打开本地 HTTP 页面，触发下载，并调用与生产 Main 完全相同的 `registerScheduleBrowserDownloadHandler()`；验证下载落入 Schedule 专属目录、远端文件名被净化、文件内容正确、started/completed 事件完整、活动下载集合被清空。该测试运行于现有 macOS / Windows CI matrix，不增加 Linux runner。它验证真实 Electron `persist:` Session 的持久化/Cookie 隔离和生产下载处理器，不替代外部站点登录、OAuth 弹窗和完整 Schedule GUI Run 生命周期验收。
+新增 `npm run test:schedule-browser-session`，在独立 Electron 主进程中使用项目实际的 `scheduleBrowserPartition()` 与 `clearScheduleBrowserProfileData()`：第一阶段写入 Schedule A、Schedule B 和普通浏览器 partition 的 Cookie；退出 Electron 后重新启动，验证三份 Cookie 仍分别存在；随后只清理 Schedule A，并再次启动 Electron，验证 A 已清除，而 B 和普通浏览器 Cookie 保留。测试随后在真实 Electron BrowserWindow 中打开本地 HTTP 页面，触发下载，并调用与生产 Main 完全相同的 `registerScheduleBrowserDownloadHandler()`；验证下载落入 Schedule 专属目录、远端文件名被净化、文件内容正确、started/completed 事件完整、活动下载集合被清空。该测试运行于现有 macOS / Windows CI matrix，不增加 Linux runner。它验证真实 Electron `persist:` Session 的持久化/Cookie 隔离和生产下载处理器。Build run [45007115270](https://github.com/saga/architect-agent-desktop/actions/runs/45007115270) 的 macOS / Windows jobs 均通过这些测试，并成功生成对应平台安装包。它不替代外部站点登录、OAuth 弹窗和完整 Schedule GUI Run 生命周期验收。
 
 
 ## 退出与初始化并发
