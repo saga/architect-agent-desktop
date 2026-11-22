@@ -118,6 +118,8 @@ const registry = path.join(root, "plugins.json");
 const fileCount = 256;
 const fileBytes = 32 * 1024;
 let measuredBytes = 0;
+let activeBenchmarkTimer;
+let activeHistogram;
 
 function writeFixture() {
   mkdirSync(path.join(source, ".claude-plugin"), { recursive: true });
@@ -154,6 +156,7 @@ async function main() {
   const skillRegistry = path.join(root, "skills.json");
   writeFileSync(skillArchivePath, skillArchive);
   const histogram = monitorEventLoopDelay({ resolution: 1 });
+  activeHistogram = histogram;
   let lastTick = performance.now();
   let maxTimerLagMs = 0;
   const timer = setInterval(() => {
@@ -161,6 +164,7 @@ async function main() {
     maxTimerLagMs = Math.max(maxTimerLagMs, now - lastTick - 2);
     lastTick = now;
   }, 2);
+  activeBenchmarkTimer = timer;
   await new Promise((resolve) => setTimeout(resolve, 20));
 
   histogram.enable();
@@ -189,7 +193,9 @@ async function main() {
 
   await new Promise((resolve) => setTimeout(resolve, 20));
   clearInterval(timer);
+  activeBenchmarkTimer = undefined;
   histogram.disable();
+  activeHistogram = undefined;
 
   const result = {
     label: process.argv[2] ?? "unspecified",
@@ -223,6 +229,8 @@ async function main() {
 
 main()
   .catch((error) => {
+    if (activeBenchmarkTimer) clearInterval(activeBenchmarkTimer);
+    activeHistogram?.disable();
     console.error(error);
     process.exitCode = 1;
   })
