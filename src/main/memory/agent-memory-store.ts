@@ -1449,7 +1449,7 @@ export class AgentMemoryStore {
       this.database.prepare("UPDATE memory_dream_runs SET status='rolled_back',rollback_reason=?,completed_at=? WHERE id=? AND scope_key=?")
         .run({}, reason.trim().slice(0,500),Date.now(),runId,scopeKey);
       this.database.exec("COMMIT");
-      return {runId,rolledBackOperations:operations.length};
+      return {runId,rolledBackOperations:operations.filter(operation=>operation.entity_type!=="cursor").length};
     }catch(error){this.database.exec("ROLLBACK");throw error;}
   }
 
