@@ -7,7 +7,7 @@ import { codeBuddyPluginEnvironment, copilotPluginDirectoryArgs, copilotPluginEn
 import type { PluginNativeComponents } from "./plugins/plugin-registry";
 import { prepareCopilotPluginDirectories } from "./plugins/copilot-plugin-adapter";
 import { stagePluginRuntimeDirectories } from "./plugins/plugin-content";
-import { app, safeStorage, session, shell } from "electron";
+import { app, net, safeStorage, session, shell } from "electron";
 import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir as mkdirAsync, mkdtemp as mkdtempAsync, readFile as readFileAsync, rm as rmAsync, writeFile as writeFileAsync } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -945,6 +945,7 @@ export class CopilotDesktopAgent {
       storageFile:path.join(app.getPath("userData"),"mcp-oauth-tokens.json"),
       secureStorage:safeStorage,
       openExternal:url=>shell.openExternal(url),
+      fetcher:net.fetch as typeof fetch,
      }):null;
      this.registeredMcpServerNames = Object.keys(configuredMcpServers).sort();
      const pluginRuntimeAllowed=approvedDirectories.length>0&&this.effectivePermission()==="allow-all"&&(this.taskContext===null||this.taskContext.allowAllTools);
