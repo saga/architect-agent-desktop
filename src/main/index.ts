@@ -408,7 +408,8 @@ const copilotAgent = new CopilotDesktopAgent((payload) => {
   },
   async switchTab(tabId) {
     if (!tabs.has(tabId)) throw new Error("Unknown tab ID.");
-    if (agentToolTabId !== undefined) agentToolTabId=tabId; else activateTab(tabId);
+    activateTab(tabId);
+    if (agentToolTabId !== undefined) agentToolTabId = tabId;
     return "Switched to tab " + tabId;
   },
   async click(uid) {
