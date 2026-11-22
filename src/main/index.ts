@@ -152,7 +152,8 @@ function ingestProactiveTrace(type:string,data:unknown,traceId:string,scope:stri
   const eventType=proactiveEventType(type,data);if(!eventType)return;
   const payload=data&&typeof data==="object"&&!Array.isArray(data)?{...(data as Record<string,unknown>)}:{value:data};
   if(eventType==="agent.tool.failed"&&!payload.toolName&&typeof payload.name==="string")payload.toolName=payload.name;
-  const identity=String(payload.toolCallId??payload.requestId??payload.category??type).slice(0,120);
+  const stableEventId=payload.toolCallId??payload.requestId??payload.eventId;
+  const identity=typeof stableEventId==="string"&&stableEventId.trim()?stableEventId.trim().slice(0,120):randomUUID();
   try{
     proactiveEngine.ingest({eventId:traceId+":"+eventType+":"+identity,type:eventType,occurredAt:Date.now(),scope,taskId,sessionId,sourceRef:traceId,payload});
   }catch(error){recordOperation("proactive","event ingestion failed ("+eventType+"): "+(error instanceof Error?error.message:String(error)));}
@@ -184,6 +185,7 @@ function recordTaskTrace(task:AgentTask,type:string,data:unknown):void{
 }
 let proactiveWorkspaceWatcher:FSWatcher|null=null;
 let proactiveWorkspaceWatcherPath:string|null=null;
+let proactiveWorkspaceWatcherTask:AgentTask|null=null;
 let proactiveWorkspaceChangeTimer:NodeJS.Timeout|null=null;
 let proactiveWorkspaceChangeCount=0;
 function stopProactiveWorkspaceWatcher():void{
@@ -193,14 +195,16 @@ function stopProactiveWorkspaceWatcher():void{
   proactiveWorkspaceWatcher?.close();
   proactiveWorkspaceWatcher=null;
   proactiveWorkspaceWatcherPath=null;
+  proactiveWorkspaceWatcherTask=null;
 }
 function startProactiveWorkspaceWatcher(task:AgentTask):void{
   const root=task.workspacePath;
   if(!root){stopProactiveWorkspaceWatcher();return;}
-  if(root===proactiveWorkspaceWatcherPath)return;
+  if(root===proactiveWorkspaceWatcherPath){proactiveWorkspaceWatcherTask=task;return;}
   stopProactiveWorkspaceWatcher();
   try{
     if(!statSync(root).isDirectory())return;
+    proactiveWorkspaceWatcherTask=task;
     proactiveWorkspaceWatcher=watchFs(root,{recursive:true},(_eventType,filename)=>{
       const relative=filename?.toString()??"";
       if(!relative)return;
@@ -212,9 +216,10 @@ function startProactiveWorkspaceWatcher(task:AgentTask):void{
         const changeCount=proactiveWorkspaceChangeCount;
         proactiveWorkspaceChangeCount=0;
         proactiveWorkspaceChangeTimer=null;
+        const currentTask=proactiveWorkspaceWatcherTask??task;
         try{
-          proactiveEngine.ingest({eventId:"workspace-fs:"+task.id+":"+randomUUID(),type:"agent.workspace.changed",
-            occurredAt:Date.now(),scope:root,taskId:task.id,sessionId:task.sessionId,
+          proactiveEngine.ingest({eventId:"workspace-fs:"+currentTask.id+":"+randomUUID(),type:"agent.workspace.changed",
+            occurredAt:Date.now(),scope:root,taskId:currentTask.id,sessionId:currentTask.sessionId,
             payload:{source:"filesystem",changeCount}});
           publishAgentWorkspaceSnapshot();
         }catch(error){
