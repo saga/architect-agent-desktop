@@ -1,5 +1,6 @@
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { canOpenScheduleBrowserPopup, clearScheduleBrowserProfileData, initializeScheduleBrowserContext, scheduleBrowserPartition } from "../src/main/schedule-browser-profile";
+import { canOpenScheduleBrowserPopup, clearScheduleBrowserProfileData, initializeScheduleBrowserContext, scheduleBrowserDownloadPath, scheduleBrowserPartition } from "../src/main/schedule-browser-profile";
 
 describe("Schedule Browser Context initialization", () => {
   it("disposes partially-created resources when initialization fails", async () => {
@@ -34,6 +35,35 @@ describe("Schedule Browser Profile reset", () => {
       flushStorageData: () => { calls.push("flush"); },
     });
     expect(calls).toEqual(["storage", "cache", "auth", "flush"]);
+  });
+});
+
+describe("Schedule Browser download destinations", () => {
+  it("isolates downloads by Schedule and sanitizes remote filenames", () => {
+    const root = path.resolve("downloads");
+    const first = scheduleBrowserDownloadPath(root, "schedule-a", "../../reports\\..\\secret?.pdf", "run-1");
+    const second = scheduleBrowserDownloadPath(root, "schedule-b", "../../reports\\..\\secret?.pdf", "run-1");
+
+    expect(first).not.toBe(second);
+    expect(first.startsWith(path.join(root, "Architect Agent Desktop", "Schedules") + path.sep)).toBe(true);
+    expect(first).not.toContain("schedule-a");
+    expect(first).not.toContain("..\\");
+    expect(first).toContain("run-1-");
+    expect(first.endsWith("secret_.pdf")).toBe(true);
+  });
+
+  it("uses unique names and rejects invalid roots or download identifiers", () => {
+    const root = path.resolve("downloads");
+    const first = scheduleBrowserDownloadPath(root, "schedule-a", "report.pdf", "run-1");
+    const second = scheduleBrowserDownloadPath(root, "schedule-a", "report.pdf", "run-2");
+    expect(first).not.toBe(second);
+    expect(() => scheduleBrowserDownloadPath("relative/downloads", "schedule-a", "report.pdf", "run-1")).toThrow("absolute path");
+    expect(() => scheduleBrowserDownloadPath(root, "schedule-a", "report.pdf", "../escape")).toThrow("download identifier");
+  });
+
+  it("does not use Windows reserved device names", () => {
+    const target = scheduleBrowserDownloadPath(path.resolve("downloads"), "schedule-a", "CON", "run-1");
+    expect(target.toLowerCase()).toContain("run-1-_con");
   });
 });
 

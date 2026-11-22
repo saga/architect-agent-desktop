@@ -18,7 +18,7 @@
 - [x] **P1-04 AgentPanel 事件初始化竞态。** 在加载 Session 前订阅事件；加载期间暂存事件，恢复 Transcript 后按序回放；按 Task ID 严格过滤，未就绪时禁止提交。
 - [x] **P1-05 Pure Agent Snapshot 竞态。** 实时更新先到时，迟到的初始 Snapshot 不得覆盖新状态。
 - [x] **P1-06 Run 浏览器 Tab 固定。** 每次 Agent Run 固定工具目标 Tab（包括 Run 开始时没有 Active Tab 的情况），工具不再随 UI 的全局 Active Tab 漂移；应用侧阻止在 Run 期间关闭、导航、后退、前进、刷新或停止该 Tab，并保护键盘快捷键路径。为目标解析与操作阻断增加单元测试。
-- [ ] **P2-03 Browser Session 隔离（第一阶段代码已实现，待跨平台验收）。** 已为每个 Schedule 建立独立、持久的 Electron Session partition；后台 Run 使用隐藏 BrowserWindow / WebContentsView，Browser Tools 通过 Schedule Context 路由，不再引用用户的 Active Tab；可打开专属 Profile 完成人工登录、配置起始 URL，并单独重置 Cookie / 站点存储 / HTTP Cache / HTTP Authentication Cache；Session 下载事件关联 Schedule ID；Memory Dreaming 明确不绑定任何可见 Browser Tab。Schedule 删除时会清除对应 Profile 的站点数据；后台 WebContents 禁用背景节流，Run finally 强制销毁隐藏窗口以绕过远程页面的 beforeunload 阻塞。新增了部分初始化失败时的 context 回滚、Tab WebContents 先登记后挂载和容错式全量清理，避免准备阶段失败留下隐藏窗口。仍需 macOS / Windows GUI 验证登录态持久化、弹窗、下载保存路径、超时/取消销毁和退出清理后才能标记 done。
+- [ ] **P2-03 Browser Session 隔离（第一阶段代码已实现，待跨平台验收）。** 已为每个 Schedule 建立独立、持久的 Electron Session partition；后台 Run 使用隐藏 BrowserWindow / WebContentsView，Browser Tools 通过 Schedule Context 路由，不再引用用户的 Active Tab；可打开专属 Profile 完成人工登录、配置起始 URL，并单独重置 Cookie / 站点存储 / HTTP Cache / HTTP Authentication Cache；Session 下载自动保存到 Downloads 下按 Schedule 哈希隔离的目录，文件名净化并附加唯一下载 ID，不弹出原生 Save 对话框；下载事件关联 Schedule ID 和保存路径；Memory Dreaming 明确不绑定任何可见 Browser Tab。Schedule 删除时会清除对应 Profile 的站点数据；后台 WebContents 禁用背景节流，Run finally 强制销毁隐藏窗口以绕过远程页面的 beforeunload 阻塞。新增了部分初始化失败时的 context 回滚、Tab WebContents 先登记后挂载和容错式全量清理，避免准备阶段失败留下隐藏窗口。仍需 macOS / Windows GUI 验证登录态持久化、弹窗、下载保存路径、超时/取消销毁和退出清理后才能标记 done。
 - [x] **P2-04 当前阶段不实施完整操作状态机（范围决策已关闭）。** 保留共享忙碌判断和 maintenance lock；只对发现真实竞态的生命周期补局部状态与测试。没有证据证明当前布尔状态协调需要被全量替换，本项不作为当前实施任务。此勾选仅表示决策关闭，不表示完整状态机已实现。
 
 ## Phase 3 — Layout 唯一事实来源
@@ -51,6 +51,7 @@
 - [x] Schedule Browser Tool Context 不会回退到用户 Active Tab（Vitest 回归测试已加入）
 - [x] Schedule Browser Context 部分初始化失败会执行资源回滚，且清理失败不覆盖原始错误（Vitest 回归测试已加入）
 - [x] Schedule Profile 重置会依次清除站点存储、HTTP Cache、HTTP Authentication Cache，并在完成后 flush（Vitest 回归测试已加入）
+- [x] Schedule 下载路径按 Profile 隔离、远端文件名净化、唯一命名且不触发 Save 对话框（Vitest 路径测试已加入）
 - [x] 真实 Node 父/子/孙进程树在 Ubuntu、macOS、Windows CI 中均被终止（GitHub Actions Build run 44999451094）
 - [ ] CodeBuddy 真实运行验证：Expert 只授权 Workspace read 时，不能读取 Workspace 外文件
 - [ ] Copilot / CodeBuddy 各自的 Agent Run 期间切换 Tab 验证

@@ -36,7 +36,7 @@ import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./logi
 import { clampBrowserBounds } from "./layout/browser-bounds";
 import { isAgentOperationBusy } from "./agent-operation-policy";
 import { resolveAgentBrowserTab, resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
-import { canOpenScheduleBrowserPopup, clearScheduleBrowserProfileData, initializeScheduleBrowserContext, scheduleBrowserPartition } from "./schedule-browser-profile";
+import { canOpenScheduleBrowserPopup, clearScheduleBrowserProfileData, initializeScheduleBrowserContext, scheduleBrowserDownloadPath, scheduleBrowserPartition } from "./schedule-browser-profile";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { setPanelVisibility } from "./layout/layout-tree";
 
@@ -741,6 +741,15 @@ async function getScheduleBrowserSession(scheduleId: string): Promise<Session> {
     profile.setDisplayMediaRequestHandler((_request, callback) => callback(null));
     profile.on("will-download", (_event, item) => {
       const id = ++downloadSequence;
+      try {
+        item.setSavePath(scheduleBrowserDownloadPath(
+          app.getPath("downloads"), scheduleId, item.getFilename(), randomUUID(),
+        ));
+      } catch (error) {
+        recordOperation("schedule-browser", "unable to assign an unattended download path for " + scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
+        try { item.cancel(); } catch { /* preserve the original save-path failure */ }
+        return; // Never allow a hidden Schedule Browser to open a native Save dialog.
+      }
       const publish = (status: BrowserDownloadEvent["status"]) => {
         const payload: BrowserDownloadEvent = {
           id, scheduleId, fileName: item.getFilename(), status,
