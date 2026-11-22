@@ -658,7 +658,8 @@ export class CopilotDesktopAgent {
     if(!verifiedEvidence.length)throw new Error("Goal 修改必须提供直接用户原话作为 evidence。");
     for(const quote of verifiedEvidence)if(quote.length<4||!available.includes(quote.toLocaleLowerCase()))throw new Error("Goal evidence 必须是当前会话中真实出现的用户原话，未匹配到："+quote.slice(0,80));
     if(relationship==="new"&&id)throw new Error("new Goal 不应复用已有 id。");
-    if(relationship!=="new"&&id&&!Number.isInteger(baseVersion))throw new Error("更新既有 Goal 必须提供读取时的 baseVersion。");
+    if(relationship!=="new"&&!id)throw new Error("refine/correct/extend/override 必须复用现有 Goal id，不能静默创建重复目标。");
+    if(relationship!=="new"&&!Number.isInteger(baseVersion))throw new Error("更新既有 Goal 必须提供读取时的 baseVersion。");
     const goal=this.memory.upsertGoal({id,baseVersion,scope:this.memoryScope(),taskId:level==="project"?null:this.currentTaskId,level,objective,expectedOutcome,constraints,acceptanceCriteria,status,confidence,evidence:verifiedEvidence,sourceSessionId:this.memorySessionId,sourceTraceId:this.memoryTraceId});
     this.recordTrace("goal.context.updated",{goal,relationship,evidence:verifiedEvidence},"completed");
     return JSON.stringify({goal,relationship});
