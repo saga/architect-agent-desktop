@@ -52,7 +52,25 @@ describe("Request memory context resolver",()=>{
   expect(result.text).toContain("avoid_repeating_user_requirements");
   store.close();
  });
- it("applies high-priority execution workflow rules to implementation and test tasks",()=>{
+ it("keeps multiple high-priority rules ahead of the ordinary-memory context budget",()=>{
+   const store=new AgentMemoryStore(path.join(temporaryDirectory(),"memory.sqlite"));
+   for(let i=0;i<6;i++){
+    store.saveConfirmedPreference({
+     id:"global-rule-"+i,scope:"/workspace/many-rules",title:"High-priority interaction rule "+i,
+     content:"不要让我反复提醒。规则编号 "+i+"；执行前先检查当前会话与已有要求。",
+     category:"interaction",key:"avoid_repeating_user_requirements",
+     sourceSessionId:"session-many-rules-"+i,sourceTraceId:"trace-many-rules-"+i,createdAt:Date.now()+i,
+     crossWorkspaceConfirmed:false,strength:"repeated_correction",priority:"high",
+    });
+   }
+   const rules=store.listHighPriorityPreferences("/workspace/many-rules",20);
+   const result=createRequestMemoryContext("Summarize the API design.",rules,900);
+   expect(result.highPriorityRuleCount).toBe(6);
+   expect(result.text).toContain("global-rule-0");
+   expect(result.text).toContain("global-rule-5");
+   store.close();
+  });
+  it("applies high-priority execution workflow rules to implementation and test tasks",()=>{
   const store=new AgentMemoryStore(path.join(temporaryDirectory(),"memory.sqlite"));
   store.saveConfirmedPreference({
    id:"workflow-rule",scope:"/workspace/workflow-rules",title:"High-priority workflow rule",
