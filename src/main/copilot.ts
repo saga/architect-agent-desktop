@@ -649,7 +649,7 @@ export class CopilotDesktopAgent {
     objective:z.string().min(1).max(1000),expectedOutcome:z.string().max(1000).optional(),
     constraints:z.array(z.string().min(1).max(500)).max(20).optional(),
     acceptanceCriteria:z.array(z.string().min(1).max(500)).max(20).optional(),
-    status:z.enum(["active","blocked","completed","cancelled"]).optional(),
+    status:z.enum(["active","blocked","completed"]).optional(),
     confidence:z.number().min(0).max(1).optional(),evidence:z.array(z.string().min(4).max(500)).min(1).max(8),
    }),handler:({id,baseVersion,level,relationship,objective,expectedOutcome,constraints,acceptanceCriteria,status,confidence,evidence}:{id?:string;baseVersion?:number;level:"project"|"task";relationship:"new"|"refine"|"correct"|"extend"|"override";objective:string;expectedOutcome?:string;constraints?:string[];acceptanceCriteria?:string[];status?:AgentUserGoalStatus;confidence?:number;evidence:string[]})=>report("Update user goal",async()=>{
     if(!this.goalEvidenceEnabled)throw new Error("当前是后台维护或非用户请求，不能修改用户 Goal。");
@@ -659,7 +659,7 @@ export class CopilotDesktopAgent {
     for(const quote of verifiedEvidence)if(quote.length<4||!available.includes(quote.toLocaleLowerCase()))throw new Error("Goal evidence 必须是当前会话中真实出现的用户原话，未匹配到："+quote.slice(0,80));
     if(relationship==="new"&&id)throw new Error("new Goal 不应复用已有 id。");
     if(relationship!=="new"&&id&&!Number.isInteger(baseVersion))throw new Error("更新既有 Goal 必须提供读取时的 baseVersion。");
-    const goal=this.memory.upsertGoal({id,baseVersion,scope:this.memoryScope(),taskId:this.currentTaskId,level,objective,expectedOutcome,constraints,acceptanceCriteria,status,confidence,evidence:verifiedEvidence,sourceSessionId:this.memorySessionId,sourceTraceId:this.memoryTraceId});
+    const goal=this.memory.upsertGoal({id,baseVersion,scope:this.memoryScope(),taskId:level==="project"?null:this.currentTaskId,level,objective,expectedOutcome,constraints,acceptanceCriteria,status,confidence,evidence:verifiedEvidence,sourceSessionId:this.memorySessionId,sourceTraceId:this.memoryTraceId});
     this.recordTrace("goal.context.updated",{goal,relationship,evidence:verifiedEvidence},"completed");
     return JSON.stringify({goal,relationship});
    })},
@@ -671,7 +671,7 @@ export class CopilotDesktopAgent {
     const available=this.currentUserEvidenceText.replace(/\s+/g," ").toLocaleLowerCase();
     const verifiedEvidence=[...new Set((evidence??[]).map(value=>value.trim().replace(/\s+/g," ")).filter(Boolean))].slice(0,8);
     for(const quote of verifiedEvidence)if(quote.length<4||!available.includes(quote.toLocaleLowerCase()))throw new Error("Goal evidence 必须是当前会话中真实出现的用户原话，未匹配到："+quote.slice(0,80));
-    if(status==="cancelled"&&!verifiedEvidence.length)throw new Error("取消 Goal 必须提供用户明确取消目标的原文证据。");
+    if(status==="cancelled"&&(!verifiedEvidence.length||!/(取消|停止|不做了|cancel|stop this|drop this goal|no longer pursue)/iu.test(verifiedEvidence.join(" "))))throw new Error("取消 Goal 必须提供明确取消目标的用户原话证据。");
     const goal=this.memory.setGoalStatus(this.memoryScope(),this.currentTaskId,id,status,verifiedEvidence);
     this.recordTrace("goal.context.status_changed",{goal,reason,evidence:verifiedEvidence},"completed");
     return JSON.stringify(goal);
