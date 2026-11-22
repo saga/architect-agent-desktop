@@ -1506,6 +1506,7 @@ describe("Confirmed preference Memory", () => {
       operator: "instruction",
       strength: "explicit",
       scope: "/workspace/preferences-dreaming",
+      value: "Please keep architecture reviews concise and retain trade-off details.",
     });
     const rollback = store.rollbackDreaming(
       "/workspace/preferences-dreaming",
@@ -1519,7 +1520,7 @@ describe("Confirmed preference Memory", () => {
       domain: "communication",
       operator: "instruction",
       strength: "explicit",
-      value: "Please keep answers concise.",
+      value: "Please keep architecture reviews concise.",
     });
     store.close();
   });
