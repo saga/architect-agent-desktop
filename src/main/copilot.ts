@@ -323,7 +323,7 @@ export class CopilotDesktopAgent {
   return this.a2ui;
  }
  private taskContext:{systemPrompt:string;toolPermission:AgentToolPermission;allowAllTools:boolean;skills:string[];tools:string[]}|null=null;
- private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null; private readonly codeRuntimeAbortControllers = new Set<AbortController>(); private readonly codeRuntime = new UtilityProcessAgentRuntime();
+ private client:CopilotClient|null=null; private session:CopilotSession|null=null; private starting:Promise<void>|null=null; private mcpOAuthProvider:EntraMcpOAuthProvider|null=null; private active=false; private settings:AgentSettings; private inspectedModels=new Map<string,AgentModelInfo>(); private codeBuddyQuery:{interrupt?:()=>Promise<void>}|null=null; private codeBuddyAbortController:AbortController|null=null; private readonly codeRuntimeAbortControllers = new Set<AbortController>(); private readonly codeRuntime = new UtilityProcessAgentRuntime();
  constructor(private publish:(event:CopilotEvent)=>void,private browser:BrowserAgentTools,settings:AgentSettings,private getPluginInstructions:(skills?:string[],nativeComponentsByPlugin?:PluginNativeComponents)=>string|Promise<string>=() => "",workspacePath:string|null=null,private recordTrace:(type:string,data:unknown,status?:string,payloadComplete?:boolean)=>void=()=>{},initialTaskContext:{systemPrompt:string;toolPermission:AgentToolPermission;allowAllTools:boolean;skills:string[];tools:string[]}|null=null,private getMcpServers:()=>McpServerConfig[]=()=>[],private getPluginRuntimeDirectories:(provider:AgentProvider)=>PluginRuntimeEntry[]|Promise<PluginRuntimeEntry[]>=()=>[],private searchTranscriptMessages:(workspacePath:string|null,query:string,limit:number)=>Array<Record<string,unknown>>=()=>[],private loadMemorySources:(workspacePath:string|null,cursor:MemoryDreamCursor,limit:number)=>MemorySourceEvidence[]=()=>[]){this.settings=settings;this.workspacePath=workspacePath;this.taskContext=initialTaskContext?{...initialTaskContext,allowAllTools:initialTaskContext.allowAllTools===true,skills:[...initialTaskContext.skills],tools:[...initialTaskContext.tools]}:null;}
  setApprovedFiles(paths: string[]): void { this.approvedFiles = new Set(paths.filter(value => typeof value === "string").slice(0, 20)); }
  setMemoryContext(sessionId: string | null, traceId: string | null, taskId: string | null = null, allowGoalUpdates = true): void { this.memorySessionId = sessionId; this.memoryTraceId = traceId; this.currentTaskId = taskId; this.goalEvidenceEnabled = allowGoalUpdates; }
@@ -941,12 +941,12 @@ export class CopilotDesktopAgent {
      this.registeredTools = tools.map(({ name, description, schema }) => ({ name, description, schema }));
      const configuredMcpServers=this.configuredMcpServers("copilot",runtimeEnvironment);
      const mcpOAuthConfig=readEntraMcpOAuthConfig(process.env);
-     const mcpOAuthProvider=mcpOAuthConfig.enabled?new EntraMcpOAuthProvider(mcpOAuthConfig,{
+     const mcpOAuthProvider=mcpOAuthConfig.enabled?(this.mcpOAuthProvider??=new EntraMcpOAuthProvider(mcpOAuthConfig,{
       storageFile:path.join(app.getPath("userData"),"mcp-oauth-tokens.json"),
       secureStorage:safeStorage,
       openExternal:url=>shell.openExternal(url),
       fetcher:net.fetch as typeof fetch,
-     }):null;
+     })):null;
      this.registeredMcpServerNames = Object.keys(configuredMcpServers).sort();
      const pluginRuntimeAllowed=approvedDirectories.length>0&&this.effectivePermission()==="allow-all"&&(this.taskContext===null||this.taskContext.allowAllTools);
      const availableTools=new ToolSet();
