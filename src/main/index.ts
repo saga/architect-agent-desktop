@@ -856,7 +856,7 @@ function disposeScheduleBrowserContext(context: ScheduleBrowserContext): void {
   // hold the run lifecycle open after success, failure, cancellation or timeout.
   if (!context.window.isDestroyed()) context.window.destroy();
   for (const tab of tabsToDispose) {
-    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.destroy();
+    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close({ waitForBeforeUnload: false });
   }
 }
 
