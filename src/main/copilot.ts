@@ -788,7 +788,7 @@ export class CopilotDesktopAgent {
   for(const provider of resolvedProviders) {
    for(const [method,fn] of Object.entries(provider.fns)) providerMethods.set(provider.name+"."+method,fn);
   }
-  if(permission==="allow-all" && (this.taskContext===null || this.taskContext.allowAllTools || expertTools.includes("execute_code"))) {
+  if(permission==="allow-all" && (this.taskContext===null || this.taskContext.allowAllTools || this.taskContext.tools.includes("execute_code"))) {
    tools.push({
     name:"execute_code",
     description:createCodeModeDescription(resolvedProviders),
@@ -1247,8 +1247,8 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
      model:selectedModel,effort,contextWindow:this.settings.contextWindow,cwd,settingSources,permission,
      mcpServerNames:Object.keys(configuredMcpServers).sort(),
      pluginRuntimeIds:stagedCodeBuddyPluginDirectories.map(entry=>entry.id),
-     builtinTools:allowedBuiltinTools,
-     disallowedBuiltinTools,
+     builtinTools:unrestrictedAllowAll ? null : builtinPolicy.tools,
+     disallowedBuiltinTools:builtinPolicy.disallowedTools,
      includePartialMessages:true,maxTurns:MAX_TURNS_PER_QUERY,totalModelTurnBudget:MAX_TOTAL_MODEL_TURNS,hostToolCallBudget:MAX_HOST_TOOL_CALLS,
     });
     this.recordTrace("provider.request",{
