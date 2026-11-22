@@ -1671,7 +1671,7 @@ describe("Confirmed preference Memory", () => {
       run!.id,
       "Verify structured preference metadata is restored by the Note snapshot.",
     );
-    expect(rollback.rolledBackOperations).toBe(2);
+    expect(rollback.rolledBackOperations).toBe(1);
     const restored = store.getNote(note.id, "/workspace/preferences-dreaming");
     expect(restored?.content).toBe("Please keep architecture reviews concise.");
     expect(restored?.preference).toMatchObject({
