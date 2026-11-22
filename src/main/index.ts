@@ -3152,11 +3152,11 @@ function registerIpcHandlers(): void {
       throw new Error("Agent 正在处理其他请求或切换 Task，请稍后重试。");
     }
     agentRequestPending = true;
-    agentToolTabId = null;
+    // Capture the Browser target at request entry, before Task activation can yield.
+    agentToolTabId = activeTabId;
     try {
     const task = taskForId(parsed.data.taskId);
     if (activeAgentTaskId !== task.id) await activateAgentTask(task.id);
-    agentToolTabId = activeTabId;
     const allowedAttachments = approvedAgentFiles.get(task.id) ?? new Set<string>();
     const attachments = parsed.data.attachments ?? [];
     if (attachments.some(file => !allowedAttachments.has(file))) throw new Error("附件列表包含未经系统文件选择器授权的文件，请重新选择。");
@@ -3225,11 +3225,11 @@ function registerIpcHandlers(): void {
       throw new Error("Agent 正在处理其他请求或切换 Task，请稍后重试。");
     }
     agentRequestPending = true;
-    agentToolTabId = null;
+    // A2UI follow-up uses the Browser target captured before Task activation.
+    agentToolTabId = activeTabId;
     try {
       const task = taskForId(parsed.data.taskId);
       if (activeAgentTaskId !== task.id) await activateAgentTask(task.id);
-      agentToolTabId = activeTabId;
       const previousTranscript = loadAgentSession(task.id);
       const actionContent = JSON.stringify(parsed.data.message);
       const interactionItem = {
