@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import type { DownloadItem, Session } from "electron";
 
 /** Stable, opaque Electron partition per Schedule. Never shares the user's main browser profile. */
 export function scheduleBrowserPartition(scheduleId: string): string {
@@ -135,4 +136,68 @@ export function scheduleBrowserDownloadPath(
 /** Only safe HTTP(S)/about:blank URLs may create OAuth popups, with bounded nesting. */
 export function canOpenScheduleBrowserPopup(isSafeUrl: boolean, depth: number): boolean {
   return isSafeUrl && Number.isInteger(depth) && depth >= 0 && depth < 3;
+}
+
+
+export interface ScheduleBrowserDownloadEvent {
+  id: number;
+  scheduleId: string;
+  fileName: string;
+  status: "started" | "progress" | "completed" | "cancelled";
+  receivedBytes: number;
+  totalBytes: number;
+  savePath?: string;
+}
+
+export interface ScheduleBrowserDownloadHandlerOptions {
+  scheduleId: string;
+  downloadDirectory: string;
+  nextDownloadId(): number;
+  onEvent(event: ScheduleBrowserDownloadEvent): void;
+  onError(error: unknown): void;
+  onDone?(item: DownloadItem, state: string, activeDownloads: ReadonlySet<DownloadItem>): void;
+}
+
+/** Attach the real Electron download lifecycle to one Schedule's isolated Session. */
+export function registerScheduleBrowserDownloadHandler(
+  profile: Pick<Session, "on">,
+  options: ScheduleBrowserDownloadHandlerOptions,
+): Set<DownloadItem> {
+  const activeDownloads = new Set<DownloadItem>();
+  profile.on("will-download", (_event, item) => {
+    let id: number;
+    try {
+      id = options.nextDownloadId();
+      item.setSavePath(scheduleBrowserDownloadPath(
+        options.downloadDirectory,
+        id,
+        item.getFilename(),
+      ));
+    } catch (error) {
+      options.onError(error);
+      try { item.cancel(); } catch { /* never fall back to a native Save dialog */ }
+      return;
+    }
+
+    activeDownloads.add(item);
+    const publish = (status: ScheduleBrowserDownloadEvent["status"]) => {
+      options.onEvent({
+        id,
+        scheduleId: options.scheduleId,
+        fileName: item.getFilename(),
+        status,
+        receivedBytes: item.getReceivedBytes(),
+        totalBytes: item.getTotalBytes(),
+        savePath: item.getSavePath() || undefined,
+      });
+    };
+    publish("started");
+    item.on("updated", () => publish("progress"));
+    item.once("done", (_downloadEvent, state) => {
+      publish(state === "completed" ? "completed" : "cancelled");
+      activeDownloads.delete(item);
+      options.onDone?.(item, state, activeDownloads);
+    });
+  });
+  return activeDownloads;
 }

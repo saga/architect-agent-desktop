@@ -38,7 +38,7 @@ import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./logi
 import { clampBrowserBounds } from "./layout/browser-bounds";
 import { isAgentOperationBusy } from "./agent-operation-policy";
 import { resolveAgentBrowserTab, resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
-import { canOpenScheduleBrowserPopup, cancelScheduleBrowserDownloads, clearScheduleBrowserProfileData, destroyScheduleBrowserProfileWindows, initializeScheduleBrowserContext, scheduleBrowserDownloadPath, scheduleBrowserDownloadsDirectory, scheduleBrowserPartition } from "./schedule-browser-profile";
+import { canOpenScheduleBrowserPopup, cancelScheduleBrowserDownloads, clearScheduleBrowserProfileData, destroyScheduleBrowserProfileWindows, initializeScheduleBrowserContext, registerScheduleBrowserDownloadHandler, scheduleBrowserDownloadsDirectory, scheduleBrowserPartition } from "./schedule-browser-profile";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { setPanelVisibility } from "./layout/layout-tree";
 
@@ -749,40 +749,27 @@ async function getScheduleBrowserSession(scheduleId: string): Promise<Session> {
     const downloadDirectory = scheduleBrowserDownloadsDirectory(app.getPath("downloads"), scheduleId);
     await mkdir(downloadDirectory, { recursive: true });
     if (isQuitting) throw new Error("Application is closing; Schedule Browser Session creation was cancelled.");
-    profile.on("will-download", (_event, item) => {
-      const id = ++downloadSequence;
-      try {
-        item.setSavePath(scheduleBrowserDownloadPath(downloadDirectory, id, item.getFilename()));
-      } catch (error) {
-        recordOperation("schedule-browser", "unable to assign an unattended download path for " + scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
-        try { item.cancel(); } catch { /* preserve the original save-path failure */ }
-        return; // Never allow a hidden Schedule Browser to open a native Save dialog.
-      }
-      let activeDownloads = scheduleBrowserDownloads.get(scheduleId);
-      if (!activeDownloads) {
-        activeDownloads = new Set<DownloadItem>();
-        scheduleBrowserDownloads.set(scheduleId, activeDownloads);
-      }
-      activeDownloads.add(item);
-      const publish = (status: BrowserDownloadEvent["status"]) => {
-        const payload: BrowserDownloadEvent = {
-          id, scheduleId, fileName: item.getFilename(), status,
-          receivedBytes: item.getReceivedBytes(), totalBytes: item.getTotalBytes(),
-          savePath: item.getSavePath() || undefined,
-        };
+    let activeDownloads: Set<DownloadItem>;
+    activeDownloads = registerScheduleBrowserDownloadHandler(profile, {
+      scheduleId,
+      downloadDirectory,
+      nextDownloadId: () => ++downloadSequence,
+      onError: error => recordOperation(
+        "schedule-browser",
+        "unable to assign an unattended download path for " + scheduleId + ": " + (error instanceof Error ? error.message : String(error)),
+      ),
+      onEvent: payload => {
+        if (payload.status === "started") scheduleBrowserDownloads.set(scheduleId, activeDownloads);
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("browser:download", payload);
-      };
-      publish("started");
-      item.on("updated", () => publish("progress"));
-      item.once("done", (_downloadEvent, state) => {
-        publish(state === "completed" ? "completed" : "cancelled");
-        activeDownloads?.delete(item);
-        if (activeDownloads?.size === 0 && scheduleBrowserDownloads.get(scheduleId) === activeDownloads) {
+      },
+      onDone: (item, state, pending) => {
+        if (pending.size === 0 && scheduleBrowserDownloads.get(scheduleId) === activeDownloads) {
           scheduleBrowserDownloads.delete(scheduleId);
         }
         recordOperation("schedule-browser", "download " + scheduleId + " " + item.getFilename() + " " + state);
-      });
+      },
     });
+
     scheduleBrowserSessions.set(scheduleId, profile);
     return profile;
   })();

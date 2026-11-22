@@ -6,7 +6,7 @@ const { app, session, BrowserWindow } = require("electron");
 const {
   clearScheduleBrowserProfileData,
   scheduleBrowserPartition,
-  scheduleBrowserDownloadPath,
+  registerScheduleBrowserDownloadHandler,
   scheduleBrowserDownloadsDirectory,
 } = require(path.resolve(__dirname, "../../dist/main/schedule-browser-profile.js"));
 
@@ -122,29 +122,36 @@ async function run() {
     });
     try {
       await window.loadURL("http://127.0.0.1:" + address.port + "/page");
+      const events = [];
+      let resolveCompleted;
+      let rejectCompleted;
       const completed = new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("Schedule download did not finish within 15 seconds.")), 15_000);
-        profileB.once("will-download", (_event, item) => {
-          try {
-            const savePath = scheduleBrowserDownloadPath(downloadDirectory, 1234, item.getFilename(), 5678);
-            item.setSavePath(savePath);
-            item.once("done", (_downloadEvent, state) => {
-              clearTimeout(timer);
-              resolve({ state, savePath });
-            });
-          } catch (error) {
-            clearTimeout(timer);
-            reject(error);
-          }
-        });
+        resolveCompleted = resolve;
+        rejectCompleted = reject;
       });
+      const activeDownloads = registerScheduleBrowserDownloadHandler(profileB, {
+        scheduleId: SCHEDULE_B,
+        downloadDirectory,
+        nextDownloadId: () => 1234,
+        onError: rejectCompleted,
+        onEvent: event => {
+          events.push(event);
+          if (event.status === "completed" || event.status === "cancelled") resolveCompleted(event);
+        },
+      });
+      const timeout = setTimeout(() => rejectCompleted(new Error("Schedule download did not finish within 15 seconds.")), 15_000);
       window.webContents.downloadURL("http://127.0.0.1:" + address.port + "/file");
-      const result = await completed;
+      let result;
+      try { result = await completed; }
+      finally { clearTimeout(timeout); }
       assert.equal(result.state, "completed", "Unattended download must complete after an explicit save path is assigned.");
       assert.ok(result.savePath.startsWith(downloadDirectory + path.sep), "Download must stay inside the Schedule-specific directory.");
       assert.ok(!result.savePath.includes(".."), "Remote filename must not escape the Schedule directory.");
       assert.match(path.basename(result.savePath), /^5678-1234-/);
       assert.equal(await readFile(result.savePath, "utf8"), "schedule-download-ok");
+      assert.equal(events[0]?.status, "started");
+      assert.equal(events.at(-1)?.status, "completed");
+      assert.equal(activeDownloads.size, 0, "Completed downloads must be removed from active tracking.");
     } finally {
       if (!window.isDestroyed()) window.destroy();
       await new Promise(resolve => server.close(resolve));
