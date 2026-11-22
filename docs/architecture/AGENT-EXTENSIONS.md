@@ -33,7 +33,9 @@ OAuth 是可选能力，默认关闭。主进程启动时读取开发目录 `.en
 - `MCP_OAUTH_CLIENT_ID`：为本桌面应用注册的 Public Client Application ID，不是 MCP API 的 Client ID。不要配置 Client Secret。
 - `MCP_OAUTH_SCOPES`：MCP Server 未在 `WWW-Authenticate` 中提供 scope 时使用的默认 API scope。也可设置 `MCP_OAUTH_SCOPES_<SERVER_ID>`，例如 `MCP_OAUTH_SCOPES_GITHUB`。
 
-Entra 应用注册需启用 Mobile and desktop applications，并登记 `http://localhost` 回调地址。应用使用 PKCE，不在本机监听非 loopback 网络接口。Refresh Token 仅在 Electron `safeStorage` 可用时加密持久化；不可用时仅保留在当前进程内存。MCP Server 仍必须在服务端验证 JWT 签名、`iss`、`tid`、`aud`、`azp`、`oid` 和 `scp` / `roles`，并继续实施业务级 Data Entitlement / Policy 检查。
+Entra 应用注册需启用 Mobile and desktop applications，并登记 `http://localhost` 回调地址。应用使用 PKCE，只在 loopback 接口监听本机回调。Refresh Token 仅在 Electron `safeStorage` 可用时加密持久化；不可用时只保留在当前应用进程内存中。MCP Server 仍必须在服务端验证 JWT 签名、`iss`、`tid`、`aud`、`azp`、`oid` 和 `scp` / `roles`，并继续实施业务级 Data Entitlement / Policy 检查。
+
+注意：桌面应用是 Public Client，`MCP_OAUTH_CLIENT_ID` 以及 Token 中的 `azp` 只能标识 Entra 应用注册，不能证明请求一定来自未被篡改的本应用二进制。不要把 Public Client ID 当成强客户端证明；后台自治 Agent 或高信任工作负载应改由受控服务端使用 Workload Identity / Certificate 等身份。
 
 该环境变量开关只控制 Copilot 的交互式 Entra OAuth。CodeBuddy 目前继续通过 HTTP Headers 和 `${ENV_VAR}` 引用提供静态 Bearer Token，不宣称支持同等的 OAuth 浏览器授权流程。
 
