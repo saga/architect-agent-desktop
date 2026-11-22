@@ -48,4 +48,10 @@ describe("User understanding", () => {
     expect(result.emotion).toBe("neutral");
     expect(result.strategy).toBe("normal");
   });
+
+  it("does not treat a straightforward scope boundary as frustration", () => {
+    const result = assessUserTurn("不要再添加新功能，保持当前实现范围。");
+    expect(result.emotion).toBe("neutral");
+    expect(result.strategy).toBe("normal");
+  });
 });
