@@ -62,6 +62,7 @@
 - [x] WorkspaceDocument v1 偏好迁移、四方向停靠、显隐和面板比例的 v2 往返回归测试（Layout Engine 自动化测试已覆盖）
 - [ ] macOS：Electron Agent Code Mode 中真实 UtilityProcess 取消、超时及应用退出清理验证
 - [ ] Windows：Electron Agent Code Mode 中真实 UtilityProcess 取消、超时及应用退出清理验证
+- [ ] macOS DMG / ZIP 与 Windows NSIS 安装包构建验证及 CI 产物检查（本次新增打包步骤，等待 CI 运行）
 
 ## CI 更新记录
 
