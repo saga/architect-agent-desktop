@@ -1,0 +1,33 @@
+name: Main I/O benchmark
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/benchmark-main-io.mjs
+      - .github/workflows/benchmark-main-io.yml
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --no-audit --no-fund
+      - name: Benchmark current async implementation
+        run: |
+          npm run build
+          node scripts/benchmark-main-io.mjs async-current
+      - name: Build and benchmark synchronous baseline
+        run: |
+          git worktree add /tmp/architect-agent-sync-baseline 7dfd411dda89b69a214167dd66872198c946ed70
+          mkdir -p /tmp/architect-agent-sync-baseline/scripts
+          cp scripts/benchmark-main-io.mjs /tmp/architect-agent-sync-baseline/scripts/benchmark-main-io.mjs
+          ln -s "$GITHUB_WORKSPACE/node_modules" /tmp/architect-agent-sync-baseline/node_modules
+          cd /tmp/architect-agent-sync-baseline
+          npm run build
+          node scripts/benchmark-main-io.mjs sync-baseline
