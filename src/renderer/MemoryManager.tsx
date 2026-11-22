@@ -369,7 +369,7 @@ export default function MemoryManager() {
     {
       title: "操作", key: "actions", width: 230,
       render: (_: unknown, note: AgentMemoryNoteView) => note.status === "active" ? <Space size={4} wrap>
-        {note.preference?.priority==="high" ? <Tag color="red">规则锁定</Tag> : <Button type="link" size="small" onClick={() => void togglePinned(note)}>{note.pinned ? "取消置顶" : "置顶"}</Button>}
+        <Button type="link" size="small" onClick={() => void togglePinned(note)}>{note.pinned ? "取消置顶" : "置顶"}</Button>
         {note.claimType === "external_fact" && note.validation === "unverified" &&
           note.externalVerification?.status === "multi_domain_sources_recorded" &&
           <Popconfirm
@@ -383,11 +383,11 @@ export default function MemoryManager() {
           </Popconfirm>}
         <Popconfirm
           title="归档这条 Memory Note？"
-          description={note.preference?.priority==="high" ? "高优先级用户规则不能直接归档；请先明确修改或撤销该规则。" : note.pinned ? "请先取消置顶。归档不会物理删除历史版本。" : "归档后不会再注入上下文，但可在 Notes 列表中查看。"}
-          disabled={note.pinned || note.preference?.priority==="high"}
+          description={note.preference?.priority==="high" ? "高优先级规则已置顶保护；如需撤销，先取消置顶，再归档。归档后不再注入上下文。" : note.pinned ? "请先取消置顶。归档不会物理删除历史版本。" : "归档后不会再注入上下文，但可在 Notes 列表中查看。"}
+          disabled={note.pinned}
           onConfirm={() => void archiveNote(note)}
         >
-          <Button type="link" size="small" danger disabled={note.pinned || note.preference?.priority==="high"}>归档</Button>
+          <Button type="link" size="small" danger disabled={note.pinned}>归档</Button>
         </Popconfirm>
       </Space> : <Text type="secondary">—</Text>,
     },
