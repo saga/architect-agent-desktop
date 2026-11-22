@@ -407,7 +407,9 @@ export class CopilotDesktopAgent {
  private async resolveRequestMemoryContext(prompt:string,history?:AgentChatMessage[]):Promise<string>{
    const directUserText=prompt.split(/\n## 本轮附件解析结果/i,1)[0]??prompt;
    const assessment=assessUserTurn(directUserText,history??[]);
-   const goals=this.memory.listGoals(this.memoryScope(),this.currentTaskId,false,12);
+   let goals:ReturnType<AgentMemoryStore["listGoals"]>=[];
+   try{goals=this.memory.listGoals(this.memoryScope(),this.currentTaskId,false,12);}
+   catch(error){this.recordTrace("goal.context.read_failed",{error:error instanceof Error?error.message:String(error)},"warning");}
    const understandingContext=buildUserUnderstandingContext(assessment,goals);
    this.recordTrace("user_understanding.assessed",{
     emotion:assessment.emotion,intensity:assessment.emotionIntensity,confidence:assessment.emotionConfidence,
