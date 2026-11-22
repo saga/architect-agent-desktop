@@ -393,7 +393,7 @@ export class AgentMemoryStore {
     return this.toGoal(row);
   }
 
-  setGoalStatus(scope: string | null, taskId: string | null, id: string, status: AgentUserGoalStatus, reason: string, evidence: string[] = []): AgentUserGoal {
+  setGoalStatus(scope: string | null, taskId: string | null, id: string, status: AgentUserGoalStatus, evidence: string[] = []): AgentUserGoal {
     const scopeKey = normalizeScope(scope);
     const row = this.database.prepare("SELECT * FROM agent_goals WHERE id=? AND scope_key=?").get({}, id, scopeKey) as Record<string, unknown> | undefined;
     if (!row || (row.level === "task" && String(row.task_id) !== String(taskId ?? ""))) {
