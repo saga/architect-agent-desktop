@@ -802,6 +802,7 @@ async function createScheduleBrowserTab(context: ScheduleBrowserContext, url = H
       sandbox: true,
       webSecurity: true,
       spellcheck: true,
+      backgroundThrottling: false,
     },
   });
   context.window.contentView.addChildView(view);
@@ -826,7 +827,7 @@ async function createScheduleBrowserContext(schedule: AgentSchedule, runId: stri
   const profile = await getScheduleBrowserSession(schedule.id);
   const window = new BrowserWindow({
     show: false, width: 1280, height: 800, frame: false, skipTaskbar: true, backgroundColor: "#ffffff",
-    webPreferences: { session: profile, contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { session: profile, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   const context: ScheduleBrowserContext = {
     scheduleId: schedule.id, runId, session: profile, window,
@@ -846,16 +847,13 @@ async function createScheduleBrowserContext(schedule: AgentSchedule, runId: stri
 function disposeScheduleBrowserContext(context: ScheduleBrowserContext): void {
   context.disposed = true;
   if (scheduleBrowserContext === context) scheduleBrowserContext = null;
-  for (const tab of context.tabs.values()) {
-    tab.cdp.detach(tab.view.webContents);
-    if (!context.window.isDestroyed()) {
-      try { context.window.contentView.removeChildView(tab.view); } catch { /* already detached */ }
-    }
-    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
-  }
+  for (const tab of context.tabs.values()) tab.cdp.detach(tab.view.webContents);
+  context.session.flushStorageData();
   context.tabs.clear();
   context.tabOrder.length = 0;
-  if (!context.window.isDestroyed()) context.window.close();
+  // destroy() bypasses page beforeunload prompts so hidden scheduled pages cannot
+  // hold the run lifecycle open after success, failure, cancellation or timeout.
+  if (!context.window.isDestroyed()) context.window.destroy();
 }
 
 async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
@@ -2505,11 +2503,12 @@ function registerIpcHandlers(): void {
     publishAgentWorkspaceSnapshot();
     return agentSchedules;
   });
-  ipcMain.handle("agent-schedule:delete", (event, input: unknown) => {
+  ipcMain.handle("agent-schedule:delete", async (event, input: unknown) => {
     assertTrustedSender(event);
     const parsed = z.string().min(1).max(100).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Schedule ID.");
     if (scheduleRunnerActive) throw new Error("Schedule 正在执行，暂时不能删除。");
+    await resetScheduleBrowserProfile(parsed.data);
     agentSchedules = agentSchedules.filter(item => item.id !== parsed.data);
     persistAgentSchedules();
     publishAgentWorkspaceSnapshot();

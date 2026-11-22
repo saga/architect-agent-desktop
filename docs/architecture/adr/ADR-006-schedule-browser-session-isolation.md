@@ -15,7 +15,7 @@ Schedule 运行此前复用全局 `persist:architect-agent-browser` Session，�
 4. Schedule Profile 的起始 URL 可配置。Settings 页面可打开独立 Profile 进行人工登录，也可显式重置 Cookie、站点存储和 Cache。
 5. Schedule Session 的站点权限请求默认拒绝，不弹出后台权限确认框；Display Media 请求始终拒绝。Session 的下载事件带上 Schedule ID。
 6. 普通 Agent Run 继续使用用户可见 Tab pin。Memory Dreaming 的后台维护没有交互式 Browser 目标，显式使用空 Browser Context，不能回落到用户当前 Tab。
-7. Schedule 的 WebContents 与隐藏 BrowserWindow 在 Run 的 finally 路径销毁；持久 Profile 数据不会在每次 Run 后清除，以保留用户认可的登录态。
+7. Schedule 的 WebContents 与隐藏 BrowserWindow 在 Run 的 finally 路径强制销毁，避免远端页面的 `beforeunload` 对话框阻塞清理；持久 Profile 数据不会在每次 Run 后清除，以保留用户认可的登录态。显式重置和删除 Schedule 时清除该 Profile 的站点数据。后台页面关闭后台节流，避免定时器被隐藏窗口冻结。
 
 ## 不采用
 
