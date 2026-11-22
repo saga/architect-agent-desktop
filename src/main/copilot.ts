@@ -2,7 +2,7 @@ import type { CopilotClient, CopilotSession } from "@github/copilot-sdk" with { 
 import { z } from "zod";
 import type { AgentChatMessage, AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission, AgentUserGoalStatus, McpServerConfig } from "../shared/types";
 import { resolveMcpServerConfigs } from "./agent-extensions";
-import { copilotPluginEnvironment, filterPluginRuntimeEntries, pluginRuntimeBuiltinTools, type PluginRuntimeEntry } from "./plugins/plugin-runtime-policy";
+import { codeBuddyPluginEnvironment, copilotPluginDirectoryArgs, copilotPluginEnvironment, filterPluginRuntimeEntries, pluginRuntimeBuiltinTools, type PluginRuntimeEntry } from "./plugins/plugin-runtime-policy";
 import type { PluginNativeComponents } from "./plugins/plugin-registry";
 import { prepareCopilotPluginDirectories } from "./plugins/copilot-plugin-adapter";
 import { stagePluginRuntimeDirectories } from "./plugins/plugin-content";
