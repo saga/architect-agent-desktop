@@ -44,7 +44,7 @@ export function pluginContentFingerprint(root: string): string {
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
-      const fullPath = path.join(directory, entry);
+      const fullPath = path.join(directory, entry.name);
       const stat = lstatSync(fullPath);
       const relative = path.relative(root, fullPath).split(path.sep).join("/");
       if (stat.isSymbolicLink()) throw new Error("插件运行时目录不能包含符号链接：" + relative);
