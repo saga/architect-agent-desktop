@@ -92,6 +92,31 @@ describe("UtilityProcess Code Mode execution isolation", () => {
     await runtime.dispose();
   });
 
+  it("terminates the process tree when the execution time budget expires", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = new UtilityProcessAgentRuntime(workerPath);
+      const execution = runtime.executeGeneratedCode({
+        mode: "generated-code",
+        code: "async () => 'too late'",
+        providers: [],
+        capabilities: [],
+        limits: { timeoutMs: 25 },
+      }, vi.fn(async () => undefined));
+      const child = runtimeMocks.children[0]!;
+
+      await vi.advanceTimersByTimeAsync(30);
+
+      await expect(execution).resolves.toEqual(expect.objectContaining({ status: "timed-out" }));
+      expect(runtimeMocks.terminateProcessTree).toHaveBeenCalledOnce();
+      expect(runtimeMocks.terminateProcessTree).toHaveBeenCalledWith(1000);
+      expect(child.killCalls).toBe(1);
+      await runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses the Electron process handle when cancellation happens before a PID is available", async () => {
     const runtime = new UtilityProcessAgentRuntime(workerPath);
     runtimeMocks.withoutPid = true;
