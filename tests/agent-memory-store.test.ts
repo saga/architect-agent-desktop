@@ -1456,6 +1456,47 @@ describe("Confirmed preference Memory", () => {
     store.close();
   });
 
+  it("rejects ordinary Memory writes to high-priority rules but allows a new direct user instruction", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const first = store.saveConfirmedPreference({
+      id: "high-priority-write-guard",
+      scope: "/workspace/write-guard",
+      title: "High-priority user rule",
+      content: "Never use ASCII diagrams.",
+      category: "diagrams",
+      sourceSessionId: "session-write-guard",
+      sourceTraceId: "trace-write-guard",
+      createdAt: Date.now(),
+      crossWorkspaceConfirmed: false,
+      strength: "explicit",
+      priority: "high",
+    });
+    expect(() => store.saveNote({
+      id: first.id,
+      scope: "/workspace/write-guard",
+      title: first.title,
+      content: "Use ASCII diagrams.",
+      claimType: "user_preference",
+    })).toThrow(/高优先级用户规则只能通过用户明确提出的新规则来修改/);
+    const updated = store.saveConfirmedPreference({
+      id: first.id,
+      scope: "/workspace/write-guard",
+      title: first.title,
+      content: "Use Mermaid diagrams instead of ASCII diagrams.",
+      category: "diagrams",
+      sourceSessionId: "session-write-guard-2",
+      sourceTraceId: "trace-write-guard-2",
+      createdAt: Date.now() + 1,
+      crossWorkspaceConfirmed: false,
+      strength: "repeated_correction",
+      priority: "high",
+    });
+    expect(updated.content).toBe("Use Mermaid diagrams instead of ASCII diagrams.");
+    expect(updated.preference?.priority).toBe("high");
+    expect(updated.pinned).toBe(true);
+    store.close();
+  });
+
   it("prevents Dreaming from rewriting a high-priority user rule", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const note = store.saveConfirmedPreference({
