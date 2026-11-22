@@ -80,6 +80,7 @@ const scheduleBrowserSessionPromises = new Map<string, Promise<Session>>();
 const scheduleBrowserProfileWindows = new Map<string, BrowserWindow>();
 const scheduleBrowserProfilePopupWindows = new Map<string, Set<BrowserWindow>>();
 const scheduleBrowserDownloads = new Map<string, Set<DownloadItem>>();
+const scheduleBrowserContexts = new Set<ScheduleBrowserContext>();
 let scheduleBrowserContext: ScheduleBrowserContext | null = null;
 
 const tabs = new Map<string, BrowserTab>();
@@ -733,6 +734,7 @@ function resolveAddress(input: string): string {
 }
 
 async function getScheduleBrowserSession(scheduleId: string): Promise<Session> {
+  if (isQuitting) throw new Error("Application is closing; Schedule Browser Session creation is disabled.");
   const cached = scheduleBrowserSessions.get(scheduleId);
   if (cached) return cached;
   const existing = scheduleBrowserSessionPromises.get(scheduleId);
@@ -740,11 +742,13 @@ async function getScheduleBrowserSession(scheduleId: string): Promise<Session> {
   const pending = (async () => {
     const profile = session.fromPartition(scheduleBrowserPartition(scheduleId));
     await profile.setProxy({ mode: "system" });
+    if (isQuitting) throw new Error("Application is closing; Schedule Browser Session creation was cancelled.");
     profile.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     profile.setPermissionCheckHandler(() => false);
     profile.setDisplayMediaRequestHandler((_request, callback) => callback(null));
     const downloadDirectory = scheduleBrowserDownloadsDirectory(app.getPath("downloads"), scheduleId);
     await mkdir(downloadDirectory, { recursive: true });
+    if (isQuitting) throw new Error("Application is closing; Schedule Browser Session creation was cancelled.");
     profile.on("will-download", (_event, item) => {
       const id = ++downloadSequence;
       try {
@@ -808,7 +812,7 @@ function attachScheduleBrowserTabEvents(context: ScheduleBrowserContext, tab: Br
   webContents.on("will-navigate", (event, url) => { if (!safeWebUrl(url)) event.preventDefault(); });
   webContents.on("will-redirect", (event, url) => { if (!safeWebUrl(url)) event.preventDefault(); });
   webContents.setWindowOpenHandler(({ url }) => {
-    if (safeWebUrl(url) && !context.disposed) {
+    if (!isQuitting && safeWebUrl(url) && !context.disposed) {
       void createScheduleBrowserTab(context, url).catch(error => {
         recordOperation("schedule-browser", "popup tab creation failed for " + context.scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
       });
@@ -828,7 +832,7 @@ function attachScheduleBrowserTabEvents(context: ScheduleBrowserContext, tab: Br
 }
 
 async function createScheduleBrowserTab(context: ScheduleBrowserContext, url = HOME_URL): Promise<string> {
-  if (context.disposed || context.window.isDestroyed()) throw new Error("Schedule Browser Context is closed.");
+  if (isQuitting || context.disposed || context.window.isDestroyed()) throw new Error("Schedule Browser Context is closed.");
   const id = randomUUID();
   const view = new WebContentsView({
     webPreferences: {
@@ -865,7 +869,12 @@ async function createScheduleBrowserTab(context: ScheduleBrowserContext, url = H
   }
   const target = resolveAddress(url);
   tab.url = target;
-  try { await view.webContents.loadURL(target); }
+  try {
+    await view.webContents.loadURL(target);
+    if (isQuitting || context.disposed || context.window.isDestroyed()) {
+      throw new Error("Schedule Browser Context closed while its tab was loading.");
+    }
+  }
   catch (error) {
     tab.isLoading = false;
     tab.title = "Unable to load page";
@@ -875,7 +884,9 @@ async function createScheduleBrowserTab(context: ScheduleBrowserContext, url = H
 }
 
 async function createScheduleBrowserContext(schedule: AgentSchedule, runId: string): Promise<ScheduleBrowserContext> {
+  if (isQuitting) throw new Error("Application is closing; Schedule Browser Context creation is disabled.");
   const profile = await getScheduleBrowserSession(schedule.id);
+  if (isQuitting) throw new Error("Application is closing; Schedule Browser Context creation was cancelled.");
   const window = new BrowserWindow({
     show: false, width: 1280, height: 800, frame: false, skipTaskbar: true, backgroundColor: "#ffffff",
     webPreferences: { session: profile, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
@@ -884,6 +895,7 @@ async function createScheduleBrowserContext(schedule: AgentSchedule, runId: stri
     scheduleId: schedule.id, runId, session: profile, window,
     tabs: new Map(), tabOrder: [], activeTabId: null, disposed: false,
   };
+  scheduleBrowserContexts.add(context);
   window.on("closed", () => {
     const wasUnexpected = !context.disposed;
     context.disposed = true;
@@ -894,21 +906,33 @@ async function createScheduleBrowserContext(schedule: AgentSchedule, runId: stri
     context.tabOrder.length = 0;
     context.activeTabId = null;
     if (scheduleBrowserContext === context) scheduleBrowserContext = null;
+    scheduleBrowserContexts.delete(context);
     try { context.session.flushStorageData(); }
     catch (error) {
       recordOperation("schedule-browser", "profile flush failed after window close for " + context.scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
     }
     if (wasUnexpected) recordOperation("schedule-browser", "hidden BrowserWindow closed before Run cleanup for " + context.scheduleId);
   });
-  return initializeScheduleBrowserContext(
-    context,
-    async current => { await createScheduleBrowserTab(current, schedule.browserStartUrl || HOME_URL); },
-    disposeScheduleBrowserContext,
-  );
+  try {
+    const initialized = await initializeScheduleBrowserContext(
+      context,
+      async current => { await createScheduleBrowserTab(current, schedule.browserStartUrl || HOME_URL); },
+      disposeScheduleBrowserContext,
+    );
+    if (isQuitting || initialized.disposed || initialized.window.isDestroyed()) {
+      disposeScheduleBrowserContext(initialized);
+      throw new Error("Application is closing; Schedule Browser Context initialization was cancelled.");
+    }
+    return initialized;
+  } catch (error) {
+    disposeScheduleBrowserContext(context);
+    throw error;
+  }
 }
 
 function disposeScheduleBrowserContext(context: ScheduleBrowserContext): void {
   context.disposed = true;
+  scheduleBrowserContexts.delete(context);
   if (scheduleBrowserContext === context) scheduleBrowserContext = null;
   const tabsToDispose = [...context.tabs.values()];
   context.tabs.clear();
@@ -989,6 +1013,7 @@ function secureScheduleProfilePopup(
     }
   });
   popup.webContents.setWindowOpenHandler(({ url }) => {
+    if (isQuitting) return { action: "deny" };
     if (!canOpenScheduleBrowserPopup(safeWebUrl(url), depth)) {
       openExternalIfSupported(url);
       return { action: "deny" };
@@ -1016,6 +1041,7 @@ function secureScheduleProfilePopup(
 }
 
 async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
+  if (isQuitting) throw new Error("Application is closing; Schedule Browser Profile windows cannot be opened.");
   const schedule = agentSchedules.find(item => item.id === scheduleId);
   if (!schedule) throw new Error("定时任务不存在。");
   const existing = scheduleBrowserProfileWindows.get(scheduleId);
@@ -1026,6 +1052,7 @@ async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
     return;
   }
   const profile = await getScheduleBrowserSession(scheduleId);
+  if (isQuitting) throw new Error("Application is closing; Schedule Browser Profile window creation was cancelled.");
   const window = new BrowserWindow({
     ...(mainWindow && !mainWindow.isDestroyed() ? { parent: mainWindow } : {}),
     width: 1180, height: 820, minWidth: 760, minHeight: 560,
@@ -3528,12 +3555,11 @@ async function cleanupScheduleBrowserResourcesForQuit(): Promise<void> {
     );
   };
 
-  // Close the active hidden Run context first. Its disposer detaches CDP,
-  // destroys the hidden BrowserWindow, closes remaining WebContents and flushes.
-  const activeContext = scheduleBrowserContext;
-  if (activeContext) {
-    try { disposeScheduleBrowserContext(activeContext); }
-    catch (error) { reportFailure("Run Context disposal", activeContext.scheduleId, error); }
+  // Dispose every context, including one still initializing before the active
+  // Run has assigned it to scheduleBrowserContext.
+  for (const context of [...scheduleBrowserContexts]) {
+    try { disposeScheduleBrowserContext(context); }
+    catch (error) { reportFailure("Run Context disposal", context.scheduleId, error); }
   }
 
   // Cancel unattended downloads before closing the user-managed Profile windows.

@@ -44,3 +44,8 @@ Schedule 运行此前复用全局 `persist:architect-agent-browser` Session，�
 ## 自动化回归
 
 新增 `npm run test:schedule-browser-session`，在独立 Electron 主进程中使用项目实际的 `scheduleBrowserPartition()` 与 `clearScheduleBrowserProfileData()`：第一阶段写入 Schedule A、Schedule B 和普通浏览器 partition 的 Cookie；退出 Electron 后重新启动，验证三份 Cookie 仍分别存在；随后只清理 Schedule A，并再次启动 Electron，验证 A 已清除，而 B 和普通浏览器 Cookie 保留。该测试运行于现有 macOS / Windows CI matrix，不增加 Linux runner。它验证真实 Electron `persist:` Session 的持久化与 Cookie 隔离，不替代登录站点、OAuth 弹窗和下载窗口等 GUI 验收。
+
+
+## 退出与初始化并发
+
+Schedule Browser Context 在初始化阶段即加入独立 Set 跟踪，不依赖 Agent Run 完成初始化后才赋值的 active Context 变量。退出流程遍历并销毁全部已登记 Context；Session 创建、隐藏 Tab、Profile 根窗口和 OAuth 子窗口均检查应用 closing 状态，避免清理快照之后又创建新资源。初始化期间若退出开始，初始化流程会以取消错误退出并执行 disposer。
