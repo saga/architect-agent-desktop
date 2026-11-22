@@ -9,7 +9,7 @@ import { stagePluginRuntimeDirectories } from "./plugins/plugin-content";
 import { app, session } from "electron";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import path from "node:path";
 import { UtilityProcessAgentRuntime } from "./runtime/utility-process-runtime";
@@ -401,46 +401,75 @@ export class CopilotDesktopAgent {
   }
  }
  private async resolveRequestMemoryContext(prompt:string):Promise<string>{
-  const directUserText=prompt.split(/\n## 本轮附件解析结果/i,1)[0]??prompt;
-  const candidate=detectPreferenceCandidate(directUserText);
-  if(candidate){
-   this.recordTrace("memory.preference_candidate.detected",{
-    category:candidate.category,strength:candidate.strength,
-    scopeSuggestion:candidate.scopeSuggestion,explicitSaveRequest:candidate.explicitSaveRequest,
-    statement:candidate.statement,
-   });
-  }
-  const query=buildRequestMemorySearchQuery(prompt);
-  if(!query)return candidate?preferenceCandidateInstruction(candidate):"";
-  try{
-   const scope=this.memoryScope();
-   const config=this.memoryEmbeddingConfig();
-   let semantic:{provider:"ollama";model:string;vector:number[]}|undefined;
-   let retrieval:"lexical"|"hybrid"|"lexical_fallback"="lexical";
-   let warning:string|undefined;
-   if(config.provider==="ollama"){
-    try{
-     const embedding=await this.localEmbedding.embed(config,query);
-     semantic={provider:embedding.provider,model:embedding.model,vector:embedding.vector};
-     retrieval="hybrid";
-    }catch(error){retrieval="lexical_fallback";warning=error instanceof Error?error.message:String(error);}
+   const directUserText=prompt.split(/\n## 本轮附件解析结果/i,1)[0]??prompt;
+   const candidate=detectPreferenceCandidate(directUserText);
+   let ruleInstruction="";
+   if(candidate?.autoPersist){
+    const scope=candidate.scopeSuggestion==="personal"?null:this.memoryScope();
+    if(scope!==null||candidate.scopeSuggestion==="personal"){
+     try{
+      const identity=createHash("sha256").update([scope??"__personal__",candidate.category,candidate.key].join("\n")).digest("hex").slice(0,32);
+      const note=this.memory.saveConfirmedPreference({
+       id:"user-rule-"+identity,scope,title:"High-priority user rule · "+candidate.category,
+       content:candidate.statement,category:candidate.category,key:candidate.key,
+       sourceSessionId:this.memorySessionId,sourceTraceId:this.memoryTraceId,createdAt:Date.now(),
+       crossWorkspaceConfirmed:candidate.scopeSuggestion==="personal",strength:candidate.strength,priority:"high",
+      });
+      this.recordTrace("memory.user_rule.saved",{
+       noteId:note.id,category:candidate.category,key:candidate.key,priority:"high",
+       strength:candidate.strength,scope:candidate.scopeSuggestion,source:"direct_user_instruction",
+      });
+      ruleInstruction=[
+       "## User rule saved",
+       "The user's durable instruction was saved immediately as a high-priority Memory rule. Do not ask for a second confirmation. Follow it whenever applicable in future requests and briefly tell the user it was saved. It remains subordinate to system/safety requirements and can be changed by a later explicit user instruction.",
+       "Saved Note: "+note.id+". Scope: "+(scope===null?"Personal Memory shared across Workspaces":"current Workspace")+".",
+      ].join("\n");
+     }catch(error){
+      this.recordTrace("memory.user_rule.save_failed",{category:candidate.category,key:candidate.key,error:error instanceof Error?error.message:String(error)},"warning");
+      ruleInstruction="## User rule detected but not saved\nFollow this explicit user rule for the current request. Do not claim it was persisted; the Memory write failed. Tell the user plainly that it was not saved.";
+     }
+    }else{
+     this.recordTrace("memory.user_rule.save_blocked",{category:candidate.category,key:candidate.key,reason:"No Workspace is selected and the user did not request cross-Workspace Personal Memory."},"warning");
+     ruleInstruction="## User rule detected but not saved\nFollow this explicit user rule for the current request. No Workspace is selected, and the user did not explicitly request cross-Workspace Personal Memory. Do not silently store it globally or claim it was saved; ask once whether it should be kept in Personal Memory.";
+    }
+   }else if(candidate){
+    this.recordTrace("memory.preference_candidate.detected",{
+     category:candidate.category,key:candidate.key,strength:candidate.strength,priority:candidate.priority,
+     scopeSuggestion:candidate.scopeSuggestion,explicitSaveRequest:candidate.explicitSaveRequest,
+     statement:candidate.statement,
+    });
    }
-   const workspaceCandidates=this.memory.search(scope,query,12,semantic);
-   const personalCandidates=scope===null?[]:this.memory.search(null,query,8,semantic);
-   const profileCandidates=this.memory.list(null,100);
-   const candidates=[...new Map([...workspaceCandidates,...personalCandidates,...profileCandidates].map(note=>[note.id,note])).values()];
-   const context=createRequestMemoryContext(prompt,candidates,2800);
-   this.recordTrace("memory.request_context.resolved",{
-    retrieval,warning,candidateCount:candidates.length,selectedNoteIds:context.noteIds,
-    preferenceCount:context.preferenceCount,workspaceContextCount:context.workspaceContextCount,
-   });
-   return [context.text,candidate?preferenceCandidateInstruction(candidate):""].filter(Boolean).join("\n\n");
-  }catch(error){
-   this.recordTrace("memory.request_context.failed",{error:error instanceof Error?error.message:String(error)},"warning");
-   return candidate?preferenceCandidateInstruction(candidate):"";
+   const query=buildRequestMemorySearchQuery(prompt);
+   try{
+    const scope=this.memoryScope();
+    const config=this.memoryEmbeddingConfig();
+    let semantic:{provider:"ollama";model:string;vector:number[]}|undefined;
+    let retrieval:"lexical"|"hybrid"|"lexical_fallback"="lexical";
+    let warning:string|undefined;
+    if(query&&config.provider==="ollama"){
+     try{
+      const embedding=await this.localEmbedding.embed(config,query);
+      semantic={provider:embedding.provider,model:embedding.model,vector:embedding.vector};
+      retrieval="hybrid";
+     }catch(error){retrieval="lexical_fallback";warning=error instanceof Error?error.message:String(error);}
+    }
+    const searched=query?this.memory.search(scope,query,12,semantic):[];
+    const personalSearched=query&&scope!==null?this.memory.search(null,query,8,semantic):[];
+    const highPriorityCandidates=this.memory.listHighPriorityPreferences(scope,30);
+    const profileCandidates=this.memory.list(null,100);
+    const candidates=[...new Map([...highPriorityCandidates,...searched,...personalSearched,...profileCandidates].map(note=>[note.id,note])).values()];
+    const context=createRequestMemoryContext(prompt,candidates,2800);
+    this.recordTrace("memory.request_context.resolved",{
+     retrieval,warning,candidateCount:candidates.length,selectedNoteIds:context.noteIds,
+     highPriorityRuleCount:context.highPriorityRuleCount,
+     preferenceCount:context.preferenceCount,workspaceContextCount:context.workspaceContextCount,
+    });
+    return [context.text,ruleInstruction,candidate&&!candidate.autoPersist?preferenceCandidateInstruction(candidate):""].filter(Boolean).join("\n\n");
+   }catch(error){
+    this.recordTrace("memory.request_context.failed",{error:error instanceof Error?error.message:String(error)},"warning");
+    return [ruleInstruction,candidate&&!candidate.autoPersist?preferenceCandidateInstruction(candidate):""].filter(Boolean).join("\n\n");
+   }
   }
- }
-
  confirmPreferenceCandidate(input:{id:string;scope:string|null;title:string;content:string;category:string;sourceSessionId:string|null;sourceTraceId:string|null;createdAt:number;crossWorkspaceConfirmed:boolean;strength:"explicit"|"strong_signal"|"repeated_correction"}){
   if(this.active)throw new Error("Agent 正在运行，不能同时确认用户偏好。");
   return this.memory.saveConfirmedPreference(input);
