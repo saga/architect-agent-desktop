@@ -19,7 +19,7 @@ export type RendererToAgentMessage = { version: "1.0"; action: RendererAction };
 import { financeRendererCatalog } from "./finance-renderer-catalog";
 
 export interface A2UIV1CanvasProps {
-  taskId: string;
+  taskId?: string;
   messages: string[];
   onRendererMessage?: (message: RendererToAgentMessage) => void;
   title?: string;
@@ -48,6 +48,10 @@ export default function A2UIV1Canvas({ taskId, messages, onRendererMessage, titl
   const refreshSurfaces = useCallback(() => {
     const nextSurfaces = [...processor.model.surfacesMap.values()];
     setSurfaces(nextSurfaces);
+    // A canvas can mount before a Task is selected, and React may deliver a
+    // final surface update while the previous Task is being unmounted.
+    // Never invent a task ID or register against a different active Task.
+    if (!taskId) return;
     void window.browser.agentA2uiRegisterSurfaces(taskId, nextSurfaces.map(surface => surface.id)).catch(() => undefined);
   }, [processor, taskId]);
 

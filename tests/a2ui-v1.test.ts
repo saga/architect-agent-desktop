@@ -88,6 +88,23 @@ describe("A2UI 1.0 Agent message handling", () => {
     }, "task-session-2")).rejects.toThrow(/not created in this Agent Task/);
   });
 
+  it("revokes a Surface when a renderer reports an empty current Surface set", async () => {
+    const service = new AgentA2UIService();
+    service.registerSurfaces("task-session-1", ["portfolio-surface"]);
+    service.registerSurfaces("task-session-1", []);
+
+    await expect(service.validateRendererMessage({
+      version: "1.0",
+      action: {
+        name: "show_holdings",
+        surfaceId: "portfolio-surface",
+        sourceComponentId: "holdings-button",
+        timestamp: "2026-11-21T12:00:00.000Z",
+        context: {},
+      },
+    }, "task-session-1")).rejects.toThrow(/not created in this Agent Task/);
+  });
+
   it("returns a standard A2UI 1.0 error response for unregistered Agent Functions", async () => {
     const service = new AgentA2UIService();
     service.registerSurfaces("task-session-1", ["portfolio-surface"]);

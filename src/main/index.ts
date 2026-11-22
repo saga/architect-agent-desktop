@@ -2622,7 +2622,12 @@ function registerIpcHandlers(): void {
       surfaceIds: z.array(z.string().min(1).max(120)).max(100),
     }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid A2UI Surface registration.");
-    const task = taskForId(parsed.data.taskId);
+    // Surface updates can arrive after the renderer has switched Tasks or
+    // unmounted a canvas. Treat an unknown Task as a stale, idempotent update.
+    // This endpoint only updates that Task's A2UI allowlist; it must not create
+    // or implicitly select a Task based on an old renderer callback.
+    const task = agentTasks.find(item => item.id === parsed.data.taskId);
+    if (!task) return;
     await copilotAgent.registerA2UISurfaces(task.sessionId, parsed.data.surfaceIds);
   });
   ipcMain.handle("agent:a2ui-message", async (event, input: unknown) => {
