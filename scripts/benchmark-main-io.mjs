@@ -92,7 +92,7 @@ function makeSkillArchive() {
       "---",
       "",
       "Use this generated package only for local I/O benchmarking.",
-    ].join("\\n"), "utf8"),
+    ].join("\n"), "utf8"),
   }];
   let state = 0x6d2b79f5;
   for (let file = 0; file < SKILL_FILE_COUNT; file += 1) {
@@ -181,6 +181,7 @@ async function main() {
   }
   const inspectionMs = performance.now() - inspectionStart;
 
+  console.log("MAIN_IO_BENCHMARK_PHASE skill-zip-import-start");
   const skillZipStart = performance.now();
   const importedSkill = await importAgentSkillArchive(skillArchivePath, skillRoot, skillRegistry);
   const skillZipImportMs = performance.now() - skillZipStart;
