@@ -26,6 +26,7 @@ import { findChromeExecutable } from "./chrome-browser";
 import path from "node:path";
 import { isTrustedAppUrl } from "./app-url-policy";
 import { readFileSync, realpathSync, rmSync, statSync, watch as watchFs, type FSWatcher } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentScheduleRun, AgentWorkspaceSnapshot, AgentToolPermission, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
@@ -36,7 +37,7 @@ import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./logi
 import { clampBrowserBounds } from "./layout/browser-bounds";
 import { isAgentOperationBusy } from "./agent-operation-policy";
 import { resolveAgentBrowserTab, resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
-import { canOpenScheduleBrowserPopup, clearScheduleBrowserProfileData, initializeScheduleBrowserContext, scheduleBrowserDownloadPath, scheduleBrowserPartition } from "./schedule-browser-profile";
+import { canOpenScheduleBrowserPopup, clearScheduleBrowserProfileData, initializeScheduleBrowserContext, scheduleBrowserDownloadPath, scheduleBrowserDownloadsDirectory, scheduleBrowserPartition } from "./schedule-browser-profile";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { setPanelVisibility } from "./layout/layout-tree";
 
@@ -739,12 +740,12 @@ async function getScheduleBrowserSession(scheduleId: string): Promise<Session> {
     profile.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     profile.setPermissionCheckHandler(() => false);
     profile.setDisplayMediaRequestHandler((_request, callback) => callback(null));
+    const downloadDirectory = scheduleBrowserDownloadsDirectory(app.getPath("downloads"), scheduleId);
+    await mkdir(downloadDirectory, { recursive: true });
     profile.on("will-download", (_event, item) => {
       const id = ++downloadSequence;
       try {
-        item.setSavePath(scheduleBrowserDownloadPath(
-          app.getPath("downloads"), scheduleId, item.getFilename(), randomUUID(),
-        ));
+        item.setSavePath(scheduleBrowserDownloadPath(downloadDirectory, id, item.getFilename()));
       } catch (error) {
         recordOperation("schedule-browser", "unable to assign an unattended download path for " + scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
         try { item.cancel(); } catch { /* preserve the original save-path failure */ }
