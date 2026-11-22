@@ -17,7 +17,7 @@ Schedule 运行此前复用全局 `persist:architect-agent-browser` Session，�
 6. Schedule Session 的站点权限请求默认拒绝，不弹出后台权限确认框；Display Media 请求始终拒绝。每个 Schedule 的下载自动保存到系统 Downloads 下独立的、由 Schedule 哈希隔离的目录，文件名净化并附加唯一下载 ID，不打开原生 Save 对话框；下载事件带上 Schedule ID 和实际保存路径。Profile 重置/删除时取消未完成下载，但不删除已经完成的用户文件。
 7. 普通 Agent Run 继续使用用户可见 Tab pin。Memory Dreaming 的后台维护没有交互式 Browser 目标，显式使用空 Browser Context，不能回落到用户当前 Tab。
 8. Schedule 的 WebContents 与隐藏 BrowserWindow 在 Run 的 finally 路径强制销毁，避免远端页面的 `beforeunload` 对话框阻塞清理；持久 Profile 数据不会在每次 Run 后清除，以保留用户认可的登录态。显式重置和删除 Schedule 时清除该 Profile 的站点数据。后台页面关闭后台节流，避免定时器被隐藏窗口冻结。
-9. 创建 Browser Context 是一个有回滚的初始化过程：即使 BrowserWindow 已创建，而 WebContentsView 挂载或初始 Tab 准备失败，也必须在内部销毁已创建资源；销毁时逐项尽力 detach CDP、销毁窗口、关闭剩余 WebContents 并 flush Profile，单一步骤失败不能中断后续清理。
+9. 创建 Browser Context 是一个有回滚的初始化过程：即使 BrowserWindow 已创建，而 WebContentsView 挂载或初始 Tab 准备失败，也必须在内部销毁已创建资源；销毁时逐项尽力 detach CDP、销毁窗口、关闭剩余 WebContents 并 flush Profile，单一步骤失败不能中断后续清理。隐藏 Run 的弹窗 Tab 创建错误必须被捕获并写入诊断记录；人工 Profile 初始化失败时强制销毁窗口，不允许远端 beforeunload 阻止回滚。
 
 ## 不采用
 

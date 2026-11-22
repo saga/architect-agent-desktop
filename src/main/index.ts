@@ -808,7 +808,11 @@ function attachScheduleBrowserTabEvents(context: ScheduleBrowserContext, tab: Br
   webContents.on("will-navigate", (event, url) => { if (!safeWebUrl(url)) event.preventDefault(); });
   webContents.on("will-redirect", (event, url) => { if (!safeWebUrl(url)) event.preventDefault(); });
   webContents.setWindowOpenHandler(({ url }) => {
-    if (safeWebUrl(url) && !context.disposed) void createScheduleBrowserTab(context, url);
+    if (safeWebUrl(url) && !context.disposed) {
+      void createScheduleBrowserTab(context, url).catch(error => {
+        recordOperation("schedule-browser", "popup tab creation failed for " + context.scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
+      });
+    }
     return { action: "deny" };
   });
   webContents.on("render-process-gone", (_event, details) => {
@@ -1049,8 +1053,9 @@ async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
     await window.loadURL(resolveAddress(schedule.browserStartUrl || HOME_URL));
     if (!window.isDestroyed()) { window.show(); window.focus(); }
   } catch (error) {
-    scheduleBrowserProfileWindows.delete(scheduleId);
-    if (!window.isDestroyed()) window.close();
+    if (scheduleBrowserProfileWindows.get(scheduleId) === window) scheduleBrowserProfileWindows.delete(scheduleId);
+    // A remote beforeunload handler must not keep a failed Profile window alive.
+    if (!window.isDestroyed()) window.destroy();
     throw error;
   }
 }
