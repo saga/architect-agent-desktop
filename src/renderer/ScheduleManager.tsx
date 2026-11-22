@@ -205,7 +205,7 @@ export default function ScheduleManager({ snapshot, onChanged, onOpenTask }: Sch
     if (browserStartUrl.trim()) {
       try {
         const url = new URL(browserStartUrl.trim());
-        if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("仅支持 HTTP(S)");
+        if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) throw new Error("仅支持不含 URL 凭据的 HTTP(S) 地址");
       } catch {
         message.error("隔离浏览器起始地址必须是有效的 HTTP(S) URL。");
         return;

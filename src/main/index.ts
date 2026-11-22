@@ -36,7 +36,7 @@ import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./logi
 import { clampBrowserBounds } from "./layout/browser-bounds";
 import { isAgentOperationBusy } from "./agent-operation-policy";
 import { resolveAgentBrowserTab, resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
-import { scheduleBrowserPartition } from "./schedule-browser-profile";
+import { canOpenScheduleBrowserPopup, scheduleBrowserPartition } from "./schedule-browser-profile";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { findPanel, setPanelVisibility } from "./layout/layout-tree";
 import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
@@ -856,6 +856,63 @@ function disposeScheduleBrowserContext(context: ScheduleBrowserContext): void {
   if (!context.window.isDestroyed()) context.window.destroy();
 }
 
+function attachScheduleBrowserWindowDiagnostics(window: BrowserWindow, label: string): void {
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return;
+    recordOperation("schedule-browser", label + " did-fail-load " + errorCode + " " + errorDescription + " " + validatedURL);
+  });
+  window.webContents.on("render-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    recordOperation("schedule-browser", label + " render-process-gone " + details.reason + " exitCode=" + details.exitCode);
+    if (!window.isDestroyed()) window.close();
+  });
+}
+
+function secureScheduleProfilePopup(
+  popup: BrowserWindow,
+  profile: Session,
+  scheduleId: string,
+  depth = 0,
+): void {
+  popup.webContents.on("will-navigate", (event, url) => {
+    if (!safeWebUrl(url)) {
+      event.preventDefault();
+      openExternalIfSupported(url);
+    }
+  });
+  popup.webContents.on("will-redirect", (event, url) => {
+    if (!safeWebUrl(url)) {
+      event.preventDefault();
+      openExternalIfSupported(url);
+    }
+  });
+  popup.webContents.setWindowOpenHandler(({ url }) => {
+    if (!canOpenScheduleBrowserPopup(safeWebUrl(url), depth)) {
+      openExternalIfSupported(url);
+      return { action: "deny" };
+    }
+    return {
+      action: "allow",
+      overrideBrowserWindowOptions: {
+        parent: popup,
+        width: 820,
+        height: 640,
+        autoHideMenuBar: true,
+        webPreferences: {
+          session: profile,
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+        },
+      },
+    };
+  });
+  popup.webContents.on("did-create-window", (_event, childWindow) => {
+    secureScheduleProfilePopup(childWindow, profile, scheduleId, depth + 1);
+  });
+  attachScheduleBrowserWindowDiagnostics(popup, "schedule-browser-popup-" + scheduleId);
+}
+
 async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
   const schedule = agentSchedules.find(item => item.id === scheduleId);
   if (!schedule) throw new Error("定时任务不存在。");
@@ -876,9 +933,7 @@ async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
   window.on("closed", () => {
     if (scheduleBrowserProfileWindows.get(scheduleId) === window) scheduleBrowserProfileWindows.delete(scheduleId);
   });
-  window.webContents.on("will-navigate", (event, url) => { if (!safeWebUrl(url)) event.preventDefault(); });
-  window.webContents.on("will-redirect", (event, url) => { if (!safeWebUrl(url)) event.preventDefault(); });
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  secureScheduleProfilePopup(window, profile, scheduleId);
   window.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") return;
     const key = input.key.toLowerCase();
@@ -891,7 +946,6 @@ async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
       if (window.webContents.navigationHistory.canGoForward()) window.webContents.navigationHistory.goForward();
     }
   });
-  attachWindowDiagnostics(window, "schedule-browser-" + scheduleId);
   try {
     await window.loadURL(resolveAddress(schedule.browserStartUrl || HOME_URL));
     if (!window.isDestroyed()) { window.show(); window.focus(); }
@@ -2458,8 +2512,10 @@ function registerIpcHandlers(): void {
       workspacePath: z.string().max(4096).nullable(),
       expertId: z.string().max(100).nullable(),
       browserStartUrl: z.string().trim().max(2048).url().refine(value => {
-        try { const url = new URL(value); return url.protocol === "http:" || url.protocol === "https:"; }
-        catch { return false; }
+        try {
+          const url = new URL(value);
+          return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password;
+        } catch { return false; }
       }).optional(),
       runAt: z.string().datetime({ offset: true }),
       repeat: z.enum(["none", "interval", "daily", "weekly", "biweekly", "monthly", "yearly"]),

@@ -8,3 +8,8 @@ export function scheduleBrowserPartition(scheduleId: string): string {
   const digest = createHash("sha256").update(scheduleId.trim(), "utf8").digest("hex").slice(0, 32);
   return "persist:architect-agent-schedule-" + digest;
 }
+
+/** Only safe HTTP(S)/about:blank URLs may create OAuth popups, with bounded nesting. */
+export function canOpenScheduleBrowserPopup(isSafeUrl: boolean, depth: number): boolean {
+  return isSafeUrl && Number.isInteger(depth) && depth >= 0 && depth < 3;
+}
