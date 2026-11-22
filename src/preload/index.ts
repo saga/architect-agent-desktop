@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspacePreferences, AgentWorkspaceSnapshot, BrowserApi, BrowserDownloadEvent, PluginSummary, McpServerConfig, AgentSkillSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject, AgentProactiveSettingsPatch, ProactiveFeedbackAction } from "../shared/types";
+import type { AgentModelInfo, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentWorkspacePreferences, AgentWorkspaceSnapshot, BrowserApi, BrowserDownloadEvent, PluginSummary, McpServerConfig, AgentSkillSummary, BrowserState, CopilotEvent, WorkspaceDocument, WorkspaceProject, AgentProactiveSettingsPatch, ProactiveFeedbackAction } from "../shared/types";
 
 const api: BrowserApi = {
   getWorkspaceProject: () => ipcRenderer.invoke("workspace:get-project"),
@@ -31,8 +31,6 @@ const api: BrowserApi = {
     ipcRenderer.on("workspace:project-updated", handler);
     return () => ipcRenderer.removeListener("workspace:project-updated", handler);
   },
-  getWorkspaceLayout: () => ipcRenderer.invoke("workspace:get-layout"),
-  saveWorkspaceLayout: (layout: WorkspaceLayoutState) => ipcRenderer.invoke("workspace:save-layout", layout),
   getWorkspaceDocument: () => ipcRenderer.invoke("workspace:get-document"),
   saveWorkspaceDocument: (document: WorkspaceDocument) => ipcRenderer.invoke("workspace:save-document", document),
   floatAgentPanel: () => ipcRenderer.invoke("workspace:float-agent"),
@@ -44,11 +42,6 @@ const api: BrowserApi = {
     const handler = (_event: Electron.IpcRendererEvent, active: boolean) => listener(active);
     ipcRenderer.on("browser:snapshot-state", handler);
     return () => ipcRenderer.removeListener("browser:snapshot-state", handler);
-  },
-  onWorkspaceLayoutUpdated: (listener) => {
-    const handler = (_event: Electron.IpcRendererEvent, layout: WorkspaceLayoutState) => listener(layout);
-    ipcRenderer.on("workspace:layout-updated", handler);
-    return () => ipcRenderer.removeListener("workspace:layout-updated", handler);
   },
   getState: () => ipcRenderer.invoke("browser:get-state"),
   createTab: (url) => ipcRenderer.invoke("browser:create-tab", url),

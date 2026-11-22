@@ -314,7 +314,6 @@ export interface AgentWorkspaceSnapshot {
 }
 
 export interface WorkspaceProject { path: string | null; name: string | null; }
-export interface WorkspaceLayoutState { version: 1; agentPanelWidth: number; agentPanelVisible: boolean; agentPanelPosition: "left" | "right" | "top" | "bottom"; }
 export interface WorkspaceDocument { version: 2; root: import("./workspace-document").WorkspaceDocument["root"]; tabGroups: import("./workspace-document").WorkspaceTabGroup[]; floating: import("./workspace-document").FloatingPanelRoot[]; activePanelId: string; }
 
 export interface PluginRuntimeCapabilities { hookEvents: string[]; mcpServers: string[]; lspServers: string[]; scriptFiles: number; mods: boolean; }
@@ -354,8 +353,6 @@ export interface BrowserApi {
   agentMemoryCandidateFeedback(taskId: string, candidateId: string, action: "accept" | "reject"): Promise<{ noteId?: string }>;
   agentProactiveSaveSettings(settings: AgentProactiveSettingsPatch): Promise<AgentProactiveSettings>;
   saveAgentWorkspacePreferences(preferences: AgentWorkspacePreferences): Promise<AgentWorkspacePreferences>;
-  getWorkspaceLayout(): Promise<WorkspaceLayoutState>;
-  saveWorkspaceLayout(layout: WorkspaceLayoutState): Promise<WorkspaceLayoutState>;
   getWorkspaceDocument(): Promise<WorkspaceDocument>;
   saveWorkspaceDocument(document: WorkspaceDocument): Promise<WorkspaceDocument>;
   floatAgentPanel(): Promise<void>;
@@ -364,7 +361,6 @@ export interface BrowserApi {
   openExternal(url: string): Promise<void>;
   openInChrome(url: string): Promise<"chrome" | "default">;
   onSnapshotState(listener: (active: boolean) => void): () => void;
-  onWorkspaceLayoutUpdated(listener: (layout: WorkspaceLayoutState) => void): () => void;
   getState(): Promise<BrowserState>;
   createTab(url?: string): Promise<string>;
   activateTab(id: string): Promise<void>;

@@ -25,7 +25,7 @@
 
 - [x] **P1-07 Renderer 拥有实际布局几何。** Sidepanel/Pure Agent 均测量 Browser 内容矩形，并通过统一 IPC 发送完整 `x/y/width/height`。
 - [x] **P1-08 删除 Main 的重复布局计算。** Main 只校验、裁剪并应用 Renderer 提供的矩形，不再从 WorkspaceDocument 重新计算 Native Browser View 位置；保留独立 Layout Engine 供布局树计算使用。
-- [ ] **P2-05 Layout 树语义收敛。** WorkspaceDocument 继续保存结构、Tab Group 和浮动面板；清理 WorkspaceLayoutState 中与树节点重复的宽度/显示状态，并补迁移和往返兼容测试。
+- [ ] **P2-05 Layout 状态单一事实来源（代码与回归测试已加入，待 CI 验证）。** WorkspaceDocument v2 统一保存分栏比例、可见性、停靠方向/顺序、Tab Group 和浮动面板；移除 WorkspaceLayoutState 类型、独立 IPC/event 和 Renderer 持久化状态。旧 workspace-layout.json 只在没有有效 v2 文档时读取一次并迁移；Renderer 像素宽度由树比例与当前视口派生。新增四方向停靠、比例保持、隐藏状态迁移和 JSON 往返测试。
 - [x] **P2-06 布局验证规则统一。** 基础树语义统一由 `validateLayout` 校验（ID、split 轴向、比例、splitterSize 和 panel 尺寸）；Document parser 仅保留不可信输入的结构、节点数及深度防护；`validateTree` 复用共享校验。移除未被计算器消费的 `LayoutOptions.minPanelSize`，并补充布局回归测试。
 
 ## Phase 4 — 进程、性能和资源回收
@@ -47,6 +47,7 @@
 - [ ] Copilot / CodeBuddy 各自的 Agent Run 期间切换 Tab 验证
 - [ ] Sidepanel：左右/上下停靠、隐藏、窗口缩放、Tab Group 切换、浮动/重新停靠
 - [ ] Pure Agent：右侧 Browser 显示/隐藏、切换 Files/Results、窗口缩放
+- [ ] WorkspaceDocument v1 偏好迁移、四方向停靠、显隐和面板比例的 v2 往返回归测试
 - [ ] macOS：真实 UtilityProcess 取消/超时及多层子进程清理验证
 - [ ] Windows：真实 UtilityProcess 取消/超时及 taskkill /T 清理验证
 
@@ -61,6 +62,6 @@
 
 P2-01 当前完成的是授权边界第一阶段：插件启用与可执行运行时授权已经分开，纯 Markdown 插件无法获得运行时授权。混合插件在启用且运行时获批后仍由 Provider 原生加载整份插件快照；如未来要对 Skills、Commands、Agents 做逐组件授权，需要进一步收紧快照投影和 Provider Adapter，不能仅增加 UI 开关。
 
-P2-03、P2-05、P2-07、P2-08 仍未全部完成。P2-08 已加入首版进程树清理实现和自动化单元测试，但尚未完成真实 macOS / Windows 运行验收，因此保持未勾选。
+P2-03、P2-05、P2-07、P2-08 仍未全部完成。P2-05 已加入统一状态模型、旧数据迁移和回归测试，等待 CI 验证；P2-08 已加入首版进程树清理实现和自动化单元测试，但尚未完成真实 macOS / Windows 运行验收，因此保持未勾选。
 
 Action 项目勾选表示相关代码与自动化回归测试已经加入；上面的验证清单则需要实际 CI、Provider 或 GUI 环境确认。当前 CI 结果将在 Action Plan 更新记录中记录，不会仅因为提交成功就标记为通过。

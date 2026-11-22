@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { AgentWorkspacePreferences, AgentWorkspaceSnapshot, BrowserDownloadEvent, BrowserState, BrowserTabState, WorkspaceDocument } from "../shared/types";
-import { activateWorkspaceTab, createWorkspaceTabGroup, DEFAULT_WORKSPACE_DOCUMENT, setWorkspacePanelVisibility, ungroupWorkspacePanel } from "../shared/workspace-document";
+import { activateWorkspaceTab, createWorkspaceTabGroup, DEFAULT_WORKSPACE_DOCUMENT, getWorkspacePanelLayout, setWorkspacePanelDockPosition, setWorkspacePanelShare, setWorkspacePanelVisibility, ungroupWorkspacePanel } from "../shared/workspace-document";
 import AgentPanel from "./AgentPanel";
 import PureAgentWorkspace from "./PureAgentWorkspace";
 import { Button, message } from "antd";
@@ -26,9 +26,7 @@ function App() {
   const [showFind, setShowFind] = useState(false);
   const [findText, setFindText] = useState("");
   const [latestDownload, setLatestDownload] = useState<BrowserDownloadEvent | null>(null);
-  const [agentOpen, setAgentOpen] = useState(true);
   const [agentWidth, setAgentWidth] = useState(390);
-  const [agentPosition, setAgentPosition] = useState<"left" | "right" | "top" | "bottom">("right");
   const [workspaceDocument, setWorkspaceDocument] = useState<WorkspaceDocument>(DEFAULT_WORKSPACE_DOCUMENT);
   const [agentWorkspacePreferences, setAgentWorkspacePreferences] = useState<AgentWorkspacePreferences | null>(null);
   const [activeAgentTaskId, setActiveAgentTaskId] = useState<string | undefined>(undefined);
@@ -43,6 +41,9 @@ function App() {
   const workspaceGroup = useMemo(() => workspaceDocument.tabGroups.find((group) => group.panelIds.includes("browser") && group.panelIds.includes("agent")) ?? null, [workspaceDocument]);
   const groupedWorkspace = Boolean(workspaceGroup);
   const activeWorkspacePanel = workspaceDocument.activePanelId;
+  const agentPanelLayout = useMemo(() => getWorkspacePanelLayout(workspaceDocument, "agent", "browser"), [workspaceDocument]);
+  const agentOpen = agentPanelLayout.visible;
+  const agentPosition = agentPanelLayout.position ?? "right";
 
   const activeTab = useMemo(
     () => browserState.tabs.find((tab) => tab.id === browserState.activeTabId) ?? null,
@@ -51,18 +52,7 @@ function App() {
 
   useEffect(() => {
     void window.browser.getWorkspaceDocument().then(setWorkspaceDocument).catch((error: unknown) => console.error("Unable to load workspace document", error));
-    void window.browser.getWorkspaceLayout().then((layout) => {
-      setAgentWidth(layout.agentPanelWidth);
-      setAgentOpen(layout.agentPanelVisible);
-      setAgentPosition(layout.agentPanelPosition ?? "right");
-    }).catch((error: unknown) => console.error("Unable to load workspace layout", error));
     const unsubscribeState = window.browser.onState(setBrowserState);
-    const unsubscribeLayout = window.browser.onWorkspaceLayoutUpdated((layout) => {
-      void window.browser.getWorkspaceDocument().then(setWorkspaceDocument).catch((error: unknown) => console.error("Unable to refresh workspace document", error));
-      setAgentOpen(layout.agentPanelVisible);
-      setAgentWidth(layout.agentPanelWidth);
-      setAgentPosition(layout.agentPanelPosition);
-    });
     const unsubscribeFocus = window.browser.onFocusAddress(() => {
       addressRef.current?.focus();
       addressRef.current?.select();
@@ -94,10 +84,15 @@ function App() {
           setWorkspaceDocument(saved);
           return;
         }
-        const layout = await window.browser.getWorkspaceLayout();
-        if (!layout.agentPanelVisible) { void window.browser.redockAgentPanel(); return; }
-        setAgentOpen(false);
-        await window.browser.saveWorkspaceLayout({ ...layout, agentPanelVisible: false });
+        const layout = getWorkspacePanelLayout(document, "agent", "browser");
+        if (!layout.visible) {
+          await window.browser.redockAgentPanel();
+          setWorkspaceDocument(await window.browser.getWorkspaceDocument());
+          return;
+        }
+        setWorkspaceDocument(await window.browser.saveWorkspaceDocument(
+          setWorkspacePanelVisibility(document, "agent", false),
+        ));
       }).catch((error: unknown) => console.error("Unable to toggle Agent panel", error));
     });
 
@@ -107,7 +102,6 @@ function App() {
 
     return () => {
       unsubscribeState();
-      unsubscribeLayout();
       unsubscribeFocus();
       unsubscribeFind();
       unsubscribeDownload();
@@ -119,6 +113,17 @@ function App() {
   useEffect(() => {
     setAddress(activeTab?.url ?? "");
   }, [activeTab?.id, activeTab?.url]);
+
+  useEffect(() => {
+    const syncAgentWidth = () => {
+      if (agentPanelLayout.share === null) return;
+      const available = Math.max(1, (agentPosition === "left" || agentPosition === "right" ? window.innerWidth : window.innerHeight) - 6);
+      setAgentWidth(Math.max(280, Math.min(720, Math.round(available * agentPanelLayout.share))));
+    };
+    syncAgentWidth();
+    window.addEventListener("resize", syncAgentWidth);
+    return () => window.removeEventListener("resize", syncAgentWidth);
+  }, [agentPanelLayout.share, agentPosition]);
 
   useEffect(() => {
     const chrome = chromeRef.current;
@@ -217,8 +222,18 @@ function App() {
     void persistWorkspaceDocument(visibleDocument);
   };
 
-  const saveWorkspaceLayout = (visible = agentOpen, width = agentWidth, position = agentPosition) => {
-    void window.browser.saveWorkspaceLayout({ version: 1, agentPanelWidth: width, agentPanelVisible: visible, agentPanelPosition: position }).catch((error: unknown) => console.error("Unable to save workspace layout", error));
+  const saveAgentPanelWidth = (width: number) => {
+    const available = Math.max(1, (agentPosition === "left" || agentPosition === "right" ? window.innerWidth : window.innerHeight) - 6);
+    const next = setWorkspacePanelShare(workspaceDocument, "agent", "browser", width / available);
+    void persistWorkspaceDocument(next);
+  };
+  const dockAgentPanel = (position: "left" | "right" | "top" | "bottom") => {
+    let next = workspaceDocument;
+    const group = next.tabGroups.find((item) => item.panelIds.includes("browser") && item.panelIds.includes("agent"));
+    if (group) next = ungroupWorkspacePanel(next, group.id, "agent");
+    next = setWorkspacePanelVisibility(setWorkspacePanelVisibility(next, "browser", true), "agent", true);
+    next = setWorkspacePanelDockPosition(next, "agent", "browser", position);
+    void persistWorkspaceDocument(next);
   };
   const onSplitterPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -237,7 +252,7 @@ function App() {
     const drag = splitterDrag.current;
     if (!drag) return;
     splitterDrag.current = null;
-    saveWorkspaceLayout(agentOpen, drag.width);
+    saveAgentPanelWidth(drag.width);
   };
 
   const horizontalDock = agentPosition === "left" || agentPosition === "right";
@@ -391,7 +406,7 @@ function App() {
           </div>
         </div>
         {dockDragActive && <div className="workspace-dock-targets" onDragOver={(event) => event.preventDefault()}>
-          {(["left", "right", "top", "bottom"] as const).map((position) => <button key={position} className={"dock-" + position} type="button" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.dataTransfer.getData("text/plain") !== "agent-panel") return; setDockDragActive(false); setAgentPosition(position); if (groupedWorkspace) splitAgentFromBrowser(); saveWorkspaceLayout(true, agentWidth, position); }}>{position}</button>)}
+          {(["left", "right", "top", "bottom"] as const).map((position) => <button key={position} className={"dock-" + position} type="button" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (event.dataTransfer.getData("text/plain") !== "agent-panel") return; setDockDragActive(false); dockAgentPanel(position); }}>{position}</button>)}
         </div>}
 
         {showFind && (
@@ -433,17 +448,17 @@ function App() {
       </div>
       {agentOpen && !groupedWorkspace && <div className={"workspace-splitter" + (horizontalDock ? " vertical" : " horizontal")} style={splitterPlacement} role="separator" aria-orientation={horizontalDock ? "vertical" : "horizontal"} aria-label="Resize Agent panel" tabIndex={0}
         onPointerDown={onSplitterPointerDown} onPointerMove={onSplitterPointerMove} onPointerUp={onSplitterPointerUp} onPointerCancel={onSplitterPointerUp}
-        onKeyDown={(event) => { const keys = horizontalDock ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"]; if (keys.includes(event.key)) { event.preventDefault(); const increase = agentPosition === "left" || agentPosition === "top" ? (event.key === "ArrowRight" || event.key === "ArrowDown") : (event.key === "ArrowLeft" || event.key === "ArrowUp"); const next = Math.max(280, Math.min(720, agentWidth + (increase ? 16 : -16))); setAgentWidth(next); saveWorkspaceLayout(true, next); } }} />}
+        onKeyDown={(event) => { const keys = horizontalDock ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"]; if (keys.includes(event.key)) { event.preventDefault(); const increase = agentPosition === "left" || agentPosition === "top" ? (event.key === "ArrowRight" || event.key === "ArrowDown") : (event.key === "ArrowLeft" || event.key === "ArrowUp"); const next = Math.max(280, Math.min(720, agentWidth + (increase ? 16 : -16))); setAgentWidth(next); saveAgentPanelWidth(next); } }} />}
       {agentOpen && !groupedWorkspace && <div className="agent-panel-slot" style={agentPlacement}><AgentPanel
         taskId={activeAgentTaskId}
-        onClose={() => { setAgentOpen(false); saveWorkspaceLayout(false); }}
+        onClose={() => { void persistWorkspaceDocument(setWorkspacePanelVisibility(workspaceDocument, "agent", false)); }}
         onFloat={() => { void window.browser.floatAgentPanel(); }}
         onDragState={setDockDragActive}
         onModeChange={() => void switchToPureAgent()}
         onMaximize={() => groupAgentWithBrowser("agent")}
-        onDock={(position) => { setAgentPosition(position); saveWorkspaceLayout(agentOpen, agentWidth, position); }}
+        onDock={dockAgentPanel}
       /></div>}
-      {groupedWorkspace && activeWorkspacePanel === "agent" && <div className="agent-group-content" style={{ top: chromeHeight }}><AgentPanel taskId={activeAgentTaskId} onClose={() => activateWorkspacePanel("browser")} onFloat={() => { void window.browser.floatAgentPanel(); }} onDragState={setDockDragActive} onModeChange={() => void switchToPureAgent()} onRestore={splitAgentFromBrowser} onDock={(position) => { splitAgentFromBrowser(); setAgentPosition(position); saveWorkspaceLayout(true, agentWidth, position); }} /></div>}
+      {groupedWorkspace && activeWorkspacePanel === "agent" && <div className="agent-group-content" style={{ top: chromeHeight }}><AgentPanel taskId={activeAgentTaskId} onClose={() => activateWorkspacePanel("browser")} onFloat={() => { void window.browser.floatAgentPanel(); }} onDragState={setDockDragActive} onModeChange={() => void switchToPureAgent()} onRestore={splitAgentFromBrowser} onDock={dockAgentPanel} /></div>}
     </div>
   );
 }

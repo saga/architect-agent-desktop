@@ -50,7 +50,8 @@ export function parseWorkspaceDocument(value: unknown): WorkspaceDocument {
     const agentFirst = position === "left" || position === "top";
     const root = structuredClone(DEFAULT_WORKSPACE_DOCUMENT.root) as Extract<LayoutNode, { type: "split" }>;
     root.axis = horizontal ? "horizontal" : "vertical";
-    root.ratio = visible ? Math.max(0.05, Math.min(0.95, agentFirst ? width / 1200 : 1 - width / 1200)) : 0.5;
+    // Preserve the legacy preferred width even when the Agent panel was hidden.
+    root.ratio = Math.max(0.05, Math.min(0.95, agentFirst ? width / 1200 : 1 - width / 1200));
     const browserNode = root.first;
     const agentNode = root.second as Extract<LayoutNode, { type: "panel" }>;
     root.first = agentFirst ? { ...agentNode, visible } : browserNode;
@@ -226,5 +227,109 @@ export function ungroupWorkspacePanel(document: WorkspaceDocument, groupId: stri
     ...withoutPanel,
     root: setPanelVisible(withoutPanel.root, panelId, true),
     activePanelId: "browser",
+  };
+}
+
+
+export type WorkspaceDockPosition = "left" | "right" | "top" | "bottom";
+
+export interface WorkspacePanelLayout {
+  visible: boolean;
+  position: WorkspaceDockPosition | null;
+  share: number | null;
+}
+
+function findDockedPanelSplit(
+  root: LayoutNode,
+  panelId: string,
+  otherPanelId: string,
+): Extract<LayoutNode, { type: "split" }> | null {
+  if (root.type === "panel") return null;
+  if (root.first.type === "panel" && root.second.type === "panel"
+    && new Set([root.first.id, root.second.id]).size === 2
+    && [root.first.id, root.second.id].includes(panelId)
+    && [root.first.id, root.second.id].includes(otherPanelId)) return root;
+  return findDockedPanelSplit(root.first, panelId, otherPanelId)
+    ?? findDockedPanelSplit(root.second, panelId, otherPanelId);
+}
+
+function replaceDockedPanelSplit(
+  root: LayoutNode,
+  splitId: string,
+  replacement: Extract<LayoutNode, { type: "split" }>,
+): LayoutNode {
+  if (root.type === "panel") return root;
+  if (root.id === splitId) return replacement;
+  return {
+    ...root,
+    first: replaceDockedPanelSplit(root.first, splitId, replacement),
+    second: replaceDockedPanelSplit(root.second, splitId, replacement),
+  };
+}
+
+/** Read the persistent dock state for a panel from the workspace tree. */
+export function getWorkspacePanelLayout(
+  document: WorkspaceDocument,
+  panelId: string,
+  otherPanelId: string,
+): WorkspacePanelLayout {
+  const panel = findPanel(document.root, panelId);
+  const split = findDockedPanelSplit(document.root, panelId, otherPanelId);
+  if (!split || !panel) {
+    return { visible: Boolean(panel && panel.visible !== false), position: null, share: null };
+  }
+  const panelFirst = split.first.type === "panel" && split.first.id === panelId;
+  const share = panelFirst ? split.ratio : 1 - split.ratio;
+  const position: WorkspaceDockPosition = split.axis === "horizontal"
+    ? panelFirst ? "left" : "right"
+    : panelFirst ? "top" : "bottom";
+  return { visible: panel.visible !== false, position, share };
+}
+
+/** Set the Agent/Browser split ratio without introducing a second layout store. */
+export function setWorkspacePanelShare(
+  document: WorkspaceDocument,
+  panelId: string,
+  otherPanelId: string,
+  share: number,
+): WorkspaceDocument {
+  if (!Number.isFinite(share) || share <= 0 || share >= 1) return document;
+  const split = findDockedPanelSplit(document.root, panelId, otherPanelId);
+  if (!split) return document;
+  const panelFirst = split.first.type === "panel" && split.first.id === panelId;
+  const normalizedShare = Math.max(0.05, Math.min(0.95, share));
+  const ratio = panelFirst ? normalizedShare : 1 - normalizedShare;
+  return {
+    ...document,
+    root: replaceDockedPanelSplit(document.root, split.id, { ...split, ratio }),
+  };
+}
+
+/** Change dock direction/order while preserving the panel's current relative share. */
+export function setWorkspacePanelDockPosition(
+  document: WorkspaceDocument,
+  panelId: string,
+  otherPanelId: string,
+  position: WorkspaceDockPosition,
+): WorkspaceDocument {
+  const split = findDockedPanelSplit(document.root, panelId, otherPanelId);
+  if (!split) return document;
+  const panelFirst = split.first.type === "panel" && split.first.id === panelId;
+  const share = panelFirst ? split.ratio : 1 - split.ratio;
+  const horizontal = position === "left" || position === "right";
+  const nextPanelFirst = position === "left" || position === "top";
+  const panel = split.first.type === "panel" && split.first.id === panelId ? split.first : split.second;
+  const other = split.first.type === "panel" && split.first.id === otherPanelId ? split.first : split.second;
+  const ratio = nextPanelFirst ? share : 1 - share;
+  const replacement = {
+    ...split,
+    axis: horizontal ? "horizontal" as const : "vertical" as const,
+    ratio,
+    first: nextPanelFirst ? panel : other,
+    second: nextPanelFirst ? other : panel,
+  };
+  return {
+    ...document,
+    root: replaceDockedPanelSplit(document.root, split.id, replacement),
   };
 }

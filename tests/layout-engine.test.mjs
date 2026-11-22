@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { calculateLayout, validateLayout } = require("../dist/main/layout/layout-engine.js");
 const { dockPanel, removePanel, collectPanelIds, normalizeLayout, validateTree } = require("../dist/main/layout/layout-tree.js");
-const { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, activateWorkspaceTab, createWorkspaceTabGroup, movePanelToTabGroup, removePanelFromTabGroup, ungroupWorkspacePanel, setWorkspacePanelVisibility } = require("../dist/shared/workspace-document.js");
+const { DEFAULT_WORKSPACE_DOCUMENT, parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, activateWorkspaceTab, createWorkspaceTabGroup, movePanelToTabGroup, removePanelFromTabGroup, ungroupWorkspacePanel, setWorkspacePanelVisibility, getWorkspacePanelLayout, setWorkspacePanelDockPosition, setWorkspacePanelShare } = require("../dist/shared/workspace-document.js");
 const { NativeViewStackManager } = require("../dist/main/layout/native-view-stack.js");
 
 const base = {
@@ -233,4 +233,39 @@ test("workspace parser rejects invalid panel size constraints", () => {
     tabGroups: [{ id: "browser-only", panelIds: ["browser"], activePanelId: "browser" }],
   };
   assert.throws(() => parseWorkspaceDocument(invalid));
+});
+
+test("WorkspaceDocument is the single source for dock direction, visibility and panel share", () => {
+  const migrated = parseWorkspaceDocument({
+    version: 1, agentPanelWidth: 420, agentPanelVisible: false, agentPanelPosition: "right",
+  });
+  const originalLayout = getWorkspacePanelLayout(migrated, "agent", "browser");
+  assert.equal(originalLayout.visible, false);
+  assert.equal(originalLayout.position, "right");
+  assert.ok(Math.abs(originalLayout.share - 0.35) < 0.0001);
+
+  for (const [position, axis, agentFirst] of [
+    ["left", "horizontal", true],
+    ["right", "horizontal", false],
+    ["top", "vertical", true],
+    ["bottom", "vertical", false],
+  ]) {
+    const docked = setWorkspacePanelDockPosition(migrated, "agent", "browser", position);
+    const layout = getWorkspacePanelLayout(docked, "agent", "browser");
+    assert.equal(layout.position, position);
+    assert.equal(docked.root.axis, axis);
+    assert.equal(docked.root.first.id === "agent", agentFirst);
+    assert.equal(layout.visible, false);
+    assert.ok(Math.abs(layout.share - originalLayout.share) < 0.0001);
+  }
+
+  const resized = setWorkspacePanelShare(
+    setWorkspacePanelDockPosition(migrated, "agent", "browser", "left"),
+    "agent", "browser", 0.44,
+  );
+  const roundTrip = parseWorkspaceDocument(JSON.parse(JSON.stringify(resized)));
+  const roundTripLayout = getWorkspacePanelLayout(roundTrip, "agent", "browser");
+  assert.equal(roundTripLayout.position, "left");
+  assert.equal(roundTripLayout.visible, false);
+  assert.ok(Math.abs(roundTripLayout.share - 0.44) < 0.0001);
 });

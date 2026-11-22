@@ -38,10 +38,10 @@ import { isAgentOperationBusy } from "./agent-operation-policy";
 import { resolveAgentBrowserTab, resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
 import { canOpenScheduleBrowserPopup, scheduleBrowserPartition } from "./schedule-browser-profile";
 import { NativeViewStackManager } from "./layout/native-view-stack";
-import { findPanel, setPanelVisibility } from "./layout/layout-tree";
-import { DEFAULT_WORKSPACE_LAYOUT, parseWorkspaceLayout } from "../shared/workspace-layout";
-import type { WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject, McpServerConfig } from "../shared/types";
-import { parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel } from "../shared/workspace-document";
+import { setPanelVisibility } from "./layout/layout-tree";
+
+import type { WorkspaceDocument, WorkspaceProject, McpServerConfig } from "../shared/types";
+import { parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, setWorkspacePanelDockPosition } from "../shared/workspace-document";
 import { parseAgentTasks, parseAgentExperts, parseAgentSchedules, parseAgentScheduleRuns, parseAgentWorkspacePreferences, nextScheduleRunAt } from "./agent-workspace-store";
 import { listWorkspaceFiles, readWorkspaceFile } from "./workspace-files";
 import { ProactiveStore } from "./proactive/proactive-store.js";
@@ -256,7 +256,7 @@ function startProactiveWorkspaceWatcher(task:AgentTask):void{
 }
 const LEGACY_AGENT_SESSION_PATH = path.join(app.getPath("userData"), "agent-session.json");
 const WORKSPACE_PROJECT_PATH = path.join(app.getPath("userData"), "workspace-project.json");
-const WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
+const LEGACY_WORKSPACE_LAYOUT_PATH = path.join(app.getPath("userData"), "workspace-layout.json");
 const WORKSPACE_DOCUMENT_PATH = path.join(app.getPath("userData"), "workspace-document.json");
 const WINDOW_STATE_PATH = path.join(app.getPath("userData"), "window-state.json");
 const PLUGIN_ROOT = path.join(app.getPath("userData"), "plugins");
@@ -361,14 +361,20 @@ if (startupTask) {
 function currentAgentSessionPath(sessionId = currentTraceSessionId()): string {
   return path.join(AGENT_SESSION_ROOT, sessionId + ".json");
 }
-function loadWorkspaceLayout(): WorkspaceLayoutState {
-  try { return parseWorkspaceLayout(JSON.parse(readFileSync(WORKSPACE_LAYOUT_PATH, "utf8"))); }
-  catch { return { ...DEFAULT_WORKSPACE_LAYOUT }; }
-}
-let workspaceLayout = loadWorkspaceLayout();
 function loadWorkspaceDocument(): WorkspaceDocument {
-  try { return parseWorkspaceDocument(JSON.parse(readFileSync(WORKSPACE_DOCUMENT_PATH, "utf8"))); }
-  catch { return parseWorkspaceDocument(workspaceLayout); }
+  try {
+    return parseWorkspaceDocument(JSON.parse(readFileSync(WORKSPACE_DOCUMENT_PATH, "utf8")));
+  } catch {
+    // One-time migration: the v1 layout preference file is read only when no
+    // valid WorkspaceDocument exists. All subsequent writes use the v2 tree.
+    let legacyLayout: unknown = null;
+    try { legacyLayout = JSON.parse(readFileSync(LEGACY_WORKSPACE_LAYOUT_PATH, "utf8")); }
+    catch { /* first launch or no legacy layout */ }
+    const migrated = parseWorkspaceDocument(legacyLayout);
+    try { writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, migrated); }
+    catch (error) { console.error("Unable to persist migrated workspace document", error); }
+    return migrated;
+  }
 }
 let workspaceDocument = loadWorkspaceDocument();
 const DEFAULT_SETTINGS: AgentSettings = { provider: "copilot", copilotModel: "", codebuddyModel: "", thinkingLevel: "medium", toolPermission: "none", memoryEmbeddingProvider: "disabled", memoryEmbeddingBaseUrl: "http://127.0.0.1:11434", memoryEmbeddingModel: "nomic-embed-text", systemPrompt: "You are a helpful desktop browser agent. Use browser tools to inspect the current page before answering, explain what you did, and keep responses concise. The application safety rules take priority over this prompt." };
@@ -1752,38 +1758,15 @@ function publishWorkspaceProject(): void {
   }
 }
 
-function publishWorkspaceLayout(): void {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("workspace:layout-updated", { ...workspaceLayout });
-}
-
 function redockAgentPanel(position?: "left" | "right" | "top" | "bottom"): void {
   workspaceDocument = redockFloatingPanel(workspaceDocument, "agent");
+  if (position) workspaceDocument = setWorkspacePanelDockPosition(workspaceDocument, "agent", "browser", position);
   writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
   if (agentPanelWindow && !agentPanelWindow.isDestroyed()) {
     closingAgentPanelForRedock = true;
     agentPanelWindow.close();
   }
   agentPanelWindow = null;
-  workspaceLayout = { ...workspaceLayout, agentPanelVisible: true, ...(position ? { agentPanelPosition: position } : {}) };
-  writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
-  const root = workspaceDocument.root;
-  if (root.type === "split" && root.first.type === "panel" && root.second.type === "panel") {
-    const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
-    const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
-    const [windowWidth, windowHeight] = mainWindow?.getContentSize() ?? [1200, 800];
-    const available = Math.max(1, (isHorizontal ? windowWidth : windowHeight) - 6);
-    const agentSize = workspaceLayout.agentPanelWidth;
-    const browserSize = Math.max(0, available - agentSize);
-    const browserNode = root.first.id === "browser" ? root.first : root.second;
-    const agentNode = root.first.id === "agent" ? root.first : root.second;
-    root.axis = isHorizontal ? "horizontal" : "vertical";
-    root.ratio = Math.max(0.05, Math.min(0.95, (agentFirst ? agentSize : browserSize) / available));
-    root.first = agentFirst ? { ...agentNode, visible: true } : browserNode;
-    root.second = agentFirst ? browserNode : { ...agentNode, visible: true };
-    workspaceDocument = { ...workspaceDocument, root };
-    writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
-  }
-  publishWorkspaceLayout();
   updateActiveBounds();
 }
 
@@ -1832,9 +1815,6 @@ function floatAgentPanel(): void {
     if (!wasRedocking && !isQuitting) {
       workspaceDocument = redockFloatingPanel(workspaceDocument, "agent");
       writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
-      workspaceLayout = { ...workspaceLayout, agentPanelVisible: true };
-      writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
-      publishWorkspaceLayout();
       updateActiveBounds();
     }
     closingAgentPanelForRedock = false;
@@ -1847,9 +1827,6 @@ function floatAgentPanel(): void {
     console.error("Unable to open floating Agent panel", error);
     if (!window.isDestroyed()) window.close();
   });
-  workspaceLayout = { ...workspaceLayout, agentPanelVisible: false };
-  writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
-  publishWorkspaceLayout();
   updateActiveBounds();
 }
 
@@ -2648,7 +2625,6 @@ function registerIpcHandlers(): void {
     recordOperation("workspace", "clear");
     return { ...workspaceProject };
   });
-  ipcMain.handle("workspace:get-layout", (event) => { assertTrustedSender(event); return { ...workspaceLayout }; });
   ipcMain.handle("workspace:float-agent", (event) => { assertTrustedSender(event); floatAgentPanel(); });
   ipcMain.handle("workspace:redock-agent", (event, position?: unknown) => { assertTrustedSender(event); if (position !== undefined && position !== "left" && position !== "right" && position !== "top" && position !== "bottom") throw new Error("Invalid dock position."); redockAgentPanel(position as "left" | "right" | "top" | "bottom" | undefined); });
   ipcMain.handle("workspace:get-document", (event) => { assertTrustedSender(event); return workspaceDocument; });
@@ -2663,38 +2639,9 @@ function registerIpcHandlers(): void {
         root: setPanelVisibility(setPanelVisibility(workspaceDocument.root, "browser", workspaceDocument.activePanelId === "browser"), "agent", workspaceDocument.activePanelId === "agent"),
       };
     }
-    const agentPanel = findPanel(workspaceDocument.root, "agent");
-    workspaceLayout = { ...workspaceLayout, agentPanelVisible: Boolean(agentPanel && agentPanel.visible !== false) };
-    writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
     writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
-    publishWorkspaceLayout();
     updateActiveBounds();
     return workspaceDocument;
-  });
-  ipcMain.handle("workspace:save-layout", (event, input: unknown) => {
-    assertTrustedSender(event);
-    const parsed = z.object({ version: z.literal(1), agentPanelWidth: z.number().finite().min(280).max(720), agentPanelVisible: z.boolean(), agentPanelPosition: z.enum(["left", "right", "top", "bottom"]).default("right") }).safeParse(input);
-    if (!parsed.success) throw new Error("Invalid workspace layout.");
-    workspaceLayout = parseWorkspaceLayout(parsed.data);
-    writeJsonAtomic(WORKSPACE_LAYOUT_PATH, workspaceLayout);
-    let root = setPanelVisibility(workspaceDocument.root, "agent", workspaceLayout.agentPanelVisible);
-    if (root.type === "split" && root.first.type === "panel" && root.second.type === "panel" && new Set([root.first.id, root.second.id]).size === 2 && [root.first.id, root.second.id].includes("browser") && [root.first.id, root.second.id].includes("agent")) {
-      const isHorizontal = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "right";
-      const [windowWidth, windowHeight] = mainWindow?.getContentSize() ?? [1200, 800];
-      const available = Math.max(1, (isHorizontal ? windowWidth : windowHeight) - (workspaceLayout.agentPanelVisible ? 6 : 0));
-      const agentFirst = workspaceLayout.agentPanelPosition === "left" || workspaceLayout.agentPanelPosition === "top";
-      const agentSize = workspaceLayout.agentPanelVisible ? workspaceLayout.agentPanelWidth : 0;
-      const browserSize = Math.max(0, available - agentSize);
-      const browserNode = root.first.id === "browser" ? root.first : root.second;
-      const agentNode = root.first.id === "agent" ? root.first : root.second;
-      root.axis = isHorizontal ? "horizontal" : "vertical";
-      root.ratio = workspaceLayout.agentPanelVisible ? Math.max(0.05, Math.min(0.95, (agentFirst ? agentSize : browserSize) / available)) : 0.5;
-      root.first = agentFirst ? { ...agentNode, visible: workspaceLayout.agentPanelVisible } : browserNode;
-      root.second = agentFirst ? browserNode : { ...agentNode, visible: workspaceLayout.agentPanelVisible };
-    }
-    workspaceDocument = { ...workspaceDocument, root };
-    writeJsonAtomic(WORKSPACE_DOCUMENT_PATH, workspaceDocument);
-    return { ...workspaceLayout };
   });
   ipcMain.handle("plugin:list", (event) => {
     assertTrustedSender(event);
