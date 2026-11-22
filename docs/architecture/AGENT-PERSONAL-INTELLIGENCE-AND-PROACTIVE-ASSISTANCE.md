@@ -772,6 +772,8 @@ Trace 应记录：
 
 Proactive Store 与 Memory Note 使用同一个 `agent-memory.sqlite` 文件，但各自使用独立表。候选、事件、Opportunity、反馈和设置不会混入 Memory Dreaming 的 Transcript 游标。已确认偏好通过现有 Memory Note 机制持久化，原始用户陈述作为直接证据保存；这不表示系统已经验证该偏好长期有效。
 
+主动事件历史只保留最近 30 天，且总量限制为 20,000 条；清理在应用启动和每累计 100 次新事件后执行。失败检测只读取最近 30 分钟的工具事件。已结束的 Opportunity 保留一年，已拒绝或过期的 Preference Candidate 保留 180 天；抑制记录在超过一年且抑制期结束后清理。清理只删除辅助事件和已结束的工作状态，不删除 Memory Note、证据来源或 Dreaming 审计。
+
 主动建议默认只显示在 Inbox，不会调用浏览器、Shell、MCP 或外部工具，不会发送邮件、修改文件或执行第三方操作。普通事件的处理是本地规则和 SQLite 状态更新；定时检查不会按周期启动 LLM。
 
 Workspace 文件监听使用 Node 内置 `fs.watch`，仅监听当前 Task 的 Workspace，忽略 `.git`、`node_modules`、构建输出和覆盖率目录；事件聚合后只记录变更次数，不把文件名或文件内容送入主动建议存储。平台不支持递归监听或目录不可访问时，会记录诊断并停用该 Workspace 的文件监听，不影响正常 Agent 工作。
