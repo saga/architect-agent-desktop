@@ -186,7 +186,9 @@ function projectCopilotCommands(manifest: Record<string, unknown>, root: string)
   const generatedPaths: string[] = [];
   const sourceDirectories: string[] = [];
   let generatedCount = 0;
-  const ensureGeneratedDirectory = (): void => mkdirSync(generatedDirectory, { recursive: true });
+  const ensureGeneratedDirectory = (): void => {
+    mkdirSync(generatedDirectory, { recursive: true });
+  };
   const writeGenerated = (name: string, content: string): void => {
     ensureGeneratedDirectory();
     const filename = safeComponentName(name, "command") + "-" + generatedCount++ + ".md";
