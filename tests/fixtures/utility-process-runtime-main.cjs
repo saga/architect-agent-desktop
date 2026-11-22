@@ -55,7 +55,7 @@ async function runPendingExecution(runtime, timeoutMs) {
   const controller = new AbortController();
   const execution = runtime.executeGeneratedCode({
     mode: "generated-code",
-    code: "async () => { await runtime.started({ pid: process.pid }); return await new Promise(() => {}); }",
+    code: "async () => { const { spawn } = process.getBuiltinModule('node:child_process'); const descendant = spawn('node', ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); await new Promise((resolve, reject) => { if (descendant.pid) resolve(); else { descendant.once('spawn', resolve); descendant.once('error', reject); } }); await runtime.started({ pid: process.pid, descendantPid: descendant.pid }); return await new Promise(() => {}); }",
     providers: ["runtime"],
     capabilities: ["tools.call"],
     limits: { timeoutMs, maxOutputBytes: 64 * 1024, maxLogEntries: 20 },
@@ -63,8 +63,10 @@ async function runPendingExecution(runtime, timeoutMs) {
   }, async (name, input) => {
     if (name !== "runtime.started") throw new Error("Unexpected Tool Broker call: " + name);
     const pid = input && typeof input === "object" ? Number(input.pid) : Number.NaN;
+    const descendantPid = input && typeof input === "object" ? Number(input.descendantPid) : Number.NaN;
     if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("UtilityProcess did not report a valid PID.");
-    started.resolve(pid);
+    if (!Number.isSafeInteger(descendantPid) || descendantPid <= 0) throw new Error("UtilityProcess did not report a valid descendant PID.");
+    started.resolve({ pid, descendantPid });
     return "started";
   });
 
@@ -75,8 +77,8 @@ async function runPendingExecution(runtime, timeoutMs) {
     }
   }, error => started.reject(error));
   try {
-    const pid = await started.promise;
-    return { pid, controller, execution };
+    const { pid, descendantPid } = await started.promise;
+    return { pid, descendantPid, controller, execution };
   } finally {
     clearTimeout(startupTimer);
   }
@@ -90,6 +92,7 @@ async function run() {
       pending.controller.abort();
       const result = await pending.execution;
       assert.equal(result.status, "cancelled", "AbortSignal must cancel a real UtilityProcess execution.");
+      await assertProcessExited(pending.descendantPid);
       await assertProcessExited(pending.pid);
       return;
     }
@@ -98,6 +101,7 @@ async function run() {
       const pending = await runPendingExecution(runtime, 1_500);
       const result = await pending.execution;
       assert.equal(result.status, "timed-out", "Runtime time budget must terminate a real UtilityProcess execution.");
+      await assertProcessExited(pending.descendantPid);
       await assertProcessExited(pending.pid);
       return;
     }
@@ -110,6 +114,7 @@ async function run() {
         new Promise((_, reject) => setTimeout(() => reject(new Error("Runtime dispose did not settle the active UtilityProcess.")), 5_000)),
       ]);
       assert.equal(result.status, "failed", "Disposing Runtime must terminate the UtilityProcess and settle the active execution.");
+      await assertProcessExited(pending.descendantPid);
       await assertProcessExited(pending.pid);
       return;
     }
