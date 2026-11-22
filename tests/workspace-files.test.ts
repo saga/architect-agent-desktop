@@ -18,33 +18,33 @@ function makeWorkspace(): string {
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("local workspace file access", () => {
-  it("lists project files without dependency/build directories", () => {
+  it("lists project files without dependency/build directories", async () => {
     const root = makeWorkspace();
-    const files = listWorkspaceFiles(root);
+    const files = await listWorkspaceFiles(root);
     expect(files).toContain("src/app.ts");
     expect(files).toContain("README.md");
     expect(files).not.toContain("node_modules/ignored.js");
   });
 
-  it("reads, searches and writes files relative to the selected root", () => {
+  it("reads, searches and writes files relative to the selected root", async () => {
     const root = makeWorkspace();
-    expect(readWorkspaceFile(root, "src/app.ts")).toContain("greeting");
-    expect(searchWorkspaceFiles(root, "hello")).toContain("src/app.ts:1");
-    expect(writeWorkspaceFile(root, "src/app.ts", "export const answer = 42;")).toContain("src/app.ts");
-    expect(writeWorkspaceFile(root, "README.md", "# Updated")).toContain("README.md");
-    expect(writeWorkspaceFile(root, "new.txt", "created")).toContain("new.txt");
-    expect(readWorkspaceFile(root, "new.txt")).toBe("created");
+    expect(await readWorkspaceFile(root, "src/app.ts")).toContain("greeting");
+    expect(await searchWorkspaceFiles(root, "hello")).toContain("src/app.ts:1");
+    expect(await writeWorkspaceFile(root, "src/app.ts", "export const answer = 42;")).toContain("src/app.ts");
+    expect(await writeWorkspaceFile(root, "README.md", "# Updated")).toContain("README.md");
+    expect(await writeWorkspaceFile(root, "new.txt", "created")).toContain("new.txt");
+    expect(await readWorkspaceFile(root, "new.txt")).toBe("created");
     expect(readFileSync(path.join(root, "README.md"), "utf8")).toBe("# Updated");
     expect(readFileSync(path.join(root, "src", "app.ts"), "utf8")).toContain("answer");
   });
 
-  it("rejects traversal and absolute paths", () => {
+  it("rejects traversal and absolute paths", async () => {
     const root = makeWorkspace();
-    expect(() => readWorkspaceFile(root, "../outside.txt")).toThrow();
-    expect(() => writeWorkspaceFile(root, path.join(root, "outside.txt"), "bad")).toThrow();
+    await expect(readWorkspaceFile(root, "../outside.txt")).rejects.toThrow();
+    await expect(writeWorkspaceFile(root, path.join(root, "outside.txt"), "bad")).rejects.toThrow();
   });
 
-  it("does not follow symlinks outside the workspace", () => {
+  it("does not follow symlinks outside the workspace", async () => {
     const root = makeWorkspace();
     const outside = path.join(root, "..", "workspace-outside-" + Date.now() + ".txt");
     writeFileSync(outside, "secret");
@@ -55,10 +55,10 @@ describe("local workspace file access", () => {
     roots.push(outsideDirectory);
     writeFileSync(path.join(outsideDirectory, "leaked.txt"), "do-not-list");
     symlinkSync(outsideDirectory, path.join(root, "outside-dir"));
-    expect(listWorkspaceFiles(root)).not.toContain("outside-dir/leaked.txt");
-    expect(() => readWorkspaceFile(root, "outside-link.txt")).toThrow();
-    expect(() => writeWorkspaceFile(root, "outside-link.txt", "changed")).toThrow();
+    expect(await listWorkspaceFiles(root)).not.toContain("outside-dir/leaked.txt");
+    await expect(readWorkspaceFile(root, "outside-link.txt")).rejects.toThrow();
+    await expect(writeWorkspaceFile(root, "outside-link.txt", "changed")).rejects.toThrow();
     symlinkSync(path.join(root, "..", "missing-workspace-target-" + Date.now()), path.join(root, "dangling-link.txt"));
-    expect(() => writeWorkspaceFile(root, "dangling-link.txt", "changed")).toThrow();
+    await expect(writeWorkspaceFile(root, "dangling-link.txt", "changed")).rejects.toThrow();
   });
 });

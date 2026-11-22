@@ -2106,21 +2106,21 @@ function registerIpcHandlers(): void {
     if (!parsed.success) throw new Error("Invalid Schedule ID.");
     await processDueAgentSchedules(parsed.data);
   });
-  ipcMain.handle("agent-workspace:list-files", (event, input: unknown) => {
+  ipcMain.handle("agent-workspace:list-files", async (event, input: unknown) => {
     assertTrustedSender(event);
     const parsed = z.string().min(1).max(4096).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Workspace path.");
     const workspace = safeWorkspaceProject(parsed.data);
     if (!agentTasks.some(task => task.workspacePath === workspace.path)) throw new Error("Workspace 尚未登记。");
-    return listWorkspaceFiles(workspace.path as string).split("\n").filter(Boolean);
+    return (await listWorkspaceFiles(workspace.path as string)).split("\n").filter(Boolean);
   });
-  ipcMain.handle("agent-workspace:read-file", (event, input: unknown) => {
+  ipcMain.handle("agent-workspace:read-file", async (event, input: unknown) => {
     assertTrustedSender(event);
     const parsed = z.object({ workspacePath: z.string().min(1).max(4096), relativePath: z.string().min(1).max(1000) }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Workspace file request.");
     const workspace = safeWorkspaceProject(parsed.data.workspacePath);
     if (!agentTasks.some(task => task.workspacePath === workspace.path)) throw new Error("Workspace 尚未登记。");
-    return readWorkspaceFile(workspace.path as string, parsed.data.relativePath);
+    return await readWorkspaceFile(workspace.path as string, parsed.data.relativePath);
   });
   ipcMain.handle("workspace:get-project", (event) => { assertTrustedSender(event); return { ...workspaceProject }; });
   ipcMain.handle("workspace:select-project", async (event) => {
