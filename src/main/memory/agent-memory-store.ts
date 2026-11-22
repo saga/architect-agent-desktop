@@ -402,7 +402,7 @@ export class AgentMemoryStore {
     const validStatuses: AgentUserGoalStatus[] = ["active", "blocked", "completed", "cancelled"];
     if (!validStatuses.includes(status)) throw new Error("不支持的 Goal 状态。");
     const directEvidence = [...new Set(evidence.filter(value => typeof value === "string").map(value => redactSecrets(value.trim(), 500)).filter(Boolean))].slice(0, 8);
-    if (status === "cancelled" && !directEvidence.length) throw new Error("取消 Goal 必须提供用户明确取消目标的原文证据。");
+    if (status === "cancelled" && (!directEvidence.length || !/(取消|停止|不做了|cancel|stop this|drop this goal|no longer pursue)/iu.test(directEvidence.join(" ")))) throw new Error("取消 Goal 必须提供明确取消目标的用户原话证据。");
     const previousEvidence = parseJson<string[]>(row.evidence_json, []);
     const nextEvidence = [...new Set([...previousEvidence, ...directEvidence])].slice(-12);
     this.database.prepare("UPDATE agent_goals SET status=?,evidence_json=?,updated_at=?,version=version+1 WHERE id=? AND scope_key=?")
