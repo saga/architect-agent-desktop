@@ -3,12 +3,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const runtimeMocks = vi.hoisted(() => ({ children: [] as Array<any> }));
+const runtimeMocks = vi.hoisted(() => ({
+  children: [] as Array<any>,
+  terminateProcessTree: vi.fn(async () => undefined),
+}));
 vi.mock("electron", () => ({
   utilityProcess: {
     fork: () => {
       const listeners = new Map<string, Array<(value: any) => void>>();
       const child: any = {
+        pid: 1000 + runtimeMocks.children.length,
         messages: [] as unknown[],
         on(event: string, callback: (value: any) => void) {
           listeners.set(event, [...(listeners.get(event) ?? []), callback]); return child;
@@ -30,11 +34,15 @@ vi.mock("electron", () => ({
     },
   },
 }));
+vi.mock("../src/main/runtime/process-tree", () => ({
+  terminateProcessTree: runtimeMocks.terminateProcessTree,
+}));
 import { UtilityProcessAgentRuntime } from "../src/main/runtime/utility-process-runtime";
 
 let temporary: string, workerPath: string;
 beforeEach(() => {
   runtimeMocks.children.length = 0;
+  runtimeMocks.terminateProcessTree.mockClear();
   temporary = mkdtempSync(path.join(tmpdir(), "architect-runtime-test-"));
   workerPath = path.join(temporary, "utility-worker.js");
   writeFileSync(workerPath, "// test worker");
@@ -73,6 +81,9 @@ describe("UtilityProcess Code Mode execution isolation", () => {
       expect.objectContaining({ status: "completed", result: "done-a" }),
       expect.objectContaining({ status: "completed", result: "done-b" }),
     ]);
+    expect(runtimeMocks.terminateProcessTree).toHaveBeenCalledTimes(2);
+    expect(runtimeMocks.terminateProcessTree).toHaveBeenNthCalledWith(1, 1000);
+    expect(runtimeMocks.terminateProcessTree).toHaveBeenNthCalledWith(2, 1001);
     await runtime.dispose();
   });
 });

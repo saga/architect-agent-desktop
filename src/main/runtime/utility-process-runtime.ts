@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { terminateProcessTree } from "./process-tree";
 import path from "node:path";
 import { utilityProcess, type UtilityProcess } from "electron";
 import { createWorkspaceCapabilityHandlers } from "./runtime-capabilities";
@@ -65,15 +66,31 @@ export class UtilityProcessAgentRuntime {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let abortHandler: (() => void) | undefined;
     let child: UtilityProcess | undefined;
+    let childPid: number | undefined;
     return new Promise<RuntimeExecutionResult>((resolve) => {
       const finish = (status: RuntimeExecutionResult["status"], result?: unknown, error?: string) => {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
         if (abortHandler) request.signal?.removeEventListener("abort", abortHandler);
-        if (child) { child.removeAllListeners(); child.kill(); }
-        this.active.delete(id);
-        resolve({ id, status, ...(result !== undefined ? { result } : {}), ...(error ? { error } : {}), logs, durationMs: Date.now() - startedAt });
+        void (async () => {
+          let finalError = error;
+          if (child) {
+            try {
+              await terminateProcessTree(childPid ?? child.pid);
+            } catch (cleanupError) {
+              if (process.platform !== "win32" && (childPid ?? child.pid)) {
+                try { process.kill((childPid ?? child.pid)!, "SIGCONT"); } catch { /* best effort */ }
+              }
+              child.kill();
+              const detail = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+              finalError = [finalError, "Process-tree cleanup failed: " + detail].filter(Boolean).join(" ");
+            }
+            child.removeAllListeners();
+          }
+          this.active.delete(id);
+          resolve({ id, status, ...(result !== undefined ? { result } : {}), ...(finalError ? { error: finalError } : {}), logs, durationMs: Date.now() - startedAt });
+        })();
       };
       if (request.signal?.aborted) { finish("cancelled", undefined, "Execution cancelled."); return; }
       try {
@@ -90,6 +107,8 @@ export class UtilityProcessAgentRuntime {
           const value = process.env[key]; if (value) env[key] = value;
         }
         child = utilityProcess.fork(this.workerPath, [], { serviceName: "Agent Code Mode", cwd: request.workspaceRoot || process.cwd(), env });
+        childPid = child.pid;
+        child.once("spawn", () => { childPid = child?.pid ?? childPid; });
         this.active.set(id, child);
       } catch (error) { finish("failed", undefined, error instanceof Error ? error.message : String(error)); return; }
       timer = setTimeout(() => finish("timed-out", undefined, "Execution timed out after " + limits.timeoutMs + " ms."), limits.timeoutMs);
@@ -153,7 +172,17 @@ export class UtilityProcessAgentRuntime {
   }
 
   async dispose(): Promise<void> {
-    for (const child of this.active.values()) child.kill();
+    const children = [...this.active.values()];
+    await Promise.all(children.map(async (child) => {
+      try {
+        await terminateProcessTree(child.pid);
+      } catch {
+        if (process.platform !== "win32" && child.pid) {
+          try { process.kill(child.pid, "SIGCONT"); } catch { /* best effort */ }
+        }
+        child.kill();
+      }
+    }));
     this.active.clear();
   }
 }

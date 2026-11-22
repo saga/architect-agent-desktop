@@ -31,7 +31,7 @@
 ## Phase 4 — 进程、性能和资源回收
 
 - [ ] **P2-07 Main 同步 I/O 治理（含 P2-02）。** Workspace 文件列表、读取、写入与搜索已改为异步文件 API，并保持文件描述符、符号链接和路径边界校验；插件指纹、Capability 探测、插件导入/快照及 Agent Skill ZIP 导入仍使用同步文件操作。先建立典型包规模下的 Main Event Loop 延迟和导入耗时基准，再将 I/O 改为异步；只有 CPU 密集工作出现可测量阻塞时才引入 Worker/UtilityProcess。
-- [ ] **P2-08 UtilityProcess 子进程树清理。** 实现跨平台进程树终止和等待退出；macOS/Linux 与 Windows 分别验证。不能把 UtilityProcess.kill() 当作整个进程树清理。
+- [ ] **P2-08 UtilityProcess 子进程树清理（实现与自动化测试已加入，待平台验收）。** 新增 POSIX 进程树冻结/递归发现/叶节点优先终止与退出等待；Windows 使用 `taskkill /T /F` 并等待 UtilityProcess 退出。正常完成、超时、取消和 `dispose()` 统一调用清理器；单元测试覆盖 POSIX 树层级、发现期间出现的新后代及 Windows 分支。仍需在真实 macOS / Windows Electron 环境验证，不把 UtilityProcess.kill() 当作整个进程树清理。
 - [x] **P2-09 CodeBuddy 总预算。** 一次用户请求最多 12 个模型轮次（6 次 Query、每次最多 2 轮）；应用 Host 工具与兼容模式文本工具调用共用 80 次请求级预算；兼容模式工具结果总输出最多 256 KiB；仍受现有 5 分钟请求超时约束。Provider 内部原生工具由 SDK 权限和轮次限制约束，不声称由应用计数器逐个计数。
 - [x] **P2-10 未使用 Runtime 入口清理。** 确认 `executeSkill()` / `SkillExecutionRequest` / Worker 的 `execute` 分支没有产品调用点；按 Agent Skills“脚本不会由导入器执行”的产品边界移除死入口，保留 Code Mode 使用的 UtilityProcess。同步修订 Runtime 和 Agent Skills 文档。
 
@@ -47,7 +47,8 @@
 - [ ] Copilot / CodeBuddy 各自的 Agent Run 期间切换 Tab 验证
 - [ ] Sidepanel：左右/上下停靠、隐藏、窗口缩放、Tab Group 切换、浮动/重新停靠
 - [ ] Pure Agent：右侧 Browser 显示/隐藏、切换 Files/Results、窗口缩放
-- [ ] macOS 与 Windows：UtilityProcess 取消/超时及孤儿进程验证
+- [ ] macOS：真实 UtilityProcess 取消/超时及多层子进程清理验证
+- [ ] Windows：真实 UtilityProcess 取消/超时及 taskkill /T 清理验证
 
 ## CI 更新记录
 
@@ -60,6 +61,6 @@
 
 P2-01 当前完成的是授权边界第一阶段：插件启用与可执行运行时授权已经分开，纯 Markdown 插件无法获得运行时授权。混合插件在启用且运行时获批后仍由 Provider 原生加载整份插件快照；如未来要对 Skills、Commands、Agents 做逐组件授权，需要进一步收紧快照投影和 Provider Adapter，不能仅增加 UI 开关。
 
-P2-03、P2-05、P2-07、P2-08 仍未完成，本轮没有将其标记为完成。
+P2-03、P2-05、P2-07、P2-08 仍未全部完成。P2-08 已加入首版进程树清理实现和自动化单元测试，但尚未完成真实 macOS / Windows 运行验收，因此保持未勾选。
 
 Action 项目勾选表示相关代码与自动化回归测试已经加入；上面的验证清单则需要实际 CI、Provider 或 GUI 环境确认。当前 CI 结果将在 Action Plan 更新记录中记录，不会仅因为提交成功就标记为通过。
