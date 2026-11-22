@@ -25,7 +25,7 @@ import { BrowserCdp, withCdpDeadline } from "./browser-cdp";
 import { findChromeExecutable } from "./chrome-browser";
 import path from "node:path";
 import { isTrustedAppUrl } from "./app-url-policy";
-import { readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, rmSync, statSync, watch as watchFs, type FSWatcher } from "node:fs";
 import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, AgentTask, AgentExpert, AgentSchedule, AgentScheduleRun, AgentWorkspaceSnapshot, AgentToolPermission, BrowserDownloadEvent, BrowserState, BrowserTabState } from "../shared/types";
 import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
@@ -43,6 +43,8 @@ import type { WorkspaceDocument, WorkspaceLayoutState, WorkspaceProject, McpServ
 import { parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel } from "../shared/workspace-document";
 import { parseAgentTasks, parseAgentExperts, parseAgentSchedules, parseAgentScheduleRuns, parseAgentWorkspacePreferences, nextScheduleRunAt } from "./agent-workspace-store";
 import { listWorkspaceFiles, readWorkspaceFile } from "./workspace-files";
+import { ProactiveStore } from "./proactive/proactive-store.js";
+import { ProactiveOpportunityEngine, type AgentDomainEventType } from "./proactive/proactive-engine.js";
 
 const APP_ID = "com.saga.architectagentdesktop";
 const HOME_URL = "https://www.google.com/";
@@ -114,6 +116,16 @@ function createAgentTraceStore(): AgentTraceStore {
   }
 }
 const agentTraceStore = createAgentTraceStore();
+function createProactiveStore():ProactiveStore{
+  const filename=path.join(app.getPath("userData"),"agent-memory.sqlite");
+  try{return new ProactiveStore(filename);}
+  catch(error){
+    recordOperation("proactive","persistent store unavailable; using process-local fallback: "+(error instanceof Error?error.message:String(error)));
+    return new ProactiveStore(":memory:");
+  }
+}
+const proactiveStore=createProactiveStore();
+const proactiveEngine=new ProactiveOpportunityEngine(proactiveStore);
 let activeAgentTraceId: string | null = null;
 let activeAgentTaskId = "";
 const approvedAgentFiles = new Map<string, Set<string>>();
@@ -125,39 +137,100 @@ function currentTraceSessionId(): string {
   const task = agentTasks.find(item => item.id === activeAgentTaskId);
   return task?.sessionId ?? createHash("sha256").update(workspaceProject.path ?? "__default_workspace__").digest("hex").slice(0, 32);
 }
+function proactiveEventType(type:string,data?:unknown):AgentDomainEventType|null{
+  if(type==="turn.completed")return "agent.turn.completed";
+  if(type==="turn.failed")return "agent.turn.failed";
+  if(type==="tool.failed")return "agent.tool.failed";
+  if(type==="memory.preference_candidate.detected")return "memory.preference.candidate";
+  if(type==="agent.task.created")return "agent.task.created";
+  if(type==="agent.task.switched")return "agent.task.switched";
+  if(type==="agent.workspace.changed")return "agent.workspace.changed";
+  if(type==="tool.result"&&data&&typeof data==="object"&&(data as Record<string,unknown>).name==="workspace_write_file")return "agent.workspace.changed";
+  return null;
+}
+function ingestProactiveTrace(type:string,data:unknown,traceId:string,scope:string|null,taskId:string|null,sessionId:string|null):void{
+  const eventType=proactiveEventType(type,data);if(!eventType)return;
+  const payload=data&&typeof data==="object"&&!Array.isArray(data)?{...(data as Record<string,unknown>)}:{value:data};
+  if(eventType==="agent.tool.failed"&&!payload.toolName&&typeof payload.name==="string")payload.toolName=payload.name;
+  const identity=String(payload.toolCallId??payload.requestId??payload.statement??payload.category??type).slice(0,160);
+  try{
+    proactiveEngine.ingest({eventId:traceId+":"+eventType+":"+identity,type:eventType,occurredAt:Date.now(),scope,taskId,sessionId,sourceRef:traceId,payload});
+  }catch(error){recordOperation("proactive","event ingestion failed ("+eventType+"): "+(error instanceof Error?error.message:String(error)));}
+}
 function recordAgentTrace(type: string, data: unknown, status?: string, payloadComplete = true): void {
-  const sessionId = currentTraceSessionId();
-  try {
-    agentTraceStore.record({
-      sessionId,
-      traceId: activeAgentTraceId ?? randomUUID(),
-      workspacePath: workspaceProject.path,
-      provider: agentSettings.provider,
-      model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel,
-      type,
-      status,
-      data,
-      payloadComplete,
-    });
-  } catch (error) {
-    recordOperation("agent-trace", "trace write failed: " + (error instanceof Error ? error.message : String(error)));
+  const sessionId=currentTraceSessionId();
+  const task=agentTasks.find(item=>item.id===activeAgentTaskId);
+  const scope=task?task.workspacePath:workspaceProject.path;
+  const traceId=activeAgentTraceId??randomUUID();
+  try{
+    agentTraceStore.record({sessionId,traceId,workspacePath:scope,provider:agentSettings.provider,
+      model:agentSettings.provider==="copilot"?agentSettings.copilotModel:agentSettings.codebuddyModel,
+      type,status,data,payloadComplete});
+    ingestProactiveTrace(type,data,traceId,scope,activeAgentTaskId||null,sessionId);
+  }catch(error){
+    recordOperation("agent-trace","trace write failed: "+(error instanceof Error?error.message:String(error)));
   }
 }
-
-function recordTaskTrace(task: AgentTask, type: string, data: unknown): void {
-  try {
-    agentTraceStore.record({
-      sessionId: task.sessionId,
-      traceId: randomUUID(),
-      workspacePath: task.workspacePath,
-      provider: agentSettings.provider,
-      model: agentSettings.provider === "copilot" ? agentSettings.copilotModel : agentSettings.codebuddyModel,
-      type,
-      status: "completed",
-      data,
+function recordTaskTrace(task:AgentTask,type:string,data:unknown):void{
+  const traceId=randomUUID();
+  try{
+    agentTraceStore.record({sessionId:task.sessionId,traceId,workspacePath:task.workspacePath,
+      provider:agentSettings.provider,model:agentSettings.provider==="copilot"?agentSettings.copilotModel:agentSettings.codebuddyModel,
+      type,status:"completed",data});
+    ingestProactiveTrace(type,data,traceId,task.workspacePath,task.id,task.sessionId);
+  }catch(error){
+    recordOperation("agent-trace","task trace write failed: "+(error instanceof Error?error.message:String(error)));
+  }
+}
+let proactiveWorkspaceWatcher:FSWatcher|null=null;
+let proactiveWorkspaceWatcherPath:string|null=null;
+let proactiveWorkspaceChangeTimer:NodeJS.Timeout|null=null;
+let proactiveWorkspaceChangeCount=0;
+function stopProactiveWorkspaceWatcher():void{
+  if(proactiveWorkspaceChangeTimer)clearTimeout(proactiveWorkspaceChangeTimer);
+  proactiveWorkspaceChangeTimer=null;
+  proactiveWorkspaceChangeCount=0;
+  proactiveWorkspaceWatcher?.close();
+  proactiveWorkspaceWatcher=null;
+  proactiveWorkspaceWatcherPath=null;
+}
+function startProactiveWorkspaceWatcher(task:AgentTask):void{
+  const root=task.workspacePath;
+  if(!root){stopProactiveWorkspaceWatcher();return;}
+  if(root===proactiveWorkspaceWatcherPath)return;
+  stopProactiveWorkspaceWatcher();
+  try{
+    if(!statSync(root).isDirectory())return;
+    proactiveWorkspaceWatcher=watchFs(root,{recursive:true},(_eventType,filename)=>{
+      const relative=filename?.toString()??"";
+      if(!relative)return;
+      const ignored=new Set([".git","node_modules","dist","build",".next","coverage","release",".idea",".vscode"]);
+      if(relative.split(/[\\/]/).some(segment=>ignored.has(segment)))return;
+      proactiveWorkspaceChangeCount++;
+      if(proactiveWorkspaceChangeTimer)clearTimeout(proactiveWorkspaceChangeTimer);
+      proactiveWorkspaceChangeTimer=setTimeout(()=>{
+        const changeCount=proactiveWorkspaceChangeCount;
+        proactiveWorkspaceChangeCount=0;
+        proactiveWorkspaceChangeTimer=null;
+        try{
+          proactiveEngine.ingest({eventId:"workspace-fs:"+task.id+":"+randomUUID(),type:"agent.workspace.changed",
+            occurredAt:Date.now(),scope:root,taskId:task.id,sessionId:task.sessionId,
+            payload:{source:"filesystem",changeCount}});
+          publishAgentWorkspaceSnapshot();
+        }catch(error){
+          recordOperation("proactive","Workspace change event failed: "+(error instanceof Error?error.message:String(error)));
+        }
+      },1500);
+      proactiveWorkspaceChangeTimer.unref();
     });
-  } catch (error) {
-    recordOperation("agent-trace", "task trace write failed: " + (error instanceof Error ? error.message : String(error)));
+    proactiveWorkspaceWatcherPath=root;
+    proactiveWorkspaceWatcher.on("error",error=>{
+      recordOperation("proactive","Workspace watcher stopped: "+error.message);
+      stopProactiveWorkspaceWatcher();
+    });
+  }catch(error){
+    recordOperation("proactive","Workspace watcher unavailable for "+root+": "+(error instanceof Error?error.message:String(error)));
+    stopProactiveWorkspaceWatcher();
   }
 }
 const LEGACY_AGENT_SESSION_PATH = path.join(app.getPath("userData"), "agent-session.json");
@@ -495,6 +568,9 @@ function buildAgentWorkspaceSnapshot(): AgentWorkspaceSnapshot {
     schedules: [...agentSchedules],
     scheduleRuns: [...agentScheduleRuns],
     preferences: { ...agentWorkspacePreferences },
+    proactiveOpportunities: proactiveEngine.listActive(agentTasks.find(task=>task.id===activeAgentTaskId)?.workspacePath??null,30),
+    memoryCandidates: proactiveStore.listCandidates(agentTasks.find(task=>task.id===activeAgentTaskId)?.workspacePath??null,30),
+    proactiveSettings: proactiveStore.getSettings(),
   };
 }
 function publishAgentWorkspaceSnapshot(): void {
@@ -518,6 +594,7 @@ function createAgentTaskRecord(input: { title?: string; workspacePath?: string |
   };
   agentTasks.unshift(task);
   persistAgentTasks();
+  recordTaskTrace(task,"agent.task.created",{title:task.title,workspacePath:task.workspacePath});
   return task;
 }
 async function activateAgentTask(taskId: string, publish = true, scheduled = false): Promise<AgentTask> {
@@ -549,8 +626,13 @@ async function activateAgentTask(taskId: string, publish = true, scheduled = fal
   } : null);
   await copilotAgent.resetConversation();
   copilotAgent.setApprovedFiles([...(approvedAgentFiles.get(task.id) ?? [])]);
-  activeAgentTaskId = task.id;
-  workspaceProject = nextWorkspace;
+  const previousTaskId=activeAgentTaskId;
+  const previousTask=agentTasks.find(item=>item.id===previousTaskId);
+  activeAgentTaskId=task.id;
+  workspaceProject=nextWorkspace;
+  startProactiveWorkspaceWatcher(task);
+  if(previousTaskId!==task.id)recordTaskTrace(task,"agent.task.switched",{previousTaskId,taskId:task.id,workspacePath:task.workspacePath});
+  if(previousTask?.workspacePath!==task.workspacePath)recordTaskTrace(task,"agent.workspace.changed",{previousWorkspacePath:previousTask?.workspacePath??null,workspacePath:task.workspacePath});
   writeJsonAtomic(ACTIVE_AGENT_TASK_PATH, { taskId: activeAgentTaskId });
   writeJsonAtomic(WORKSPACE_PROJECT_PATH, workspaceProject);
   if (publish) {
@@ -1916,6 +1998,87 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     return buildAgentWorkspaceSnapshot();
   });
+  ipcMain.handle("agent:proactive-save-settings",(event,input:unknown)=>{
+    assertTrustedSender(event);
+    const parsed=z.object({
+      enabled:z.boolean().optional(),quietMode:z.boolean().optional(),
+      maxPerDay:z.number().int().min(1).max(20).optional(),
+      cooldownHours:z.number().int().min(1).max(720).optional(),
+      categories:z.object({
+        preference_confirmation:z.boolean().optional(),follow_up_confirmation:z.boolean().optional(),
+        follow_up_due:z.boolean().optional(),repeated_tool_failure:z.boolean().optional(),blocker:z.boolean().optional(),
+      }).partial().optional(),
+    }).safeParse(input);
+    if(!parsed.success)throw new Error("Invalid proactive assistance settings.");
+    const settings=proactiveStore.saveSettings(parsed.data);
+    recordAgentTrace("proactive.settings.updated",{settings},"completed");
+    publishAgentWorkspaceSnapshot();
+    return settings;
+  });
+  ipcMain.handle("agent:memory-candidate-feedback",(event,input:unknown)=>{
+    assertTrustedSender(event);
+    const parsed=z.object({
+      taskId:z.string().min(1).max(100),candidateId:z.string().min(1).max(100),action:z.enum(["accept","reject"]),
+    }).safeParse(input);
+    if(!parsed.success)throw new Error("Invalid Memory Preference Candidate feedback.");
+    const task=taskForId(parsed.data.taskId);
+    const candidate=proactiveStore.getCandidate(parsed.data.candidateId,task.workspacePath);
+    if(!candidate||candidate.status!=="pending")throw new Error("偏好候选不存在、已失效或已处理。");
+    let noteId:string|undefined;
+    if(parsed.data.action==="accept"){
+      if(agentOperationBusy())throw new Error("Agent 正在运行，无法同时确认并写入 Preference Memory。");
+      const note=copilotAgent.confirmPreferenceCandidate({
+        id:"preference-"+candidate.id,scope:candidate.scope,
+        title:"User preference · "+candidate.category,content:candidate.statement,category:candidate.category,
+        sourceSessionId:candidate.sessionId,sourceTraceId:candidate.sourceRef,createdAt:candidate.createdAt,
+        crossWorkspaceConfirmed:candidate.scope===null,strength:candidate.strength,
+      });
+      noteId=note.id;
+      proactiveStore.updateCandidate(candidate.id,task.workspacePath,"accepted",note.id);
+      proactiveStore.resolveCandidateOpportunity(candidate.id,task.workspacePath,"accepted");
+    }else{
+      proactiveStore.updateCandidate(candidate.id,task.workspacePath,"rejected");
+      proactiveStore.resolveCandidateOpportunity(candidate.id,task.workspacePath,"dismissed");
+    }
+    recordTaskTrace(task,"memory.preference_candidate.feedback",{candidateId:candidate.id,category:candidate.category,action:parsed.data.action,noteId});
+    publishAgentWorkspaceSnapshot();
+    return noteId?{noteId}:{};
+  });
+  ipcMain.handle("agent:proactive-feedback",(event,input:unknown)=>{
+    assertTrustedSender(event);
+    const parsed=z.object({
+      taskId:z.string().min(1).max(100),opportunityId:z.string().min(1).max(100),
+      action:z.enum(["accept","dismiss","irrelevant","snooze","acted"]),
+    }).safeParse(input);
+    if(!parsed.success)throw new Error("Invalid proactive feedback.");
+    const task=taskForId(parsed.data.taskId);
+    const opportunity=proactiveStore.getOpportunity(parsed.data.opportunityId,task.workspacePath);
+    if(!opportunity)throw new Error("Proactive Opportunity 不存在或不属于当前 Workspace。");
+    let noteId:string|undefined;
+    if(opportunity.category==="preference_confirmation"){
+      const candidateId=String(opportunity.payload.candidateId??"");
+      const candidate=proactiveStore.getCandidate(candidateId,task.workspacePath);
+      if(parsed.data.action==="accept"){
+        if(agentOperationBusy())throw new Error("Agent 正在运行，无法同时确认并写入 Preference Memory。");
+        if(!candidate||candidate.status!=="pending")throw new Error("偏好候选已失效或已处理。");
+        const note=copilotAgent.confirmPreferenceCandidate({
+          id:"preference-"+candidate.id,scope:candidate.scope,
+          title:"User preference · "+candidate.category,content:candidate.statement,category:candidate.category,
+          sourceSessionId:candidate.sessionId,sourceTraceId:candidate.sourceRef,createdAt:candidate.createdAt,
+          crossWorkspaceConfirmed:candidate.scope===null,strength:candidate.strength,
+        });
+        noteId=note.id;
+        proactiveStore.updateCandidate(candidate.id,task.workspacePath,"accepted",note.id);
+      }else if(parsed.data.action==="dismiss"||parsed.data.action==="irrelevant"){
+        if(candidate?.status==="pending")proactiveStore.updateCandidate(candidate.id,task.workspacePath,"rejected");
+      }
+    }
+    proactiveEngine.feedback({id:opportunity.id,scope:task.workspacePath,action:parsed.data.action});
+    recordTaskTrace(task,"proactive.feedback",{opportunityId:opportunity.id,category:opportunity.category,action:parsed.data.action,noteId});
+    publishAgentWorkspaceSnapshot();
+    return noteId?{noteId}:{};
+  });
+
   ipcMain.handle("agent-workspace:save-preferences", (event, input: unknown) => {
     assertTrustedSender(event);
     const parsed = z.object({
@@ -2601,7 +2764,7 @@ function registerIpcHandlers(): void {
     recordAgentTrace("turn.started", { prompt: parsed.data.prompt, history: parsed.data.history ?? [], settings: agentSettings, workspacePath: workspaceProject.path, taskId: task.id }, "running");
     try {
       await copilotAgent.send(parsed.data.prompt, parsed.data.history as AgentChatMessage[] | undefined, attachments);
-      recordAgentTrace("turn.completed", { outcome: "completed" }, "completed");
+      recordAgentTrace("turn.completed", { outcome: "completed", prompt: parsed.data.prompt }, "completed");
     } catch (error) {
       recordAgentTrace("turn.failed", { error: error instanceof Error ? error.message : String(error) }, "failed");
       throw error;
@@ -2935,14 +3098,26 @@ if (hasSingleInstanceLock) {
     registerIpcHandlers();
     installApplicationMenu();
     createMainWindow();
-    schedulerTimer = setInterval(() => { void processDueAgentSchedules(); }, 15_000);
+    schedulerTimer = setInterval(() => {
+      void processDueAgentSchedules();
+      const currentTask=agentTasks.find(task=>task.id===activeAgentTaskId);
+      if(proactiveEngine.evaluatePending(currentTask?currentTask.workspacePath:workspaceProject.path))publishAgentWorkspaceSnapshot();
+    },15_000);
     schedulerTimer.unref();
     void processDueAgentSchedules();
+    const startupTask=agentTasks.find(task=>task.id===activeAgentTaskId);
+    if(startupTask)startProactiveWorkspaceWatcher(startupTask);
+    proactiveEngine.ingest({eventId:"app-start:"+Date.now(),type:"app.activated",occurredAt:Date.now(),
+      scope:startupTask?startupTask.workspacePath:workspaceProject.path,taskId:startupTask?.id??null,
+      sessionId:startupTask?.sessionId??null,payload:{source:"startup"}});
 
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createMainWindow();
-      }
+      if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+      const currentTask=agentTasks.find(task=>task.id===activeAgentTaskId);
+      proactiveEngine.ingest({eventId:"app-activate:"+Date.now(),type:"app.activated",occurredAt:Date.now(),
+        scope:currentTask?currentTask.workspacePath:workspaceProject.path,taskId:currentTask?.id??null,
+        sessionId:currentTask?.sessionId??null,payload:{source:"activation"}});
+      publishAgentWorkspaceSnapshot();
     });
   });
 }
@@ -3018,6 +3193,8 @@ app.on("before-quit", (event) => {
 app.on("will-quit", () => {
   if (schedulerTimer) clearInterval(schedulerTimer);
   schedulerTimer = null;
+  stopProactiveWorkspaceWatcher();
+  proactiveStore.close();
   agentTraceStore.close();
   disposeLoginShellEnvironment();
 });
