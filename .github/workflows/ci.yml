@@ -27,6 +27,9 @@ jobs:
       - run: npm run build
       - run: npm run test:layout:run
       - run: npm run test:schedule-browser-session
+      - name: Run real Electron UtilityProcess lifecycle integration
+        run: npm run test:utility-process-runtime
+        timeout-minutes: 5
       - if: runner.os == 'macOS'
         run: npx electron-builder --mac dmg zip --publish never
       - if: runner.os == 'Windows'

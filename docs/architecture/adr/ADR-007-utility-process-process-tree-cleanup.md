@@ -50,3 +50,8 @@ UtilityProcess 是进程隔离和崩溃隔离边界，不是安全沙箱。本 A
 - Windows：使用 `taskkill /T /F`，并等待根进程退出。
 - 正常完成、失败、超时、取消和应用退出均不会绕过统一清理路径。
 - macOS / Windows 真实 Electron GUI 环境完成 Code Mode 取消、超时和应用退出测试。
+
+
+## 真实 Electron UtilityProcess 自动化回归
+
+新增 `npm run test:utility-process-runtime`，由 CI 在 macOS / Windows 分别启动独立 Electron 主进程，并通过生产代码 `UtilityProcessAgentRuntime` 实际 fork `utility-worker.js`。Worker 通过 Tool Broker 报告自身 PID 后保持运行；测试分别触发 AbortSignal 取消、Runtime 超时，以及调用 `dispose()`，并验证执行状态收敛、UtilityProcess PID 退出。该测试覆盖真实 Electron UtilityProcess 与 Runtime 的清理接线，不替代带真实 Agent Provider、Browser 工具及完整 GUI 的 Agent Code Mode 人工验收。

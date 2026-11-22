@@ -61,6 +61,7 @@
 - [ ] Pure Agent：右侧 Browser 显示/隐藏、切换 Files/Results、窗口缩放
 - [x] WorkspaceDocument v1 偏好迁移、四方向停靠、显隐和面板比例的 v2 往返回归测试（Layout Engine 自动化测试已覆盖）
 - [ ] macOS：Electron Agent Code Mode 中真实 UtilityProcess 取消、超时及应用退出清理验证
+- [x] 真实 Electron UtilityProcess Runtime 集成测试：在独立 Electron 主进程内实际 fork UtilityProcess，验证 AbortSignal 取消、时间预算超时与 Runtime `dispose()` 后进程退出（本次新增，等待 macOS / Windows CI）
 - [ ] Windows：Electron Agent Code Mode 中真实 UtilityProcess 取消、超时及应用退出清理验证
 - [x] macOS ARM64 DMG / ZIP 与 Windows x64 NSIS 构建及 CI artifact 检查（run [45003096172](https://github.com/saga/architect-agent-desktop/actions/runs/45003096172) 两平台均成功；artifact 仅包含安装文件，约 830 MB / 328 MB。当前产物未签名，macOS 未公证）
 

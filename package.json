@@ -18,7 +18,8 @@
     "test": "vitest run",
     "package": "npm run typecheck && npm test && npm run build && npm run test:layout:run && electron-builder --publish never",
     "test:layout:run": "node --test tests/layout-engine.test.mjs",
-    "test:schedule-browser-session": "node tests/schedule-browser-session.integration.mjs"
+    "test:schedule-browser-session": "node tests/schedule-browser-session.integration.mjs",
+    "test:utility-process-runtime": "node tests/utility-process-runtime.integration.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",
