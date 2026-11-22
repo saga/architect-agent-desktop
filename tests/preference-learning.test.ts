@@ -31,6 +31,10 @@ describe("Preference learning",()=>{
   expect(detectPreferenceCandidate("Remember my salary and personal debt.")).toBeNull();
   expect(detectPreferenceCandidate("请记住我的银行账户余额和信用卡信息。")).toBeNull();
  });
+ it("does not confuse technical words with sensitive personal attributes",()=>{
+  expect(detectPreferenceCandidate("Please remember that trace reviews should be concise.")).not.toBeNull();
+  expect(detectPreferenceCandidate("Please remember that archive workflows should stay simple.")).not.toBeNull();
+ });
  it("does not infer a Personal scope from an ordinary preference statement",()=>{
   expect(detectPreferenceCandidate("我偏好简洁的架构说明。")).toMatchObject({scopeSuggestion:"workspace",explicitSaveRequest:false});
  });
