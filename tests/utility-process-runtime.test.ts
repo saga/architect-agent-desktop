@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runtimeMocks = vi.hoisted(() => ({
   children: [] as Array<any>,
+  withoutPid: false,
   terminateProcessTree: vi.fn(async () => undefined),
 }));
 vi.mock("electron", () => ({
@@ -12,7 +13,7 @@ vi.mock("electron", () => ({
     fork: () => {
       const listeners = new Map<string, Array<(value: any) => void>>();
       const child: any = {
-        pid: 1000 + runtimeMocks.children.length,
+        pid: runtimeMocks.withoutPid ? undefined : 1000 + runtimeMocks.children.length,
         messages: [] as unknown[],
         killCalls: 0,
         on(event: string, callback: (value: any) => void) {
@@ -43,6 +44,7 @@ import { UtilityProcessAgentRuntime } from "../src/main/runtime/utility-process-
 let temporary: string, workerPath: string;
 beforeEach(() => {
   runtimeMocks.children.length = 0;
+  runtimeMocks.withoutPid = false;
   runtimeMocks.terminateProcessTree.mockClear();
   temporary = mkdtempSync(path.join(tmpdir(), "architect-runtime-test-"));
   workerPath = path.join(temporary, "utility-worker.js");
@@ -92,6 +94,7 @@ describe("UtilityProcess Code Mode execution isolation", () => {
 
   it("uses the Electron process handle when cancellation happens before a PID is available", async () => {
     const runtime = new UtilityProcessAgentRuntime(workerPath);
+    runtimeMocks.withoutPid = true;
     const controller = new AbortController();
     const execution = runtime.executeGeneratedCode({
       mode: "generated-code",
@@ -101,7 +104,7 @@ describe("UtilityProcess Code Mode execution isolation", () => {
       signal: controller.signal,
     }, vi.fn(async () => undefined));
     const child = runtimeMocks.children[0]!;
-    child.pid = undefined;
+    expect(child.pid).toBeUndefined();
 
     controller.abort();
 
