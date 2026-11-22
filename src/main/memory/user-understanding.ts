@@ -22,7 +22,7 @@ export interface UserTurnAssessment {
 
 const ANGER = /我很生气|非常愤怒|气死我了|傻逼|蠢货|白痴|混蛋|脑子有问题|胡说八道|idiot|stupid|bullshit|this is ridiculous|i(?:'m| am) furious/iu;
 const REPEATED_CORRECTION = /不要让我反复提醒|别让我反复提醒|不要让我重复|别让我重复|我已经说过|我已经说了|我说过很多次|已经告诉过你|早就说过|你又(?:在|把|犯|回到)|还是没有理解|还是不明白|don't make me repeat|already told you|i(?:'ve| have) said this before|stop making me remind you|still not what i asked/iu;
-const FRUSTRATION = /跑偏|偏离(?:了)?(?:要求|目标|方向)|不是这个意思|不是我要的|不要再|别再|又错了|还是不对|反复犯错|别扯没用的|没有按要求|没有理解我的要求|完全没理解|off track|not what i asked|that's not what i meant|stop doing that|you missed the point|wrong direction/iu;
+const FRUSTRATION = /跑偏|偏离(?:了)?(?:要求|目标|方向)|不是这个意思|不是我要的|又错了|还是不对|反复犯错|别扯没用的|没有按要求|没有理解我的要求|完全没理解|off track|not what i asked|that's not what i meant|stop doing that|you missed the point|wrong direction/iu;
 const DISSATISFACTION = /不满意|不符合要求|不符合预期|这个结果不对|结果有问题|没有解决问题|没用|错误的答案|wrong answer|incorrect|unsatisfactory|doesn't meet the requirements/iu;
 const CONFUSION = /我不明白|我没明白|不理解|看不懂|没看懂|搞不清楚|什么意思|不太理解|i(?:'m| am) confused|i don't understand|i do not understand|i don't follow|what does .{1,40} mean/iu;
 const SATISFACTION = /这就对了|正是我要的|完全正确|很好|不错|就按这个|可以了|perfect|exactly what i needed|that's exactly right|great,? thanks|looks good/iu;
