@@ -329,6 +329,17 @@ export default function MemoryManager() {
     { title: "Note", key: "note", render: (_: unknown, note: AgentMemoryNoteView) => <div>
       <Space wrap><Text strong>{note.title}</Text><Tag color={statusColor(note.validation)}>{note.validation}</Tag><Tag>{({ user_preference: "用户偏好", user_intent: "用户意图", decision: "决策", project_fact: "项目事实", workflow_pattern: "工作模式", external_fact: "外部事实", unknown: "未分类" } as Record<string, string>)[note.claimType] ?? "未分类"}</Tag>{note.pinned && <Tag color="gold">Pinned</Tag>}{note.status !== "active" && <Tag>{note.status}</Tag>}</Space>
       <Paragraph ellipsis={{ rows: 2, expandable: true, symbol: "展开" }} style={{ margin: "4px 0 0" }}>{note.content}</Paragraph>
+      {note.preference && <div style={{ marginTop: 6 }}>
+        <Space wrap size={4}>
+          <Tag color="blue">{note.preference.domain}</Tag>
+          <Tag>{({prefer:"偏好",avoid:"避免",require:"必须",exclude:"排除",format:"格式",tone:"语气",instruction:"说明"} as Record<string,string>)[note.preference.operator] ?? note.preference.operator}</Tag>
+          <Tag>{({explicit:"明确表达",strong_signal:"强信号",repeated_correction:"重复纠正"} as Record<string,string>)[note.preference.strength] ?? note.preference.strength}</Tag>
+          <Tag>{note.preference.scope===null?"Personal · 跨 Workspace":"Workspace · 当前项目"}</Tag>
+          {note.preference.appliesTo.map(item=><Tag key={item}>{item}</Tag>)}
+          {note.preference.validUntil!==null&&<Tag>有效至 {dateOf(note.preference.validUntil)}</Tag>}
+        </Space>
+        <Text type="secondary" style={{fontSize:11,display:"block",marginTop:3}}>结构化偏好元数据；实际应用仍以当前请求相关性和用户当前指令为准。</Text>
+      </div>}
       {note.validationEvidence && <Text type="secondary" style={{ fontSize: 11 }}>验证依据：{note.validationEvidence.independentSessions} 个独立会话 · {note.validationEvidence.directUserSources} 条用户陈述 · {note.validationEvidence.toolObservations} 条工具观察；{note.validationEvidence.reason}</Text>}
       {note.externalVerification && <div style={{ marginTop: 6 }}>
         <Space wrap size={4}>
