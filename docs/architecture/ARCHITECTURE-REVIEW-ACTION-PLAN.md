@@ -32,10 +32,10 @@
 
 - [x] **P2-07 Main 同步 I/O 治理。** Workspace 文件列表、读取、写入与搜索，以及插件目录指纹、Capability 探测、插件验证/导入/导出/授权、运行时快照、Copilot 插件投影、Agent Skill 扫描/导入/启停/指令读取和 ZIP 解压落盘均使用异步文件 API；Main IPC 与 Copilot 调用链等待操作完成。指纹读取保留 `O_NOFOLLOW`、文件描述符身份/大小复核和文件数量/目录深度上限；每目录最多 8 路并发读取，最终 SHA-256 仍按排序后的深度优先顺序更新。ZIP CRC32 改为查表实现，保留原校验语义；解压仍使用受大小上限约束的 Node zlib。
 
-  **性能验收：** GitHub Actions Benchmark run [44998687395](https://github.com/saga/architect-agent-desktop/actions/runs/44998687395)，Linux / Node.js 24.22.3，同一组 8 MiB 插件目录（259 个文件）和 8 MiB 未压缩 Skill ZIP（5 个文件），同步基线 `7dfd411` 对比当前异步实现：插件导入 34.76 → 110.45 ms；运行授权/指纹 31.42 → 96.64 ms；重复扫描 126.56 → 340.31 ms；Skill ZIP 导入 326.53 → 42.05 ms；组合总耗时 520.67 → 591.33 ms（增加 13.6%）。最大定时器延迟 520.17 → 21.11 ms（下降约 96%）。异步 I/O 牺牲少量整体 wall-clock 时间，换得 Main Event Loop 不再被目录扫描/文件复制长时间阻塞；CRC 查表消除了 ZIP 校验的主要 CPU 热点。没有证据支持再引入 Worker/UtilityProcess，因此不增加新的进程层。
+  **性能验收：** 历史 GitHub Actions Benchmark run [44998687395](https://github.com/saga/architect-agent-desktop/actions/runs/44998687395) 使用临时 Linux runner / Node.js 24.22.3，仅作为当时的性能数据采样环境，不代表产品支持平台或当前 CI 目标。后续 benchmark workflow 已改为 macOS runner。相同 run 对同一组 8 MiB 插件目录（259 个文件）和 8 MiB 未压缩 Skill ZIP（5 个文件），同步基线 `7dfd411` 对比当前异步实现：插件导入 34.76 → 110.45 ms；运行授权/指纹 31.42 → 96.64 ms；重复扫描 126.56 → 340.31 ms；Skill ZIP 导入 326.53 → 42.05 ms；组合总耗时 520.67 → 591.33 ms（增加 13.6%）。最大定时器延迟 520.17 → 21.11 ms（下降约 96%）。异步 I/O 牺牲少量整体 wall-clock 时间，换得 Main Event Loop 不再被目录扫描/文件复制长时间阻塞；CRC 查表消除了 ZIP 校验的主要 CPU 热点。没有证据支持再引入 Worker/UtilityProcess，因此不增加新的进程层。
 
   **验证：** Build run [44998687413](https://github.com/saga/architect-agent-desktop/actions/runs/44998687413) 的 `npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均通过。
-- [x] **P2-08 UtilityProcess 子进程树清理。** POSIX 使用冻结根进程、重复发现后代、冻结新后代、叶节点优先终止并等待退出；Windows 使用 `taskkill /T /F`。Runtime 正常完成、失败、超时、取消和 `dispose()` 均调用进程树清理；无论 PID 是否已就绪，都会调用 Electron `UtilityProcess.kill()` 兜底关闭根进程。新增真实 Node 父/子/孙进程树集成测试，在 macOS 和 Windows runner 上执行真实 OS 清理路径；Runtime 单元测试覆盖正常结束、PID 未就绪时取消和超时。Build run [45002723035](https://github.com/saga/architect-agent-desktop/actions/runs/45002723035) 的 macOS 与 Windows job 均通过真实 OS 进程树集成测试；当前目标平台仅为 macOS / Windows。完整 Electron GUI Agent Code Mode 的打包运行/取消/退出人工验收仍单独保留，不影响进程树清理代码项关闭。
+- [x] **P2-08 UtilityProcess 子进程树清理。** POSIX 使用冻结根进程、重复发现后代、冻结新后代、叶节点优先终止并等待退出；Windows 使用 `taskkill /T /F`。Runtime 正常完成、失败、超时、取消和 `dispose()` 均调用进程树清理；无论 PID 是否已就绪，都会调用 Electron `UtilityProcess.kill()` 兜底关闭根进程。新增真实 Node 父/子/孙进程树集成测试，以及真实 Electron UtilityProcess 生命周期集成测试：UtilityProcess 内派生 Node 子进程，分别验证取消、超时和 `dispose()` 会结束整棵进程树。修正 Main 侧 `UtilityProcess` 消息解析，按 Electron API 接收直接 payload，恢复真实 Tool Broker 消息流。Build run [45005886227](https://github.com/saga/architect-agent-desktop/actions/runs/45005886227) 的 macOS 与 Windows jobs 均通过上述真实进程树、真实 Electron Runtime、TypeScript、Vitest、应用构建和原生安装包构建。完整 Agent Code Mode GUI / Provider 人工验收仍单独保留，不将自动化 Runtime 测试冒充 GUI 验收。
 - [x] **P2-09 CodeBuddy 总预算。** 一次用户请求最多 12 个模型轮次（6 次 Query、每次最多 2 轮）；应用 Host 工具与兼容模式文本工具调用共用 80 次请求级预算；兼容模式工具结果总输出最多 256 KiB；仍受现有 5 分钟请求超时约束。Provider 内部原生工具由 SDK 权限和轮次限制约束，不声称由应用计数器逐个计数。
 - [x] **P2-10 未使用 Runtime 入口清理。** 确认 `executeSkill()` / `SkillExecutionRequest` / Worker 的 `execute` 分支没有产品调用点；按 Agent Skills“脚本不会由导入器执行”的产品边界移除死入口，保留 Code Mode 使用的 UtilityProcess。同步修订 Runtime 和 Agent Skills 文档。
 
@@ -61,11 +61,13 @@
 - [ ] Pure Agent：右侧 Browser 显示/隐藏、切换 Files/Results、窗口缩放
 - [x] WorkspaceDocument v1 偏好迁移、四方向停靠、显隐和面板比例的 v2 往返回归测试（Layout Engine 自动化测试已覆盖）
 - [ ] macOS：Electron Agent Code Mode 中真实 UtilityProcess 取消、超时及应用退出清理验证
-- [x] 真实 Electron UtilityProcess Runtime 集成测试：在独立 Electron 主进程内实际 fork UtilityProcess，验证 AbortSignal 取消、时间预算超时与 Runtime `dispose()` 后进程退出（本次新增，等待 macOS / Windows CI）
+- [x] 真实 Electron UtilityProcess Runtime 进程树集成测试：在独立 Electron 主进程内实际 fork UtilityProcess，并从 Worker 派生 Node 子进程；分别验证 AbortSignal 取消、时间预算超时与 Runtime `dispose()` 会终止 Worker 和派生进程。macOS / Windows 均已通过 Build run [45005886227](https://github.com/saga/architect-agent-desktop/actions/runs/45005886227)。
 - [ ] Windows：Electron Agent Code Mode 中真实 UtilityProcess 取消、超时及应用退出清理验证
 - [x] macOS ARM64 DMG / ZIP 与 Windows x64 NSIS 构建及 CI artifact 检查（run [45003096172](https://github.com/saga/architect-agent-desktop/actions/runs/45003096172) 两平台均成功；artifact 仅包含安装文件，约 830 MB / 328 MB。当前产物未签名，macOS 未公证）
 
 ## CI 更新记录
+
+- 2026-11-22：Build run [45005886227](https://github.com/saga/architect-agent-desktop/actions/runs/45005886227) 在 macOS / Windows 两个平台全部成功。除了 TypeScript、完整 Vitest、Layout 和 Schedule Session 持久化/隔离测试外，新增真实 Electron UtilityProcess 生命周期测试：实际 Worker 派生 Node 子进程，取消、超时、`dispose()` 三种路径都确认根 Worker 与派生进程 PID 退出。macOS ARM64 DMG/ZIP 与 Windows x64 NSIS 安装包均生成并上传；Artifact 仅保留安装文件。安装包未签名，macOS 未公证。
 
 - 2026-11-22：提交 `e503c86` 的 Build run [45003096172](https://github.com/saga/architect-agent-desktop/actions/runs/45003096172) 在 macOS / Windows 两个目标 runner 均成功，包含 TypeScript、全部 Vitest、应用 build、Layout Engine、真实 Electron Session 多进程测试及原生安装包构建。artifact 规则仅上传 macOS `.dmg` / `*-mac.zip` 与 Windows `.exe`，体积分别约 830 MB / 328 MB；当前未配置平台代码签名或 macOS 公证。后续提交 `c793759` 增加 Schedule Browser 初始化/退出竞态保护，其双平台验证仍在进行。
 
