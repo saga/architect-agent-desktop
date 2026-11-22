@@ -51,6 +51,7 @@
 
 ## CI 更新记录
 
+- 2026-11-22：最新 Schedule Browser OAuth / cleanup 修复提交 `71ce796` 的 GitHub Actions Build run [44995645403](https://github.com/saga/architect-agent-desktop/actions/runs/44995645403) 已通过：`npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均成功。此轮包括 Electron 45 popup 类型修正、Profile 子窗口安全策略和 WebContents 生命周期清理。
 - 2026-11-22：Schedule Browser Session 主体提交 `0499fed` 的 GitHub Actions Build run [44994616328](https://github.com/saga/architect-agent-desktop/actions/runs/44994616328) 已通过；follow-up 生命周期清理提交 `2e839da` 的 Build run [44994804904](https://github.com/saga/architect-agent-desktop/actions/runs/44994804904) 也已通过。两次 validate 均完成 `npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试。
 - 2026-11-22：最新提交 `64e7e0b` 的 GitHub Actions Build run [44989449265](https://github.com/saga/architect-agent-desktop/actions/runs/44989449265) 已完成且成功。validate job 中 `npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均通过；本次加入的 Markdown-only Plugin 授权回归测试包含在该 Vitest 结果中。当前工作流仅验证构建，不执行 Windows/macOS 安装包打包，因此不能据此声称安装包已通过跨平台验证。
 - 当前 CI 仅验证构建，不执行 Windows/macOS 安装包打包，也不替代真实 Electron BrowserWindow / Session 的 GUI 验收。
