@@ -147,6 +147,8 @@ Agent 可以通过系统文件选择器分析 PDF、Word（DOC/DOCX）、Excel�
 
 详细设计见 [Agent 数据分析、文件理解、A2UI 与长期记忆设计](docs/architecture/AGENT-ANALYTICS-DOCUMENTS-A2UI-MEMORY.md)。
 
+持续个性化、偏好学习、按请求相关性召回记忆，以及不依赖 Schedule 的事件驱动主动建议，见 [Personal Intelligence 与主动协助设计](docs/architecture/AGENT-PERSONAL-INTELLIGENCE-AND-PROACTIVE-ASSISTANCE.md)。
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
