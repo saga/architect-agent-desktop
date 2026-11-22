@@ -52,6 +52,7 @@
 - [x] Schedule Browser Context 部分初始化失败会执行资源回滚，且清理失败不覆盖原始错误（Vitest 回归测试已加入）
 - [x] Schedule Profile 重置会依次清除站点存储、HTTP Cache、HTTP Authentication Cache，并在完成后 flush（Vitest 回归测试已加入）
 - [x] Schedule 下载路径按 Profile 隔离、远端文件名净化、唯一命名且不触发 Save 对话框（Vitest 路径测试已加入）
+- [x] Schedule Profile 重置会关闭根登录窗口和所有嵌套 OAuth 子窗口，取消未完成下载但保留已完成文件；Storage/Cache/Auth Cache 清理即使单步失败也会继续执行并 flush（Vitest 回归测试已加入）
 - [x] 真实 Node 父/子/孙进程树在 Ubuntu、macOS、Windows CI 中均被终止（GitHub Actions Build run 44999451094）
 - [ ] CodeBuddy 真实运行验证：Expert 只授权 Workspace read 时，不能读取 Workspace 外文件
 - [ ] Copilot / CodeBuddy 各自的 Agent Run 期间切换 Tab 验证

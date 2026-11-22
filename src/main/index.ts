@@ -1054,10 +1054,17 @@ async function openScheduleBrowserProfile(scheduleId: string): Promise<void> {
 async function resetScheduleBrowserProfile(scheduleId: string): Promise<void> {
   if (scheduleBrowserContext?.scheduleId === scheduleId) throw new Error("该 Schedule 正在运行，不能重置其 Browser Profile。");
 
+  let firstCleanupError: unknown;
+  let hasCleanupError = false;
+  const captureCleanupError = (error: unknown) => {
+    if (!hasCleanupError) { firstCleanupError = error; hasCleanupError = true; }
+  };
+
   // Stop in-flight downloads before clearing the profile; completed files remain untouched.
   const downloads = scheduleBrowserDownloads.get(scheduleId);
   if (downloads) {
     for (const error of cancelScheduleBrowserDownloads(downloads)) {
+      captureCleanupError(error);
       recordOperation("schedule-browser", "download cancellation failed for " + scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
     }
     scheduleBrowserDownloads.delete(scheduleId);
@@ -1070,13 +1077,19 @@ async function resetScheduleBrowserProfile(scheduleId: string): Promise<void> {
     .filter(window => window !== root);
   const windows = [...popups, ...(root ? [root] : [])];
   for (const error of destroyScheduleBrowserProfileWindows(windows)) {
+    captureCleanupError(error);
     recordOperation("schedule-browser", "Profile window destroy failed for " + scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
   }
   scheduleBrowserProfilePopupWindows.delete(scheduleId);
   scheduleBrowserProfileWindows.delete(scheduleId);
 
-  const profile = await getScheduleBrowserSession(scheduleId);
-  await clearScheduleBrowserProfileData(profile);
+  try {
+    const profile = await getScheduleBrowserSession(scheduleId);
+    await clearScheduleBrowserProfileData(profile);
+  } catch (error) {
+    captureCleanupError(error);
+  }
+  if (hasCleanupError) throw firstCleanupError;
 }
 
 function tabSnapshot(tab: BrowserTab): BrowserTabState {
