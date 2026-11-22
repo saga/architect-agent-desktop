@@ -1,5 +1,28 @@
-import { describe, expect, it } from "vitest";
-import { canOpenScheduleBrowserPopup, scheduleBrowserPartition } from "../src/main/schedule-browser-profile";
+import { describe, expect, it, vi } from "vitest";
+import { canOpenScheduleBrowserPopup, initializeScheduleBrowserContext, scheduleBrowserPartition } from "../src/main/schedule-browser-profile";
+
+describe("Schedule Browser Context initialization", () => {
+  it("disposes partially-created resources when initialization fails", async () => {
+    const context = { window: "hidden-window", tabs: ["first-tab"] };
+    const initialize = vi.fn(async () => { throw new Error("initial navigation setup failed"); });
+    const dispose = vi.fn();
+
+    await expect(initializeScheduleBrowserContext(context, initialize, dispose))
+      .rejects.toThrow("initial navigation setup failed");
+    expect(initialize).toHaveBeenCalledWith(context);
+    expect(dispose).toHaveBeenCalledWith(context);
+  });
+
+  it("preserves the initialization error when best-effort disposal also fails", async () => {
+    const originalError = new Error("addChildView failed");
+    const initialize = async () => { throw originalError; };
+    const dispose = vi.fn(() => { throw new Error("destroy failed"); });
+
+    await expect(initializeScheduleBrowserContext({ id: "partial" }, initialize, dispose))
+      .rejects.toBe(originalError);
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("Schedule Browser Profile identity", () => {
   it("creates a stable persistent partition for each Schedule", () => {

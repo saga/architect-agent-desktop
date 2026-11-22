@@ -36,7 +36,7 @@ import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./logi
 import { clampBrowserBounds } from "./layout/browser-bounds";
 import { isAgentOperationBusy } from "./agent-operation-policy";
 import { resolveAgentBrowserTab, resolveAgentBrowserTabId, shouldBlockAgentTabOperation } from "./agent-run-context";
-import { canOpenScheduleBrowserPopup, scheduleBrowserPartition } from "./schedule-browser-profile";
+import { canOpenScheduleBrowserPopup, initializeScheduleBrowserContext, scheduleBrowserPartition } from "./schedule-browser-profile";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { setPanelVisibility } from "./layout/layout-tree";
 
@@ -814,13 +814,28 @@ async function createScheduleBrowserTab(context: ScheduleBrowserContext, url = H
       backgroundThrottling: false,
     },
   });
-  context.window.contentView.addChildView(view);
-  view.setBounds({ x: 0, y: 0, width: 1280, height: 800 });
   const tab: BrowserTab = { id, view, cdp: new BrowserCdp(), title: "New tab", url: "about:blank", favicon: null, isLoading: false };
+  // Register ownership before attaching the native view. If addChildView,
+  // setBounds or event registration fails, the Run cleanup can still find it.
   context.tabs.set(id, tab);
   context.tabOrder.push(id);
   context.activeTabId = id;
-  attachScheduleBrowserTabEvents(context, tab);
+  try {
+    context.window.contentView.addChildView(view);
+    view.setBounds({ x: 0, y: 0, width: 1280, height: 800 });
+    attachScheduleBrowserTabEvents(context, tab);
+  } catch (error) {
+    context.tabs.delete(id);
+    const index = context.tabOrder.indexOf(id);
+    if (index >= 0) context.tabOrder.splice(index, 1);
+    context.activeTabId = context.tabOrder.length ? context.tabOrder[context.tabOrder.length - 1]! : null;
+    tab.cdp.detach(view.webContents);
+    try { context.window.contentView.removeChildView(view); } catch { /* view may not have been attached */ }
+    if (!view.webContents.isDestroyed()) {
+      try { view.webContents.close({ waitForBeforeUnload: false }); } catch { /* preserve attachment error */ }
+    }
+    throw error;
+  }
   const target = resolveAddress(url);
   tab.url = target;
   try { await view.webContents.loadURL(target); }
@@ -843,29 +858,57 @@ async function createScheduleBrowserContext(schedule: AgentSchedule, runId: stri
     tabs: new Map(), tabOrder: [], activeTabId: null, disposed: false,
   };
   window.on("closed", () => {
+    const wasUnexpected = !context.disposed;
     context.disposed = true;
-    for (const tab of context.tabs.values()) tab.cdp.detach(tab.view.webContents);
+    for (const tab of context.tabs.values()) {
+      try { tab.cdp.detach(tab.view.webContents); } catch { /* WebContents may already be gone */ }
+    }
     context.tabs.clear();
     context.tabOrder.length = 0;
+    context.activeTabId = null;
     if (scheduleBrowserContext === context) scheduleBrowserContext = null;
+    try { context.session.flushStorageData(); }
+    catch (error) {
+      recordOperation("schedule-browser", "profile flush failed after window close for " + context.scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
+    }
+    if (wasUnexpected) recordOperation("schedule-browser", "hidden BrowserWindow closed before Run cleanup for " + context.scheduleId);
   });
-  await createScheduleBrowserTab(context, schedule.browserStartUrl || HOME_URL);
-  return context;
+  return initializeScheduleBrowserContext(
+    context,
+    async current => { await createScheduleBrowserTab(current, schedule.browserStartUrl || HOME_URL); },
+    disposeScheduleBrowserContext,
+  );
 }
 
 function disposeScheduleBrowserContext(context: ScheduleBrowserContext): void {
   context.disposed = true;
   if (scheduleBrowserContext === context) scheduleBrowserContext = null;
   const tabsToDispose = [...context.tabs.values()];
-  for (const tab of tabsToDispose) tab.cdp.detach(tab.view.webContents);
-  context.session.flushStorageData();
   context.tabs.clear();
   context.tabOrder.length = 0;
-  // destroy() bypasses page beforeunload prompts so hidden scheduled pages cannot
-  // hold the run lifecycle open after success, failure, cancellation or timeout.
-  if (!context.window.isDestroyed()) context.window.destroy();
+  context.activeTabId = null;
+
+  // Always attempt every cleanup step. One failed close/detach must not leave
+  // the rest of the Browser Context alive or prevent the Agent Run from finishing.
   for (const tab of tabsToDispose) {
-    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close({ waitForBeforeUnload: false });
+    try { tab.cdp.detach(tab.view.webContents); } catch { /* WebContents may already be gone */ }
+  }
+  if (!context.window.isDestroyed()) {
+    try { context.window.destroy(); }
+    catch (error) {
+      recordOperation("schedule-browser", "hidden BrowserWindow destroy failed for " + context.scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+  for (const tab of tabsToDispose) {
+    try {
+      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close({ waitForBeforeUnload: false });
+    } catch (error) {
+      recordOperation("schedule-browser", "WebContents close failed for " + context.scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+  try { context.session.flushStorageData(); }
+  catch (error) {
+    recordOperation("schedule-browser", "profile flush failed for " + context.scheduleId + ": " + (error instanceof Error ? error.message : String(error)));
   }
 }
 

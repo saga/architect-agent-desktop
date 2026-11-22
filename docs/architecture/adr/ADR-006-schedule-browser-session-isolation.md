@@ -17,6 +17,7 @@ Schedule 运行此前复用全局 `persist:architect-agent-browser` Session，�
 6. Schedule Session 的站点权限请求默认拒绝，不弹出后台权限确认框；Display Media 请求始终拒绝。Session 的下载事件带上 Schedule ID。
 7. 普通 Agent Run 继续使用用户可见 Tab pin。Memory Dreaming 的后台维护没有交互式 Browser 目标，显式使用空 Browser Context，不能回落到用户当前 Tab。
 8. Schedule 的 WebContents 与隐藏 BrowserWindow 在 Run 的 finally 路径强制销毁，避免远端页面的 `beforeunload` 对话框阻塞清理；持久 Profile 数据不会在每次 Run 后清除，以保留用户认可的登录态。显式重置和删除 Schedule 时清除该 Profile 的站点数据。后台页面关闭后台节流，避免定时器被隐藏窗口冻结。
+9. 创建 Browser Context 是一个有回滚的初始化过程：即使 BrowserWindow 已创建，而 WebContentsView 挂载或初始 Tab 准备失败，也必须在内部销毁已创建资源；销毁时逐项尽力 detach CDP、销毁窗口、关闭剩余 WebContents 并 flush Profile，单一步骤失败不能中断后续清理。
 
 ## 不采用
 
@@ -35,4 +36,5 @@ Schedule 运行此前复用全局 `persist:architect-agent-browser` Session，�
 - Schedule 的弹窗、导航、下载、超时、异常和取消均不会把操作转移到用户 Tab。
 - OAuth/SSO 弹窗继承同一 Profile，不能访问 Node.js 或 Electron 主进程 API；非 HTTP(S) 导航被阻止。
 - Run 完成、失败或取消后，隐藏 BrowserWindow 与关联 WebContents 均被销毁。
+- Browser Context 初始化中途失败时，已创建的窗口与 WebContents 会回滚；清理步骤单独失败不会阻止其他资源释放。
 - macOS 与 Windows 均通过 GUI / CI 测试；Electron Session profile 数据保留行为经真实运行验证。

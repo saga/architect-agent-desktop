@@ -9,6 +9,25 @@ export function scheduleBrowserPartition(scheduleId: string): string {
   return "persist:architect-agent-schedule-" + digest;
 }
 
+/**
+ * Initialize a Schedule Browser Context atomically from the caller's perspective.
+ * If any setup step fails, release the partially-created resources before rethrowing.
+ */
+export async function initializeScheduleBrowserContext<T>(
+  context: T,
+  initialize: (context: T) => Promise<void>,
+  dispose: (context: T) => void,
+): Promise<T> {
+  try {
+    await initialize(context);
+    return context;
+  } catch (error) {
+    // Cleanup is best-effort; preserve the setup error as the actionable failure.
+    try { dispose(context); } catch { /* preserve original initialization error */ }
+    throw error;
+  }
+}
+
 /** Only safe HTTP(S)/about:blank URLs may create OAuth popups, with bounded nesting. */
 export function canOpenScheduleBrowserPopup(isSafeUrl: boolean, depth: number): boolean {
   return isSafeUrl && Number.isInteger(depth) && depth >= 0 && depth < 3;
