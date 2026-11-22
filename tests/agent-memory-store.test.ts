@@ -1432,6 +1432,77 @@ describe("Confirmed preference Memory", () => {
     store.close();
   });
 
+  it("stores high-priority user rules as pinned, highest-importance notes and retrieves them by scope", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const note = store.saveConfirmedPreference({
+      id: "high-priority-interaction-rule",
+      scope: "/workspace/high-priority",
+      title: "High-priority interaction rule",
+      content: "不要让我反复提醒；先检查当前会话和已有要求。",
+      category: "interaction",
+      key: "avoid_repeating_user_requirements",
+      sourceSessionId: "session-high-priority",
+      sourceTraceId: "trace-high-priority",
+      createdAt: Date.now(),
+      crossWorkspaceConfirmed: false,
+      strength: "repeated_correction",
+      priority: "high",
+    });
+    expect(note.pinned).toBe(true);
+    expect(note.importance).toBe(1);
+    expect(note.preference).toMatchObject({ priority: "high", key: "avoid_repeating_user_requirements", appliesTo: ["all_responses", "all_tasks"] });
+    expect(store.listHighPriorityPreferences("/workspace/high-priority").map(item => item.id)).toContain(note.id);
+    expect(store.listHighPriorityPreferences("/workspace/other").map(item => item.id)).not.toContain(note.id);
+    store.close();
+  });
+
+  it("prevents Dreaming from rewriting a high-priority user rule", () => {
+    const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
+    const note = store.saveConfirmedPreference({
+      id: "protected-high-priority-rule",
+      scope: "/workspace/protected-rule",
+      title: "High-priority user rule",
+      content: "不要使用 ASCII 图。",
+      category: "diagrams",
+      sourceSessionId: "session-protected-rule",
+      sourceTraceId: "trace-protected-rule",
+      createdAt: Date.now(),
+      crossWorkspaceConfirmed: false,
+      strength: "repeated_correction",
+      priority: "high",
+    });
+    const run = store.prepareDreaming("/workspace/protected-rule", [{
+      sessionId: "session-protected-rule",
+      messageId: "message-attempt-rewrite",
+      kind: "user",
+      content: "其实以后都使用 Mermaid 图。",
+      createdAt: Date.now() + 1,
+    }]);
+    expect(run).not.toBeNull();
+    const result = store.commitDreaming({
+      scope: "/workspace/protected-rule",
+      runId: run!.id,
+      summary: "Attempt to revise a protected durable rule.",
+      operations: [{
+        op: "upsert_note",
+        id: note.id,
+        baseVersion: note.version,
+        title: note.title,
+        content: "Use ASCII diagrams.",
+        claimType: "user_preference",
+        sourceRefs: [run!.evidence[0]!.sourceId],
+        reason: "Dreaming must not revise a high-priority user rule.",
+      }],
+    });
+    expect(result.status).toBe("completed");
+    expect(store.getNote(note.id, "/workspace/protected-rule")).toMatchObject({
+      content: "不要使用 ASCII 图。",
+      pinned: true,
+      preference: { priority: "high" },
+    });
+    store.close();
+  });
+
   it("preserves structured preference metadata when a Note is revised", () => {
     const store = new AgentMemoryStore(path.join(temporaryDirectory(), "memory.sqlite"));
     const first = store.saveConfirmedPreference({
