@@ -47,7 +47,36 @@ export class ProactiveStore{
   this.db.prepare("INSERT INTO proactive_settings(id,settings_json,updated_at) VALUES('global',?,?) ON CONFLICT(id) DO UPDATE SET settings_json=excluded.settings_json,updated_at=excluded.updated_at").run({},JSON.stringify(next),Date.now());return next;
  }
  recordEvent(event:ProactiveEventRecord):boolean{
-  const result=this.db.prepare("INSERT OR IGNORE INTO proactive_events(event_id,scope_key,scope_value,task_id,event_type,occurred_at,source_ref,payload_json,processed_at) VALUES(?,?,?,?,?,?,?,?,?)").run({},event.eventId,keyOf(event.scope),event.scope,event.taskId,event.eventType,event.occurredAt,event.sourceRef,JSON.stringify(event.payload),Date.now());
+  const source=event.payload;
+  let safePayload:Record<string,unknown>={};
+  switch(event.eventType){
+   case "agent.turn.completed":
+    safePayload={hasPrompt:typeof source.prompt==="string"&&Boolean((source.prompt as string).trim())};
+    break;
+   case "agent.turn.failed":
+    safePayload={blocked:source.blocked===true};
+    break;
+   case "agent.tool.failed":
+    safePayload={toolName:String(source.toolName??source.name??"unknown").trim().slice(0,120)};
+    break;
+   case "memory.preference.candidate":
+    safePayload={
+      category:String(source.category??"").slice(0,80),
+      strength:String(source.strength??"").slice(0,40),
+      scopeSuggestion:source.scopeSuggestion==="personal"?"personal":"workspace",
+    };
+    break;
+   case "agent.workspace.changed":
+    safePayload={source:String(source.source??"").slice(0,40),changeCount:clamp(Number(source.changeCount??0),0,100000)};
+    break;
+   case "app.activated":
+    safePayload={source:String(source.source??"").slice(0,40)};
+    break;
+   default:
+    safePayload={};
+  }
+  const result=this.db.prepare("INSERT OR IGNORE INTO proactive_events(event_id,scope_key,scope_value,task_id,event_type,occurred_at,source_ref,payload_json,processed_at) VALUES(?,?,?,?,?,?,?,?,?)")
+   .run({},event.eventId,keyOf(event.scope),event.scope,event.taskId,event.eventType,event.occurredAt,event.sourceRef,JSON.stringify(safePayload),Date.now());
   return Number(result.changes)===1;
  }
  createCandidate(input:CandidateInput):AgentMemoryCandidate|null{
