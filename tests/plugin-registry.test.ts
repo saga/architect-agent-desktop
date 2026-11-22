@@ -122,6 +122,10 @@ describe("Claude Code Plugin packages", () => {
     writeFileSync(path.join(source, ".mcp.json"), JSON.stringify({
       mcpServers: { research: { command: "node", args: ["server.js"] } },
     }));
+    writeFileSync(path.join(source, ".claude-plugin", "plugin.json"), JSON.stringify({
+      name: "research-toolkit", version: "1.0.0", description: "Research tools for Claude Code",
+      hooks: "./hooks/hooks.json", mcpServers: "./.mcp.json",
+    }));
 
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");

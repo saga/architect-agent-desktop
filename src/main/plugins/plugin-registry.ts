@@ -196,7 +196,10 @@ export function inspectPluginRuntimeCapabilities(root: string): PluginRuntimeCap
   const raw = existsSync(pluginJsonPath) ? parseJsonFile(pluginJsonPath, "Claude Plugin manifest") : {};
   const hooksConfig = loadDeclaredJsonConfig(root, raw.hooks, "hooks/hooks.json", "hooks");
   const hooksRoot = isRecord(hooksConfig.hooks) ? hooksConfig.hooks : hooksConfig;
-  const hookEvents = Object.entries(hooksRoot).filter(([key, value]) => key !== "modules" && Array.isArray(value)).map(([key]) => key).sort();
+  const hookEvents = Object.entries(hooksRoot)
+    .filter(([key, value]) => key !== "modules" && Array.isArray(value))
+    .map(([key]) => key)
+    .sort();
   const mcpConfig = loadDeclaredJsonConfig(root, raw.mcpServers, ".mcp.json", "mcpServers");
   const lspConfig = loadDeclaredJsonConfig(root, raw.lspServers, ".lsp.json", "lspServers");
   const mcpRoot = isRecord(mcpConfig.mcpServers) ? mcpConfig.mcpServers : mcpConfig;
@@ -325,7 +328,8 @@ function normalizeClaudePluginDirectory(root: string, fallbackId?: string): Clau
 export function validatePluginDirectory(directory: string, fallbackId?: string): ClaudePlugin {
   const root = path.resolve(directory);
   assertSafeTree(root);
-  const manifest = normalizeClaudePluginDirectory(root, fallbackId);
+  const derivedFallbackId = fallbackId ?? path.basename(root).replace(/^\./, "").replace(/\.importing$/, "");
+  const manifest = normalizeClaudePluginDirectory(root, derivedFallbackId);
   const runtime = inspectPluginRuntimeCapabilities(root);
   if (manifest.skills.length + manifest.commands.length + manifest.agents.length + manifest.inlineCommands.length === 0 && !hasRuntimeCapabilities(runtime)) {
     throw new Error("此目录不包含可加载的 Claude Code Skills、Commands、Agents、Hooks、MCP 或 LSP 运行组件；项目自有 manifest.json 插件格式不受支持。");
