@@ -1,19 +1,94 @@
 import { describe, expect, it } from "vitest";
-import { codeBuddyBuiltinToolSelection } from "../src/main/agent-tool-policy";
+import {
+  codeBuddyBuiltinToolSelection,
+  filterAgentHostTools,
+  resolveCodeBuddyBuiltinToolPolicy,
+} from "../src/main/agent-tool-policy";
 
 describe("CodeBuddy native builtin policy", () => {
-  const readonlyTools = ["WebFetch", "WebSearch", "ViewImage"];
+  const readonlyTools = ["WebFetch", "WebSearch", "ListMcpResources", "ReadMcpResource", "ViewImage"];
+  const allBuiltinTools = [
+    "Read", "Write", "Edit", "Bash", "PowerShell", "Glob", "Grep",
+    ...readonlyTools,
+    "Skill", "SkillManage", "LSP", "ComputerUse",
+  ];
+
   it("does not expose native filesystem tools in assisted mode", () => {
     expect(codeBuddyBuiltinToolSelection("assisted", true, readonlyTools)).toEqual(readonlyTools);
   });
+
   it("keeps Expert-restricted Tasks on Host-checked tools only", () => {
-    expect(codeBuddyBuiltinToolSelection("allow-all", false, readonlyTools)).toEqual([]);
+    const policy = resolveCodeBuddyBuiltinToolPolicy("allow-all", false, allBuiltinTools, readonlyTools);
+    expect(policy.unrestricted).toBe(false);
+    expect(policy.tools).toEqual([]);
+    expect(policy.disallowedTools).toEqual(allBuiltinTools);
+    for (const name of ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "PowerShell"]) {
+      expect(policy.disallowedTools).toContain(name);
+    }
   });
+
   it("allows unrestricted native tools only when both permission layers allow it", () => {
-    expect(codeBuddyBuiltinToolSelection("allow-all", true, readonlyTools)).toBeNull();
+    const policy = resolveCodeBuddyBuiltinToolPolicy("allow-all", true, allBuiltinTools, readonlyTools);
+    expect(policy.unrestricted).toBe(true);
+    expect(policy.tools).toEqual(readonlyTools);
+    expect(policy.disallowedTools).toEqual([]);
   });
+
+  it("restricts assisted mode to read-only native tools", () => {
+    const policy = resolveCodeBuddyBuiltinToolPolicy("assisted", true, allBuiltinTools, readonlyTools);
+    expect(policy.unrestricted).toBe(false);
+    expect(policy.tools).toEqual(readonlyTools);
+    expect(policy.disallowedTools).toEqual(allBuiltinTools.filter(name => !readonlyTools.includes(name)));
+  });
+
   it("denies native tools for none and browser-only modes", () => {
-    expect(codeBuddyBuiltinToolSelection("none", true, readonlyTools)).toEqual([]);
-    expect(codeBuddyBuiltinToolSelection("browser-only", true, readonlyTools)).toEqual([]);
+    for (const permission of ["none", "browser-only"] as const) {
+      const policy = resolveCodeBuddyBuiltinToolPolicy(permission, true, allBuiltinTools, readonlyTools);
+      expect(policy.unrestricted).toBe(false);
+      expect(policy.tools).toEqual([]);
+      expect(policy.disallowedTools).toEqual(allBuiltinTools);
+    }
+  });
+});
+
+describe("Expert host-tool allowlist", () => {
+  const tools = [
+    { name: "goal_context_list" },
+    { name: "workspace_list_files" },
+    { name: "workspace_read_file" },
+    { name: "workspace_search_files" },
+    { name: "workspace_write_file" },
+    { name: "browser_list_tabs" },
+    { name: "duckdb_query" },
+    { name: "memory_search" },
+  ];
+
+  it("exposes only the explicitly selected read tool in a restricted Expert", () => {
+    const selected = filterAgentHostTools(tools, "allow-all", ["workspace_read_file"], false);
+    expect(selected.map(tool => tool.name)).toEqual(["goal_context_list", "workspace_read_file"]);
+  });
+
+  it("keeps the normal permission ceiling when an Expert allows all its tools", () => {
+    const selected = filterAgentHostTools(tools, "assisted", [], true);
+    expect(selected.map(tool => tool.name)).toEqual([
+      "goal_context_list",
+      "workspace_list_files",
+      "workspace_read_file",
+      "workspace_search_files",
+      "browser_list_tabs",
+      "duckdb_query",
+      "memory_search",
+    ]);
+    expect(selected.some(tool => tool.name === "workspace_write_file")).toBe(false);
+  });
+
+  it("does not expose workspace tools when the user's permission is browser-only", () => {
+    const selected = filterAgentHostTools(tools, "browser-only", [], true);
+    expect(selected.map(tool => tool.name)).toEqual(["goal_context_list", "browser_list_tabs"]);
+  });
+
+  it("retains only goal context tools when all tools are disabled", () => {
+    const selected = filterAgentHostTools(tools, "none", [], true);
+    expect(selected.map(tool => tool.name)).toEqual(["goal_context_list"]);
   });
 });
