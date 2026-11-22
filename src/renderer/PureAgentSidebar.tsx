@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Tooltip } from "antd";
-import { CalendarOutlined, FolderOpenOutlined, PlusOutlined, RobotOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
+import { BellOutlined, CalendarOutlined, FolderOpenOutlined, PlusOutlined, RobotOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
 import type { AgentTask, AgentWorkspaceSnapshot } from "../shared/types";
 
-export type PureAgentSection = "chat" | "schedule" | "expert";
+export type PureAgentSection = "chat" | "schedule" | "expert" | "opportunities";
 
 interface PureAgentSidebarProps {
   snapshot: AgentWorkspaceSnapshot;
@@ -75,6 +75,10 @@ export default function PureAgentSidebar({
       <button type="button" className={section === "expert" ? "active" : ""} onClick={() => onSectionChange("expert")}>
         <TeamOutlined /><span>Expert</span>
         <span className="pure-nav-count">{snapshot.experts.length}</span>
+      </button>
+      <button type="button" className={section === "opportunities" ? "active" : ""} onClick={() => onSectionChange("opportunities")}>
+        <BellOutlined /><span>主动建议</span>
+        {!snapshot.proactiveSettings?.quietMode && (snapshot.proactiveOpportunities?.length ?? 0) > 0 && <span className="pure-nav-count">{snapshot.proactiveOpportunities?.length}</span>}
       </button>
     </nav>
 
