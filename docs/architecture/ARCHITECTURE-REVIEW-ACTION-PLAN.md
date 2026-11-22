@@ -25,7 +25,7 @@
 
 - [x] **P1-07 Renderer 拥有实际布局几何。** Sidepanel/Pure Agent 均测量 Browser 内容矩形，并通过统一 IPC 发送完整 `x/y/width/height`。
 - [x] **P1-08 删除 Main 的重复布局计算。** Main 只校验、裁剪并应用 Renderer 提供的矩形，不再从 WorkspaceDocument 重新计算 Native Browser View 位置；保留独立 Layout Engine 供布局树计算使用。
-- [ ] **P2-05 Layout 状态单一事实来源（代码与回归测试已加入，待 CI 验证）。** WorkspaceDocument v2 统一保存分栏比例、可见性、停靠方向/顺序、Tab Group 和浮动面板；移除 WorkspaceLayoutState 类型、独立 IPC/event 和 Renderer 持久化状态。旧 workspace-layout.json 只在没有有效 v2 文档时读取一次并迁移；Renderer 像素宽度由树比例与当前视口派生。新增四方向停靠、比例保持、隐藏状态迁移和 JSON 往返测试。
+- [x] **P2-05 Layout 状态单一事实来源。** WorkspaceDocument v2 统一保存分栏比例、可见性、停靠方向/顺序、Tab Group 和浮动面板；移除 WorkspaceLayoutState 类型、独立 IPC/event 和 Renderer 持久化状态。旧 workspace-layout.json 只在没有有效 v2 文档时读取一次并迁移；Renderer 像素宽度由树比例与当前视口派生。新增四方向停靠、比例保持、隐藏状态迁移和 JSON 往返测试。
 - [x] **P2-06 布局验证规则统一。** 基础树语义统一由 `validateLayout` 校验（ID、split 轴向、比例、splitterSize 和 panel 尺寸）；Document parser 仅保留不可信输入的结构、节点数及深度防护；`validateTree` 复用共享校验。移除未被计算器消费的 `LayoutOptions.minPanelSize`，并补充布局回归测试。
 
 ## Phase 4 — 进程、性能和资源回收
@@ -52,6 +52,8 @@
 - [ ] Windows：真实 UtilityProcess 取消/超时及 taskkill /T 清理验证
 
 ## CI 更新记录
+
+- 2026-11-22：WorkspaceDocument 单一布局状态提交 `b37101c` 的 GitHub Actions Build run [44996665271](https://github.com/saga/architect-agent-desktop/actions/runs/44996665271) 已通过：`npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均成功。新增布局迁移、四方向停靠、显隐及分栏比例往返测试已纳入 Vitest。
 
 - 2026-11-22：最新 Schedule Browser OAuth / cleanup 修复提交 `71ce796` 的 GitHub Actions Build run [44995645403](https://github.com/saga/architect-agent-desktop/actions/runs/44995645403) 已通过：`npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试均成功。此轮包括 Electron 45 popup 类型修正、Profile 子窗口安全策略和 WebContents 生命周期清理。
 - 2026-11-22：Schedule Browser Session 主体提交 `0499fed` 的 GitHub Actions Build run [44994616328](https://github.com/saga/architect-agent-desktop/actions/runs/44994616328) 已通过；follow-up 生命周期清理提交 `2e839da` 的 Build run [44994804904](https://github.com/saga/architect-agent-desktop/actions/runs/44994804904) 也已通过。两次 validate 均完成 `npm ci`、TypeScript typecheck、全部 Vitest、应用 build 和 Layout Engine 独立测试。
