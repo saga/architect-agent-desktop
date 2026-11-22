@@ -67,6 +67,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
 export interface CopilotEvent { type: "status" | "delta" | "thinking" | "message" | "error" | "done" | "tool" | "a2ui" | "a2ui-v1" | "interaction"; taskId?: string; status?: string; text?: string; streaming?: boolean; interactionId?: string; timestamp?: number; toolId?: string; toolName?: string; toolDetail?: string; toolState?: "running" | "done" | "error"; }
 
 export type AgentPreferenceStrength = "explicit" | "strong_signal" | "repeated_correction";
+export type AgentPreferencePriority = "normal" | "high";
 export type AgentPreferenceOperator = "prefer" | "avoid" | "require" | "exclude" | "format" | "tone" | "instruction";
 export interface AgentStructuredPreference {
   domain: string;
@@ -74,6 +75,7 @@ export interface AgentStructuredPreference {
   operator: AgentPreferenceOperator;
   value: string;
   strength: AgentPreferenceStrength;
+  priority: AgentPreferencePriority;
   appliesTo: string[];
   scope: string | null;
   validFrom: number;
