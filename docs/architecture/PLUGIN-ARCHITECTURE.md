@@ -25,10 +25,10 @@
 | Hooks | 原生 Hook runtime | 原生 Hook runtime |
 | MCP Servers | 原生插件 MCP loader | 原生插件 MCP loader |
 | LSP Servers | 原生 LSP loader | 原生 LSP loader |
-| Scripts / bin | Bash 与 Hook 插件脚本链路 | 原生脚本及 bin/ PATH |
+| Scripts / bin | Hook 或配置显式调用脚本；不保证自动注入 bin/ PATH | Hook、工具调用及 bin/ 自动加入 PATH |
 | Mods | 不支持 CodeBuddy Mods | 原生 TypeScript Mod runtime |
 
-Copilot 的 Legacy Plugin loader 支持 Skills、Commands、Agents、Hooks、MCP、LSP 和脚本；不要把 SDK SessionConfig 的 pluginDirectories 当成 Claude Plugin 目录入口，该字段用于 Agent Plugins / Open Plugin Spec 语义。
+Copilot 的 Legacy Plugin loader 支持 Skills、Commands、Agents、Hooks、MCP 与 LSP。Claude Plugin 的导入格式与 Copilot Agent Plugins / Open Plugin Spec 不同；本项目将 Claude 格式投影为 Copilot Legacy Plugin。
 
 ## 3. Provider 文件格式适配
 
@@ -38,14 +38,15 @@ Copilot 的 Legacy Plugin loader 使用根级 plugin.json、hooks.json、.mcp.js
 
 应用不会改写已安装插件。每次启动 Copilot 时，先将插件复制到应用临时运行目录，再在副本中：
 
-- 从 .claude-plugin/plugin.json 生成 Copilot 根级 plugin.json，忽略可能与 Claude manifest 不一致的旧 root manifest。
+- 从 .claude-plugin/plugin.json 生成 Copilot 根级 plugin.json，忽略可能与 Claude manifest 不一致的旧 root manifest，并移除可能触发 Agent Plugins 1.0 解析的 $schema 字段，强制使用 Legacy 格式。
 - 将默认 hooks/hooks.json 复制为 root hooks.json；manifest 声明自定义 Hooks 文件或内联配置时，解析后生成 root hooks.json。
 - 将 manifest 的自定义 mcpServers 配置合并到 .mcp.json。
-- 将 manifest 的自定义 lspServers 配置合并到 .lsp.json，再为 Copilot 生成 lsp.json 别名。
-- 如果 manifest 未声明 commands 而包内存在标准 commands/ 目录，显式加入该目录；原有自定义 commands 声明保持不变。
-- 把 Claude 的 CLAUDE_PLUGIN_ROOT 引用转换为 Copilot 的 PLUGIN_ROOT，覆盖 POSIX、PowerShell、cmd 以及常见 Node.js / Python 环境变量写法。CLAUDE_PLUGIN_DATA 保持原样，Copilot 支持该兼容别名。
+- 将 manifest 的自定义 lspServers 配置合并到 .lsp.json，再与插件已有的 Copilot lsp.json 合并，确保两边的服务器都由 Legacy loader 读取。
+- 将 Claude commands 的路径、文件及 source/content 内联命令转换为临时 commands 目录；标准 commands/ 目录和自定义目录保留。
+- 将 Claude 的 agents/*.md 投影为 Copilot agents/*.agent.md；保持源文件相邻，尽量保留相对资源引用。
+- 将 Claude 的 CLAUDE_PLUGIN_ROOT 引用转换为 Copilot 的 PLUGIN_ROOT，覆盖 POSIX、PowerShell、cmd 以及常见 Node.js / Python 环境变量写法。CLAUDE_PLUGIN_DATA 保持原样，Copilot 支持该兼容别名。
 
-所有转换仅在临时副本中执行。Copilot Client 退出后删除临时目录。
+文件和内联 Hooks/MCP/LSP/Command 配置中的 CLAUDE_PLUGIN_ROOT 均会递归转换为 PLUGIN_ROOT。所有转换仅在临时副本中执行。Copilot Client 退出后删除临时目录。
 
 ### 3.2 CodeBuddy
 
@@ -61,7 +62,7 @@ CodeBuddy 使用未经格式转换的 Claude Plugin 快照，原生加载 Skills
 - runtimeApproved：用户是否单独允许运行该插件的第三方代码。
 - runtimeApprovalHashes：用户授权时记录的插件目录 SHA-256 指纹。
 
-Provider 运行插件必须同时满足：
+Provider 加载插件必须同时满足：
 
 1. 插件已启用。
 2. runtimeApproved === true。
@@ -73,7 +74,7 @@ Provider 运行插件必须同时满足：
 
 若 Expert 只选择某插件部分 Skills，宿主继续根据 Expert 白名单注入 Markdown，但不启动该插件的原生运行时，避免原生 Skill loader 暗中暴露未选择的 Skills。
 
-任何文件内容变化都会令指纹校验失败，旧运行授权自动失效。用户需要重新检查插件并授权。禁用或删除插件会撤销运行授权并删除关联指纹。
+文件内容、相对路径、类型或权限位变化都会令指纹校验失败。应用一旦观察到变化或不安全目录，会持久撤销旧授权；即使文件恢复原样，也必须由用户重新检查并授权。禁用或删除插件会撤销运行授权并删除关联指纹。
 
 注册表使用 v3 格式。v1/v2 迁移时保留 enabled 状态，但旧布尔运行授权不会迁移成有效授权。
 
@@ -81,13 +82,13 @@ Provider 运行插件必须同时满足：
 
 plugin-content.ts 提供统一的内容指纹和快照功能：
 
-1. 对安装目录的相对路径、文件类型和文件内容计算 SHA-256。
+1. 对安装目录的相对路径、文件类型、权限位和文件内容计算 SHA-256。
 2. 将已批准插件复制到一次性会话运行目录。
 3. 对复制后的快照重新计算 SHA-256。
 4. 如果快照指纹与批准指纹不一致，阻止 Provider 启动。
 5. Provider 只接收快照路径，不接收可变安装目录。
 
-Copilot 使用 SDK RuntimeConnection.forStdio({ args }) 在 Client 创建阶段传入重复的 --plugin-dir 参数。Copilot Client 的 baseDirectory 指向应用私有目录，避免依赖用户个人 Copilot 配置目录中的插件。
+Copilot 使用 SDK RuntimeConnection.forStdio({ args }) 在 Client 创建阶段传入重复的 --plugin-dir 参数。Copilot Client 的 baseDirectory 指向应用私有目录；环境变量 COPILOT_PLUGIN_DIR_ONLY=true 禁止自动发现用户个人插件，只加载本应用明确传入的插件目录。
 
 CodeBuddy 每次 Query 创建独立临时目录，把验证后的快照路径写入 CODEBUDDY_PLUGIN_DIRS。Query 的 finally 清理该目录以及临时配置文件。
 
@@ -117,7 +118,7 @@ CodeBuddy 每次 Query 创建独立临时目录，把验证后的快照路径写
     sandboxMcpServers: true
     sandboxLspServers: true
 
-该策略在 MCP / LSP 和 Session 工具启动前提供。实际隔离是否生效依赖目标机器上的 Copilot CLI/runtime 版本和宿主平台能力；不应仅凭配置存在就声称所有插件行为已处于 OS 沙箱。管理员 Policy Hooks 属于机器级策略，不是插件内容，可能在宿主执行。
+该策略在 MCP / LSP 和 Session 工具启动前提供。实际隔离是否生效依赖目标机器上的 Copilot CLI/runtime 版本和宿主平台能力；不应仅凭配置存在就声称所有插件行为已处于 OS 沙箱。不要把 Hook 子进程宣称为必然处于同一隔离边界。管理员 Policy Hooks 属于机器级策略，不是插件内容，可能在宿主执行。
 
 ### CodeBuddy
 

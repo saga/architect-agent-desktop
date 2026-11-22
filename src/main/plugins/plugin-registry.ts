@@ -214,6 +214,11 @@ function hasRuntimeCapabilities(runtime: PluginRuntimeCapabilities): boolean {
     || runtime.scriptFiles > 0 || runtime.mods;
 }
 
+function hasPluginComponents(plugin: Pick<ClaudePlugin, "skills" | "commands" | "agents" | "inlineCommands"> & { runtime: PluginRuntimeCapabilities }): boolean {
+  return plugin.skills.length > 0 || plugin.commands.length > 0 || plugin.agents.length > 0
+    || plugin.inlineCommands.length > 0 || hasRuntimeCapabilities(plugin.runtime);
+}
+
 function collectMarkdownFiles(root: string, entryPath: string, kind: "skill" | "markdown"): string[] {
   const absolute = resolvePluginEntry(root, entryPath);
   const found: string[] = [];
@@ -348,16 +353,26 @@ export function validatePluginDirectory(directory: string, fallbackId?: string):
 export function listPlugins(pluginRoot: string, registryPath: string): PluginSummary[] {
   mkdirSync(pluginRoot, { recursive: true });
   const registry = readRegistry(registryPath);
-  return readdirSync(pluginRoot, { withFileTypes: true })
+  let registryChanged = false;
+  const plugins = readdirSync(pluginRoot, { withFileTypes: true })
     .filter(entry => entry.isDirectory() && !entry.isSymbolicLink())
     .flatMap(entry => {
       try {
-        const manifest = validatePluginDirectory(path.join(pluginRoot, entry.name));
-        if (manifest.id !== entry.name) return [];
         const directory = path.join(pluginRoot, entry.name);
         let currentFingerprint: string | null = null;
         try { currentFingerprint = pluginContentFingerprint(directory); }
-        catch { /* Keep the installed plugin visible, but never trust an unsafe tree. */ }
+        catch { /* An unsafe tree is never eligible for runtime loading. */ }
+        const wasApproved = registry.runtimeApproved[entry.name] === true;
+        const approvedFingerprint = registry.runtimeApprovalHashes[entry.name];
+        if (wasApproved && (currentFingerprint === null || approvedFingerprint !== currentFingerprint)) {
+          // Revoke before parsing the manifest: malformed edits and unsafe trees
+          // must not preserve approval for a later restore.
+          registry.runtimeApproved[entry.name] = false;
+          delete registry.runtimeApprovalHashes[entry.name];
+          registryChanged = true;
+        }
+        const manifest = validatePluginDirectory(directory);
+        if (manifest.id !== entry.name) return [];
         const runtimeApproved = currentFingerprint !== null
           && registry.runtimeApproved[manifest.id] === true
           && registry.runtimeApprovalHashes[manifest.id] === currentFingerprint;
@@ -367,6 +382,8 @@ export function listPlugins(pluginRoot: string, registryPath: string): PluginSum
       } catch { return []; }
     })
     .sort((a, b) => a.name.localeCompare(b.name));
+  if (registryChanged) writeRegistry(registryPath, registry);
+  return plugins;
 }
 
 export function importPlugin(sourceDirectory: string, pluginRoot: string, registryPath: string): PluginSummary {
@@ -411,7 +428,7 @@ export function setPluginRuntimeApproved(pluginId: string, approved: boolean, pl
   const plugin = listPlugins(pluginRoot, registryPath).find(item => item.id === pluginId);
   if (!plugin) throw new Error("找不到插件：" + pluginId);
   if (approved && !plugin.enabled) throw new Error("请先启用插件，再单独授权其运行时代码。");
-  if (approved && !hasRuntimeCapabilities(plugin.runtime)) throw new Error("该插件没有需要授权的运行时组件。");
+  if (approved && !hasPluginComponents(plugin)) throw new Error("该插件没有可加载的 Claude Plugin 组件。");
   const registry = readRegistry(registryPath);
   registry.runtimeApproved[pluginId] = approved;
   if (approved) registry.runtimeApprovalHashes[pluginId] = pluginContentFingerprint(path.join(pluginRoot, pluginId));
@@ -421,11 +438,24 @@ export function setPluginRuntimeApproved(pluginId: string, approved: boolean, pl
 }
 
 export function listApprovedPluginRuntimeEntries(pluginRoot: string, registryPath: string): ApprovedPluginRuntimeEntry[] {
-  return listPlugins(pluginRoot, registryPath)
-    .filter(plugin => plugin.enabled && plugin.runtimeApproved && hasRuntimeCapabilities(plugin.runtime))
-    .map(plugin => {
+  // listPlugins performs durable revocation for any observed mismatch first.
+  const plugins = listPlugins(pluginRoot, registryPath);
+  const registry = readRegistry(registryPath);
+  return plugins
+    .filter(plugin => plugin.enabled && plugin.runtimeApproved && hasPluginComponents(plugin))
+    .flatMap(plugin => {
       const directory = path.resolve(pluginRoot, plugin.id);
-      return { id: plugin.id, directory, skills: [...plugin.skills], fingerprint: pluginContentFingerprint(directory) };
+      try {
+        const fingerprint = pluginContentFingerprint(directory);
+        // Close the read-after-check race: never snapshot a newly modified tree
+        // under a previous approval, even if it changed between listPlugins()
+        // and this call.
+        if (registry.runtimeApproved[plugin.id] !== true
+          || registry.runtimeApprovalHashes[plugin.id] !== fingerprint) return [];
+        return [{ id: plugin.id, directory, skills: [...plugin.skills], fingerprint }];
+      } catch {
+        return [];
+      }
     });
 }
 

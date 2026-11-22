@@ -2,7 +2,7 @@ import type { CopilotClient, CopilotSession } from "@github/copilot-sdk" with { 
 import { z } from "zod";
 import type { AgentChatMessage, AgentModelInfo, AgentProvider, AgentSettings, AgentToolPermission, McpServerConfig } from "../shared/types";
 import { resolveMcpServerConfigs } from "./agent-extensions";
-import { filterPluginRuntimeEntries, pluginRuntimeBuiltinTools, type PluginRuntimeEntry } from "./plugins/plugin-runtime-policy";
+import { copilotPluginEnvironment, filterPluginRuntimeEntries, pluginRuntimeBuiltinTools, type PluginRuntimeEntry } from "./plugins/plugin-runtime-policy";
 import type { PluginNativeComponents } from "./plugins/plugin-registry";
 import { prepareCopilotPluginDirectories } from "./plugins/copilot-plugin-adapter";
 import { stagePluginRuntimeDirectories } from "./plugins/plugin-content";
@@ -520,7 +520,7 @@ export class CopilotDesktopAgent {
   const { CopilotClient } = await import("@github/copilot-sdk");
   const inspectDirectory = path.join(app.getPath("userData"), "copilot-inspect");
   mkdirSync(inspectDirectory, { recursive: true });
-  const client = new CopilotClient({ useLoggedInUser: true, mode: "empty", baseDirectory: inspectDirectory, env: await resolvedAgentProcessEnvironment() });
+  const client = new CopilotClient({ useLoggedInUser: true, mode: "empty", baseDirectory: inspectDirectory, env: copilotPluginEnvironment(await resolvedAgentProcessEnvironment()) });
   try { await client.start(); const result = await client.listModels(); const models=(Array.isArray(result) ? result : []).map(model => normalizeModelInfo("copilot", model)).filter((m): m is AgentModelInfo => Boolean(m)); models.forEach(model=>this.inspectedModels.set("copilot:"+model.id,model)); return models; }
   finally { await client.stop().catch(() => undefined); }
  }
@@ -782,7 +782,7 @@ export class CopilotDesktopAgent {
      const baseDirectory=this.workspacePath??path.join(app.getPath("userData"),"copilot-session");
      mkdirSync(baseDirectory,{recursive:true});
      const approvedDirectories=this.approvedPluginDirectories("copilot");
-     const runtimeEnvironment=await resolvedAgentProcessEnvironment();
+     const runtimeEnvironment=copilotPluginEnvironment(await resolvedAgentProcessEnvironment());
      let pluginArgs:string[]=[];
      if(approvedDirectories.length){
       this.disposeCopilotPluginRuntime();
@@ -1030,6 +1030,8 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
    else{cwd=temp;settingSources=["project"];}
    cleanup=()=>rmSync(temp,{recursive:true,force:true});
   }
+  let timeout:ReturnType<typeof setTimeout>|undefined;
+  try{
   const permission=this.effectivePermission();
   const expertTools=this.taskContext?.tools??[];
   const READ_ONLY_BUILTINS=["Read","Glob","Grep","WebFetch","WebSearch","ListMcpResources","ReadMcpResource","ViewImage"];
@@ -1051,10 +1053,10 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
   const runtimeEnv=await resolvedAgentProcessEnvironment();
   // Ignore any inherited extension list. Only the registry-approved, fingerprint-
   // verified session snapshots may be exposed to the CodeBuddy plugin loader.
-  delete runtimeEnv.CODEBUDDY_PLUGIN_DIRS;
+  for(const key of Object.keys(runtimeEnv))if(key.toUpperCase()==="CODEBUDDY_PLUGIN_DIRS")delete runtimeEnv[key];
   const configuredMcpServers=this.configuredMcpServers("codebuddy",runtimeEnv);
   const queryEnvironment: NodeJS.ProcessEnv={...runtimeEnv,...(detached?.env??{}),...(runtimeConfigDir?{CODEBUDDY_CONFIG_DIR:runtimeConfigDir}:{})};
-  delete queryEnvironment.CODEBUDDY_PLUGIN_DIRS;
+  for(const key of Object.keys(queryEnvironment))if(key.toUpperCase()==="CODEBUDDY_PLUGIN_DIRS")delete queryEnvironment[key];
   if(stagedCodeBuddyPluginDirectories.length){
    queryEnvironment.CODEBUDDY_PLUGIN_DIRS=stagedCodeBuddyPluginDirectories.map(entry=>entry.directory).join(path.delimiter);
   }
@@ -1089,8 +1091,7 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
   this.codeBuddyAbortController=abortController;
   let currentPrompt=historyPrompt(history,prompt);
   let finalAnswer="";
-  const timeout=setTimeout(()=>{void this.cancel();},300000);
-  try{
+  timeout=setTimeout(()=>{void this.cancel();},300000);
    for(let step=0;step<6;step++){
     const query=sdk.query({prompt:currentPrompt,options:{...queryOptions,abortController}});
     this.codeBuddyQuery=query;
@@ -1155,7 +1156,7 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
     else if(part.type==="a2ui" && part.messages.length) this.publish({type:"a2ui-v1",text:JSON.stringify(part.messages)});
    }
   }
-  finally{clearTimeout(timeout);this.codeBuddyQuery=null;this.codeBuddyAbortController=null;cleanup?.();}
+  finally{if(timeout)clearTimeout(timeout);this.codeBuddyQuery=null;this.codeBuddyAbortController=null;cleanup?.();}
  }
  async handleA2UIRendererMessage(message: unknown, history?: AgentChatMessage[]): Promise<void> {
   if (!message || typeof message !== "object" || Array.isArray(message) || (message as Record<string, unknown>).action === undefined) {

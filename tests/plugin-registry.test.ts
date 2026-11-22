@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { exportPlugin, importPlugin, listApprovedPluginDirectories, listApprovedPluginRuntimeEntries, listPlugins, readEnabledPluginInstructions, removePlugin, setPluginEnabled, setPluginRuntimeApproved, validatePluginDirectory } from "../src/main/plugins/plugin-registry";
@@ -93,6 +93,9 @@ describe("Claude Code Plugin packages", () => {
 
     expect(importPlugin(source, pluginRoot, registry).enabled).toBe(true);
     expect(listPlugins(pluginRoot, registry)).toHaveLength(1);
+    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(0);
+    expect(setPluginRuntimeApproved("research-toolkit", true, pluginRoot, registry)[0]?.runtimeApproved).toBe(true);
+    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(1);
     expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("Use primary sources.");
     expect(readEnabledPluginInstructions(pluginRoot, registry, [])).not.toContain("Use primary sources.");
     expect(readEnabledPluginInstructions(pluginRoot, registry, ["research-toolkit:skills/research/SKILL.md"]))
@@ -256,10 +259,17 @@ describe("Claude Code Plugin packages", () => {
     expect(setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry)[0]?.runtimeApproved).toBe(true);
     expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toHaveLength(1);
 
-    writeFileSync(path.join(pluginRoot, "fingerprinted-plugin", "scripts", "run.js"), "console.log('changed after approval');");
+    const scriptPath = path.join(pluginRoot, "fingerprinted-plugin", "scripts", "run.js");
+    const originalScript = "console.log('approved version');";
+    writeFileSync(scriptPath, "console.log('changed after approval');");
     expect(listPlugins(pluginRoot, registry)[0]?.runtimeApproved).toBe(false);
     expect(listApprovedPluginDirectories(pluginRoot, registry)).toEqual([]);
     expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toEqual([]);
+    // Restoring the old bytes cannot silently recover the previous approval.
+    writeFileSync(scriptPath, originalScript);
+    expect(listPlugins(pluginRoot, registry)[0]?.runtimeApproved).toBe(false);
+    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toEqual([]);
+    expect(setPluginRuntimeApproved("fingerprinted-plugin", true, pluginRoot, registry)[0]?.runtimeApproved).toBe(true);
   });
 
   it("loads a manifest-less single-skill plugin with SKILL.md at the plugin root", () => {
@@ -286,4 +296,21 @@ describe("Claude Code Plugin packages", () => {
     expect(imported.id).toBe("portable-tools");
     expect(readEnabledPluginInstructions(pluginRoot, registry)).toContain("Write useful notes.");
   });
+
+  it("invalidates runtime approval when an executable permission bit changes", () => {
+    if (process.platform === "win32") return;
+    const root = makeDirectory();
+    const source = makeClaudePlugin(root, "mode-fingerprinted-plugin");
+    mkdirSync(path.join(source, "bin"), { recursive: true });
+    writeFileSync(path.join(source, "bin", "run.sh"), "echo approved");
+    const pluginRoot = path.join(root, "installed");
+    const registry = path.join(root, "plugins.json");
+    importPlugin(source, pluginRoot, registry);
+    setPluginRuntimeApproved("mode-fingerprinted-plugin", true, pluginRoot, registry);
+    const script = path.join(pluginRoot, "mode-fingerprinted-plugin", "bin", "run.sh");
+    chmodSync(script, 0o755);
+    expect(listPlugins(pluginRoot, registry)[0]?.runtimeApproved).toBe(false);
+    expect(listApprovedPluginRuntimeEntries(pluginRoot, registry)).toEqual([]);
+  });
+
 });

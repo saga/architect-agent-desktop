@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterPluginRuntimeEntries, pluginRuntimeBuiltinTools } from "../src/main/plugins/plugin-runtime-policy";
+import { copilotPluginEnvironment, filterPluginRuntimeEntries, pluginRuntimeBuiltinTools } from "../src/main/plugins/plugin-runtime-policy";
 
 describe("Claude Plugin runtime permission gate", () => {
   const entries = [
@@ -42,7 +42,14 @@ describe("Claude Plugin runtime permission gate", () => {
     expect(pluginRuntimeBuiltinTools(true)).toEqual(["bash", "skill", "task"]);
   });
 
-  it("caps the number of plugin directories passed to a provider", () => {
+
+  it("disables ambient Copilot plugin discovery even when no app plugin is approved", () => {
+    expect(copilotPluginEnvironment({ COPILOT_PLUGIN_DIR_ONLY: "false", copilot_plugin_dir_only: "0", PATH: "/bin" })).toEqual({
+      COPILOT_PLUGIN_DIR_ONLY: "true",
+      PATH: "/bin",
+    });
+  });
+\n  it("caps the number of plugin directories passed to a provider", () => {
     const many = Array.from({ length: 75 }, (_, index) => ({ id: "p" + index, directory: "/plugins/p" + index, skills: [], fingerprint: "hash-" + index }));
     expect(filterPluginRuntimeEntries("copilot", "allow-all", true, undefined, many)).toHaveLength(50);
   });

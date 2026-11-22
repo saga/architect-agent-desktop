@@ -24,6 +24,7 @@ export function pluginContentFingerprint(root: string): string {
       const relative = path.relative(root, fullPath).split(path.sep).join("/");
       if (stat.isSymbolicLink()) throw new Error("插件运行时目录不能包含符号链接：" + relative);
       hash.update(relative).update("\0");
+      hash.update(String(stat.mode & 0o7777)).update("\0");
       if (stat.isDirectory()) {
         hash.update("directory\0");
         visit(fullPath);

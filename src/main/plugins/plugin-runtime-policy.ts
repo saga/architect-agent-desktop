@@ -46,3 +46,13 @@ export function filterPluginRuntimeDirectories(
 export function pluginRuntimeBuiltinTools(runtimeAllowed: boolean): string[] {
   return runtimeAllowed ? ["bash", "skill", "task"] : [];
 }
+
+/** Prevent ambient per-user Copilot plugins from bypassing the app's approval registry. */
+export function copilotPluginEnvironment(environment: Record<string, string | undefined>): Record<string, string | undefined> {
+  const result = { ...environment };
+  for (const key of Object.keys(result)) {
+    if (key.toUpperCase() === "COPILOT_PLUGIN_DIR_ONLY") delete result[key];
+  }
+  result.COPILOT_PLUGIN_DIR_ONLY = "true";
+  return result;
+}

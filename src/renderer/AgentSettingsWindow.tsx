@@ -95,13 +95,13 @@ export default function AgentSettingsWindow() {
   const togglePluginRuntime = async (plugin: PluginSummary, approved: boolean) => {
     try {
       setPlugins(await window.browser.pluginSetRuntimeApproved(plugin.id, approved));
-      message.success(approved ? "已授权此插件的本机运行时。" : "已撤销此插件的运行时授权。");
+      message.success(approved ? "已授权 Provider 加载此插件。" : "已撤销此插件的加载授权。");
     } catch (error) { message.error(error instanceof Error ? error.message : String(error)); }
   };
 
   const hasPluginRuntime = (plugin: PluginSummary) =>
     plugin.runtime.hookEvents.length > 0 || plugin.runtime.mcpServers.length > 0
-    || plugin.runtime.lspServers.length > 0 || plugin.runtime.scriptFiles > 0 || plugin.runtime.mods;
+    || plugin.runtime.lspServers.length > 0 || plugin.runtime.scriptFiles > 0 || plugin.runtime.mods || plugin.skills.length > 0 || plugin.commands.length > 0 || plugin.agents.length > 0 || plugin.inlineCommands.length > 0;
 
   const exportPlugin = async (plugin: PluginSummary) => {
     setPluginBusy(true);
@@ -283,7 +283,7 @@ export default function AgentSettingsWindow() {
           </Space>
         </div>
         <Alert type="warning" showIcon message="插件运行时需要单独授权"
-          description="Copilot SDK 和 CodeBuddy 都接入各自原生的 --plugin-dir 插件运行时。获准后可原生加载 Skills、Commands、Agents、Hooks、插件 MCP、LSP 与脚本；CodeBuddy 另外支持 Mods。只有插件已启用、单独开启“允许本机运行”、SHA-256 指纹未变化、全局 Agent 权限为 Allow all，且 Expert 没有收紧权限时，才会把经验证的临时目录交给当前 Provider。Copilot 仅在获准 Session 开放 Bash、Skill、Task，Skill loader 同时启用；Bash、插件 Hooks、MCP 与 LSP 请求使用 Session sandbox 且不能请求绕过。CodeBuddy 在 macOS/Linux 为 Bash 启用沙箱并禁止 unsandboxed command。沙箱不代表所有 Hook/MCP/LSP 子进程都绝对隔离；Copilot 需要受支持的 CLI/runtime sandbox，CodeBuddy 的 Bash 沙箱在 Windows 不可用。只授权你信任来源的插件。" />
+          description="Copilot SDK 和 CodeBuddy 使用各自原生的插件运行时。获准后可加载 Skills、Commands、Agents、Hooks、插件 MCP 与 LSP；CodeBuddy 另外支持 TypeScript Mods，并会把插件 bin/ 加入 PATH。Copilot 不支持 CodeBuddy Mods，也不会自动把 bin/ 加入 PATH；脚本需由受支持的 Hook 或工具配置显式调用。只有插件已启用、单独开启“允许本机加载”、SHA-256 指纹未变化、全局 Agent 权限为 Allow all，且 Expert 没有收紧权限时，才会把经验证的临时目录交给当前 Provider；Expert 只选中插件部分 Skills 时，插件不会进入原生运行时，已选择的 Markdown Skill 仍按白名单注入。Copilot 仅在获准 Session 开放 Bash、Skill、Task，并在创建 Session 前请求启用沙箱、禁止绕过；MCP/LSP 的沙箱能力取决于当前 CLI/runtime 与操作系统，不能据此保证 Hook 子进程也受同一隔离。应用设置 COPILOT_PLUGIN_DIR_ONLY，防止意外加载用户个人插件。CodeBuddy 在 macOS/Linux 为 Bash 启用沙箱并禁止 unsandboxed command；该 Bash 沙箱不保证 TypeScript Mods 运行时及所有 Hook/MCP/LSP 子进程都处于同一隔离边界，Windows 当前不可用。只授权你信任来源的插件。" />
         <List
           loading={pluginsLoading}
           dataSource={plugins}
@@ -291,7 +291,7 @@ export default function AgentSettingsWindow() {
           renderItem={(plugin) => <List.Item actions={[
             <Switch key="enabled" checked={plugin.enabled} checkedChildren="启用" unCheckedChildren="停用" onChange={(value) => void togglePlugin(plugin, value)} />,
             <Switch key="runtime" disabled={!plugin.enabled || !hasPluginRuntime(plugin)}
-              checked={plugin.runtimeApproved} checkedChildren="允许运行" unCheckedChildren="运行未授权"
+              checked={plugin.runtimeApproved} checkedChildren="允许加载" unCheckedChildren="未授权加载"
               onChange={(value) => void togglePluginRuntime(plugin, value)} />,
             <Button key="export" size="small" disabled={pluginBusy} onClick={() => void exportPlugin(plugin)}>导出</Button>,
             <Popconfirm key="remove" title="删除此插件？" description="插件目录和本地启用状态将被删除。" okText="删除" cancelText="取消" onConfirm={() => void removePlugin(plugin)}>
@@ -304,7 +304,7 @@ export default function AgentSettingsWindow() {
                 <div>{plugin.description || plugin.id}</div>
                 <div className="settings-field-help">Skills {plugin.skills.length} · Commands {plugin.commands.length + plugin.inlineCommands.length} · Agents {plugin.agents.length}</div>
                 <div className="settings-field-help">Hooks {plugin.runtime.hookEvents.length} · MCP {plugin.runtime.mcpServers.length} · LSP {plugin.runtime.lspServers.length} · Scripts {plugin.runtime.scriptFiles} · Mods {plugin.runtime.mods ? "有" : "无"}</div>
-                {hasPluginRuntime(plugin) && <div className="settings-field-help">{plugin.runtimeApproved ? "已单独授权运行；实际加载仍受当前 Provider、全局 Agent 权限和 Expert 权限上限约束。" : "含可执行运行时组件，默认不会执行。开启“允许运行”后，符合权限条件时才会交给当前 Provider 加载。"}</div>}
+                {hasPluginRuntime(plugin) && <div className="settings-field-help">{plugin.runtimeApproved ? "已单独授权 Provider 加载；实际加载仍受当前 Provider、全局 Agent 权限和 Expert 权限上限约束。" : "此插件包含可加载组件，默认不交给 Provider。开启“允许加载”后，符合权限条件时才会交给当前 Provider。"}</div>}
               </>}
             />
           </List.Item>}

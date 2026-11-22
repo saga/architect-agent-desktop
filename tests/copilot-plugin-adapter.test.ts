@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { prepareCopilotPluginDirectories } from "../src/main/plugins/copilot-plugin-adapter";
@@ -85,8 +85,8 @@ describe("Copilot Claude Plugin runtime projection", () => {
     writeFileSync(path.join(source, ".claude-plugin", "plugin.json"), JSON.stringify({
       name: "custom-runtime",
       hooks: "configs/hooks.json",
-      mcpServers: ["configs/mcp.json", { second: { command: "node", args: ["second.js"] } }],
-      lspServers: ["configs/lsp.json", { second: { command: "second-lsp", args: ["--stdio"] } }],
+      mcpServers: ["configs/mcp.json", { second: { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/second.js"] } }],
+      lspServers: ["configs/lsp.json", { second: { command: "${CLAUDE_PLUGIN_ROOT}/bin/second-lsp", args: ["--stdio"] } }],
       commands: "custom-commands",
     }));
     writeFileSync(path.join(source, "configs", "hooks.json"), JSON.stringify({ hooks: { SessionStart: [] } }));
@@ -101,8 +101,10 @@ describe("Copilot Claude Plugin runtime projection", () => {
     expect(existsSync(path.join(staged!, "hooks.json"))).toBe(true);
     expect(JSON.parse(readFileSync(path.join(staged!, ".mcp.json"), "utf8"))).toHaveProperty("mcpServers.custom");
     expect(JSON.parse(readFileSync(path.join(staged!, ".mcp.json"), "utf8"))).toHaveProperty("mcpServers.second");
-    expect(JSON.parse(readFileSync(path.join(staged!, ".lsp.json"), "utf8"))).toHaveProperty("custom");
-    expect(JSON.parse(readFileSync(path.join(staged!, ".lsp.json"), "utf8"))).toHaveProperty("second");
+    expect(readFileSync(path.join(staged!, ".mcp.json"), "utf8")).toContain("${PLUGIN_ROOT}/second.js");
+    expect(JSON.parse(readFileSync(path.join(staged!, ".lsp.json"), "utf8"))).toHaveProperty("lspServers.custom");
+    expect(JSON.parse(readFileSync(path.join(staged!, ".lsp.json"), "utf8"))).toHaveProperty("lspServers.second");
+    expect(readFileSync(path.join(staged!, ".lsp.json"), "utf8")).toContain("${PLUGIN_ROOT}/bin/second-lsp");
     expect(existsSync(path.join(staged!, "lsp.json"))).toBe(true);
     const manifest = JSON.parse(readFileSync(path.join(staged!, "plugin.json"), "utf8"));
     expect(manifest).not.toHaveProperty("hooks");
@@ -126,7 +128,10 @@ describe("Copilot Claude Plugin runtime projection", () => {
     const manifest = JSON.parse(readFileSync(path.join(staged!, "plugin.json"), "utf8"));
     expect(manifest).not.toHaveProperty("lspServers");
     expect(readFileSync(path.join(staged!, ".lsp.json"), "utf8")).toContain("rust-analyzer");
-    expect(readFileSync(path.join(staged!, "lsp.json"), "utf8")).toContain("pyright");
+    const mergedLsp = JSON.parse(readFileSync(path.join(staged!, "lsp.json"), "utf8"));
+    expect(mergedLsp.lspServers).toHaveProperty("go");
+    expect(mergedLsp.lspServers).toHaveProperty("rust");
+    expect(mergedLsp.lspServers).toHaveProperty("python");
   });
 
   it("exposes the Claude commands directory to Copilot's native legacy plugin loader", () => {
@@ -172,6 +177,63 @@ describe("Copilot Claude Plugin runtime projection", () => {
       name: "unsafe-path", hooks: "../outside.json",
     }));
     expect(() => stage([source], path.join(root, "runtime"))).toThrow(/路径越界/);
+  });
+
+
+  it("merges multiple Claude Hook configuration sources", () => {
+    const root = temp();
+    const source = path.join(root, "hook-array");
+    mkdirSync(path.join(source, ".claude-plugin"), { recursive: true });
+    mkdirSync(path.join(source, "hooks"), { recursive: true });
+    writeFileSync(path.join(source, ".claude-plugin", "plugin.json"), JSON.stringify({
+      name: "hook-array",
+      hooks: ["./hooks/first.json", { hooks: { Stop: [{ hooks: [{ type: "command", command: "bash " + "${CLAUDE_PLUGIN_ROOT}/scripts/stop.sh" }] }] } }],
+    }));
+    writeFileSync(path.join(source, "hooks", "first.json"), JSON.stringify({
+      hooks: { SessionStart: [{ hooks: [{ type: "command", command: "echo start" }] }] },
+    }));
+    const [staged] = stage([source], path.join(root, "runtime"));
+    const config = JSON.parse(readFileSync(path.join(staged!, "hooks.json"), "utf8"));
+    expect(config.hooks).toHaveProperty("SessionStart");
+    expect(config.hooks).toHaveProperty("Stop");
+    expect(JSON.stringify(config)).toContain("${PLUGIN_ROOT}/scripts/stop.sh");
+  });
+
+  it("projects Claude Markdown Agents and source/content Commands into Copilot Legacy format", () => {
+    const root = temp();
+    const source = path.join(root, "markdown-components");
+    mkdirSync(path.join(source, ".claude-plugin"), { recursive: true });
+    mkdirSync(path.join(source, "agents"), { recursive: true });
+    mkdirSync(path.join(source, "extra-agents"), { recursive: true });
+    mkdirSync(path.join(source, "commands"), { recursive: true });
+    writeFileSync(path.join(source, ".claude-plugin", "plugin.json"), JSON.stringify({
+      name: "markdown-components",
+      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      agents: ["./agents/", "./extra-agents/researcher.md"],
+      commands: {
+        review: { source: "./commands/review.md" },
+        "quick-note": { content: "Create a concise research note." },
+      },
+    }));
+    writeFileSync(path.join(source, "agents", "reviewer.md"), "---\nname: reviewer\ndescription: Review the repository\n---\nReview carefully. Use ${CLAUDE_PLUGIN_ROOT}/templates/review.md.");
+    writeFileSync(path.join(source, "extra-agents", "researcher.md"), "Research with primary sources.");
+    writeFileSync(path.join(source, "commands", "review.md"), "Review the current findings.");
+
+    const [staged] = stage([source], path.join(root, "runtime"));
+    const manifest = JSON.parse(readFileSync(path.join(staged!, "plugin.json"), "utf8"));
+    expect(manifest.agents).toEqual(["./agents", "./extra-agents"]);
+    expect(manifest).not.toHaveProperty("$schema");
+    expect(existsSync(path.join(staged!, "agents", "reviewer.agent.md"))).toBe(true);
+    expect(existsSync(path.join(staged!, "extra-agents", "researcher.agent.md"))).toBe(true);
+    expect(readFileSync(path.join(staged!, "agents", "reviewer.agent.md"), "utf8")).toContain("${PLUGIN_ROOT}/templates/review.md");
+    expect(typeof manifest.commands).toBe("string");
+    const commandDirectory = path.resolve(staged!, manifest.commands);
+    const generated = readdirSync(commandDirectory).filter(name => name.endsWith(".md"));
+    expect(generated).toHaveLength(2);
+    expect(generated.map(name => readFileSync(path.join(commandDirectory, name), "utf8")).join("\n"))
+      .toContain("Create a concise research note.");
+    expect(readFileSync(path.join(source, "agents", "reviewer.md"), "utf8")).toContain("Review carefully.");
+    expect(existsSync(path.join(source, "agents", "reviewer.agent.md"))).toBe(false);
   });
 
 });
