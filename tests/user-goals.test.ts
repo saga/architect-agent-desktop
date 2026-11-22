@@ -48,6 +48,12 @@ describe("AgentMemoryStore Goals", () => {
     expect(updated.id).toBe(initial.id);
     expect(updated.version).toBe(initial.version + 1);
     expect(updated.constraints).toContain("Keep the existing runtime");
+    expect(updated.evidence).toContain("实现已经确定的工作流");
+    expect(updated.evidence).toContain("不要改变现有 Runtime");
+    expect(() => store.upsertGoal({
+      id: initial.id, scope: "/workspace/a", taskId: "task-a", level: "task",
+      objective: "Update without concurrency token", evidence: ["不要改变现有 Runtime"],
+    })).toThrow(/必须提供 baseVersion/);
     expect(() => store.upsertGoal({
       id: initial.id, baseVersion: initial.version, scope: "/workspace/a", taskId: "task-a", level: "task",
       objective: "A stale update", evidence: ["不要改变现有 Runtime"],
