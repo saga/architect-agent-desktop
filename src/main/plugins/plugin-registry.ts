@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pluginContentFingerprint } from "./plugin-content";
+import { pluginContentFingerprint, type PluginRuntimeEntry } from "./plugin-content";
 import {
   cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync,
   renameSync, rmSync, writeFileSync,
@@ -333,7 +333,7 @@ export function validatePluginDirectory(directory: string): ClaudePlugin {
   const paths = [...manifest.skills, ...manifest.commands, ...manifest.agents];
   if (new Set(paths).size !== paths.length) throw new Error("插件资源路径不能重复。");
   for (const relativePath of paths) {
-    const file = resolveResource(root, relativePath);
+    resolveResource(root, relativePath);
     if ([...manifest.skills, ...manifest.commands, ...manifest.agents].includes(relativePath) && path.extname(relativePath).toLowerCase() !== ".md") {
       throw new Error("Claude Plugin 指令组件必须使用 Markdown：" + relativePath);
     }

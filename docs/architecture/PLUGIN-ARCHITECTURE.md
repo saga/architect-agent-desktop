@@ -49,7 +49,7 @@ Copilot 的 Legacy Plugin loader 使用根级 plugin.json、hooks.json、.mcp.js
 
 ### 3.2 CodeBuddy
 
-CodeBuddy 原生接收 Claude 插件目录，通过 SDK query 的 extraArgs 传入重复的 --plugin-dir <path>。应用移除继承的 CODEBUDDY_PLUGIN_DIRS，防止用户环境中未经过应用注册表批准的目录被意外加载。
+CodeBuddy 原生接收 Claude 插件目录。SDK query 的 extraArgs 是选项映射而不是 argv 数组，因此应用使用 CodeBuddy 文档化的 CODEBUDDY_PLUGIN_DIRS 环境变量传入会话快照目录；该变量与重复的 --plugin-dir 参数等价。应用先删除继承值，再仅写入注册表批准且指纹验证通过的快照路径。
 
 CodeBuddy 使用未经格式转换的 Claude Plugin 快照，原生加载 Skills、Commands、Agents、Hooks、MCP、LSP、bin/ 脚本和 TypeScript Mods。
 
@@ -89,7 +89,7 @@ plugin-content.ts 提供统一的内容指纹和快照功能：
 
 Copilot 使用 SDK RuntimeConnection.forStdio({ args }) 在 Client 创建阶段传入重复的 --plugin-dir 参数。Copilot Client 的 baseDirectory 指向应用私有目录，避免依赖用户个人 Copilot 配置目录中的插件。
 
-CodeBuddy 每次 Query 创建独立临时目录，把验证后的快照通过重复的 --plugin-dir 参数传给 SDK query。Query 的 finally 清理该目录以及临时配置文件。
+CodeBuddy 每次 Query 创建独立临时目录，把验证后的快照路径写入 CODEBUDDY_PLUGIN_DIRS。Query 的 finally 清理该目录以及临时配置文件。
 
 切换 Workspace、Expert 或会话时，Copilot Agent 先停止旧 Client 并清理快照。启用、禁用、运行授权变更和删除插件的 IPC 操作要求 Agent 空闲，并重置会话，避免旧进程持有过期插件。
 
