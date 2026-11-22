@@ -87,8 +87,15 @@ export class ProactiveOpportunityEngine{
    return this.store.createOpportunity({scope:event.scope,taskId:event.taskId,category:"repeated_tool_failure",title:"工具连续失败："+name,explanation:"同一工具在 30 分钟内失败 "+failures.length+" 次。建议检查最近 Trace，先定位共同原因，不假设存在可用替代方案。",suggestedAction:"检查失败记录",sourceRefs:evidence,confidence:0.94,impact:0.7,urgency:0.72,dedupeKey:"tool-failure:"+(event.taskId??"no-task")+":"+name.toLowerCase(),eventId:event.eventId,expiresAt:event.occurredAt+7*DAY,payload:{toolName:name,failureCount:failures.length}});
   }
   if(event.type==="agent.turn.failed"){
-   const error=str(event.payload,"error",500);if(!event.payload.blocked&&!/blocked|waiting for input|missing prerequisite|被阻塞|无法继续|缺少必要输入|等待用户/u.test(error))return null;
-   return this.store.createOpportunity({scope:event.scope,taskId:event.taskId,category:"blocker",title:"当前任务可能被阻塞",explanation:error||"最近一次执行未能继续。建议检查来源 Trace，确认缺少的输入或权限。",suggestedAction:"检查阻塞原因",sourceRefs:refs,confidence:0.82,impact:0.8,urgency:0.8,dedupeKey:"blocker:"+(event.taskId??"no-task")+":"+createHash("sha256").update(error.toLowerCase()).digest("hex").slice(0,16),eventId:event.eventId,expiresAt:event.occurredAt+3*DAY});
+   const error=str(event.payload,"error",500);
+   if(!event.payload.blocked&&!/blocked|waiting for input|missing prerequisite|被阻塞|无法继续|缺少必要输入|等待用户/u.test(error))return null;
+   return this.store.createOpportunity({
+    scope:event.scope,taskId:event.taskId,category:"blocker",title:"当前任务可能被阻塞",
+    explanation:"最近一次执行未能继续。具体失败信息保留在来源 Trace 中，建议检查缺少的输入、权限或前置条件。",
+    suggestedAction:"检查阻塞原因",sourceRefs:refs,confidence:0.82,impact:0.8,urgency:0.8,
+    dedupeKey:"blocker:"+(event.taskId??"no-task")+":"+createHash("sha256").update(error.toLowerCase()).digest("hex").slice(0,16),
+    eventId:event.eventId,expiresAt:event.occurredAt+3*DAY,
+   });
   }
   this.evaluatePending(event.scope);return null;
  }
