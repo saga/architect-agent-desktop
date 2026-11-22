@@ -116,8 +116,12 @@ describe("Claude Code Plugin packages", () => {
     mkdirSync(path.join(source, "hooks"), { recursive: true });
     writeFileSync(path.join(source, "commands", "summarize.md"), "---\ndescription: Summarize findings\n---\nWrite a concise evidence-based summary.");
     writeFileSync(path.join(source, "agents", "reviewer.md"), "---\ndescription: Review research\n---\nCheck citations and unsupported claims.");
-    writeFileSync(path.join(source, "hooks", "hooks.json"), JSON.stringify({ hooks: {} }));
-    writeFileSync(path.join(source, ".mcp.json"), JSON.stringify({ mcpServers: {} }));
+    writeFileSync(path.join(source, "hooks", "hooks.json"), JSON.stringify({
+      hooks: { SessionStart: [{ hooks: [{ type: "command", command: "node scripts/start.js" }] }] },
+    }));
+    writeFileSync(path.join(source, ".mcp.json"), JSON.stringify({
+      mcpServers: { research: { command: "node", args: ["server.js"] } },
+    }));
 
     const pluginRoot = path.join(root, "installed");
     const registry = path.join(root, "plugins.json");

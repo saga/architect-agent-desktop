@@ -238,7 +238,7 @@ function collectMarkdownFiles(root: string, entryPath: string, kind: "skill" | "
   return found;
 }
 
-function normalizeClaudePluginDirectory(root: string): ClaudePlugin {
+function normalizeClaudePluginDirectory(root: string, fallbackId?: string): ClaudePlugin {
   const pluginJsonPath = path.join(root, ".claude-plugin", "plugin.json");
   let raw: Record<string, unknown> = {};
   const hasManifest = existsSync(pluginJsonPath);
@@ -250,7 +250,7 @@ function normalizeClaudePluginDirectory(root: string): ClaudePlugin {
   if (hasManifest && (typeof raw.name !== "string" || !raw.name.trim())) {
     throw new Error("Claude Code plugin.json 必须包含 name 字段。");
   }
-  const name = hasManifest ? String(raw.name).trim() : path.basename(root);
+  const name = hasManifest ? String(raw.name).trim() : (fallbackId ?? path.basename(root));
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) || name.length > 100) {
     throw new Error("Claude Plugin 的 name 必须是 1–100 个字符的小写 kebab-case 标识；没有 plugin.json 时使用目录名。");
   }
@@ -322,10 +322,10 @@ function normalizeClaudePluginDirectory(root: string): ClaudePlugin {
   return manifest;
 }
 
-export function validatePluginDirectory(directory: string): ClaudePlugin {
+export function validatePluginDirectory(directory: string, fallbackId?: string): ClaudePlugin {
   const root = path.resolve(directory);
   assertSafeTree(root);
-  const manifest = normalizeClaudePluginDirectory(root);
+  const manifest = normalizeClaudePluginDirectory(root, fallbackId);
   const runtime = inspectPluginRuntimeCapabilities(root);
   if (manifest.skills.length + manifest.commands.length + manifest.agents.length + manifest.inlineCommands.length === 0 && !hasRuntimeCapabilities(runtime)) {
     throw new Error("此目录不包含可加载的 Claude Code Skills、Commands、Agents、Hooks、MCP 或 LSP 运行组件；项目自有 manifest.json 插件格式不受支持。");
@@ -374,7 +374,7 @@ export function importPlugin(sourceDirectory: string, pluginRoot: string, regist
   let destinationCreated = false;
   try {
     cpSync(sourceDirectory, temporary, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true });
-    validatePluginDirectory(temporary);
+    validatePluginDirectory(temporary, manifest.id);
     renameSync(temporary, destination);
     destinationCreated = true;
     const registry = readRegistry(registryPath);
