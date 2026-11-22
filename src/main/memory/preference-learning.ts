@@ -20,12 +20,12 @@ const STRONG=/\bi prefer\b|\bi don't like\b|\bi do not like\b|\bi don't eat\b|\b
 const CORRECTION=/stop using|don't use .* again|do not use .* again|please stop|不要再|别再|不要继续|之前已经说过|反复说过/iu;
 const SAVE_REQUEST=/remember|save (?:this|that|it)|store (?:this|that)|keep this in mind|记住|保存到记忆|记下来|以后记得/iu;
 const PERSONAL_SCOPE=/across (?:all )?(?:projects|workspaces|tasks)|in every (?:workspace|conversation)|all projects|所有项目|跨项目|所有工作区|所有任务|任何对话/iu;
-const SECRET_OR_CREDENTIAL=/password|passcode|api[_ -]?key|access token|private key|密码|口令|密钥|访问令牌/iu;
-const SENSITIVE_HEALTH=/diabetes|cancer|diagnos(?:is|ed)|medication|medical condition|病史|疾病|诊断|服药|药物治疗/iu;
+const SECRET_OR_CREDENTIAL=/password|passcode|api[_ -]?key|access token|private key|bearer token|credential|secret|凭据|令牌|密码|口令|密钥|访问令牌/iu;
+const SENSITIVE_PERSONAL=/diabetes|cancer|diagnos(?:is|ed)|medication|medical condition|pregnan(?:t|cy)|hiv|psychiatric|mental illness|blood pressure|religion|religious|political party|political affiliation|sexual orientation|sex life|ethnicity|race|trade union|immigration status|citizenship|糖尿病|高血压|癌症|诊断|服药|药物治疗|病史|疾病|怀孕|生育|艾滋|精神疾病|抑郁症|焦虑症|宗教|政治立场|政党|性取向|性生活|民族|种族|工会|移民身份|国籍/iu;
 
 export function detectPreferenceCandidate(prompt:string):PreferenceCandidate|null{
  const statement=prompt.trim().replace(/\s+/g," ").slice(0,240);
- if(!statement||SECRET_OR_CREDENTIAL.test(statement)||SENSITIVE_HEALTH.test(statement))return null;
+ if(!statement||SECRET_OR_CREDENTIAL.test(statement)||SENSITIVE_PERSONAL.test(statement))return null;
  const category=CATEGORIES.find(item=>item.pattern.test(statement))?.category;
  if(!category)return null;
  const explicit=EXPLICIT.test(statement);
