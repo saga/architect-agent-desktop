@@ -17,7 +17,7 @@ const CATEGORIES:Array<{category:PreferenceCategory;pattern:RegExp}>= [
  {category:"communication",pattern:/concise|brief|verbose|plain language|emoji|language|简洁|简短|详细|通俗|表情|中文|日文|输出语言/iu},
  {category:"writing",pattern:/writing|article|translation|prose|tone|voice|style|写作|文章|翻译|文风|语气|叙述声音/iu},
  {category:"coding",pattern:/code|coding|typescript|javascript|python|rust|sql|test|comment|编程|代码|测试|注释|重构/iu},
- {category:"workflow",pattern:/commit|merge|main branch|confirmation|ask first|ci|pull request|提交|合并|主分支|确认|先问|持续集成|拉取请求/iu},
+ {category:"workflow",pattern:/workflow|workflows|work flow|branch|repository|repo|pipeline|release|task management|task execution|commit|merge|main branch|confirmation|ask first|ci|pull request|工作流|工作流程|分支|仓库|流水线|发布|任务管理|执行流程|交付|提交|合并|主分支|确认|先问|持续集成|拉取请求/iu},
  {category:"interaction",pattern:/don't make me repeat|don't make me remind you again|stop making me repeat|don't ask me again|stop asking me to repeat|i(?:'ve| have) already (?:told|said)|already told you|不要让我反复提醒|别让我反复提醒|不要让我重复|别让我重复|不要让我再说一遍|不要再问我已经说过|我已经说过|我已经说了|早就说过|已经告诉过你|之前说过很多次|反复提醒|反复说过|不需要我再重复|不必让我再说明/iu},
 ];
 const EXPLICIT=/always|never(?!\s+mind)|from now on|going forward|in all future|for every (?:task|request|project)|以后|今后|从现在开始|始终|永远|以后都|今后都/iu;
