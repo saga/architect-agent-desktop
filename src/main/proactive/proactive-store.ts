@@ -17,14 +17,23 @@ export interface CandidateInput{scope:string|null;taskId:string|null;sessionId:s
 export interface OpportunityInput{scope:string|null;taskId:string|null;category:ProactiveCategory;title:string;explanation:string;suggestedAction:string;sourceRefs:string[];confidence:number;impact:number;urgency:number;dedupeKey:string;eventId:string;status?:AgentProactiveOpportunity["status"];expiresAt?:number|null;dueAt?:number|null;payload?:Record<string,unknown>;}
 export interface ProactiveEventRecord{eventId:string;scope:string|null;taskId:string|null;eventType:string;occurredAt:number;sourceRef:string|null;payload:Record<string,unknown>;}
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const EVENT_RETENTION_MS = 30 * DAY_MS;
+const FEEDBACK_RETENTION_MS = 365 * DAY_MS;
+const TERMINAL_RETENTION_MS = 365 * DAY_MS;
+const CANDIDATE_RETENTION_MS = 180 * DAY_MS;
+const MAX_PROACTIVE_EVENTS = 20_000;
+
 export class ProactiveStore{
  private readonly db:DatabaseSync;
+ private eventWrites=0;
  constructor(databasePath:string){
   if(databasePath!==":memory:"){mkdirSync(path.dirname(databasePath),{recursive:true,mode:0o700});try{chmodSync(path.dirname(databasePath),0o700);}catch{}}
   this.db=new DatabaseSync(databasePath);this.db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
   this.db.exec(`
    CREATE TABLE IF NOT EXISTS proactive_events(event_id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,scope_value TEXT,task_id TEXT,event_type TEXT NOT NULL,occurred_at INTEGER NOT NULL,source_ref TEXT,payload_json TEXT NOT NULL,processed_at INTEGER NOT NULL);
    CREATE INDEX IF NOT EXISTS idx_proactive_events_recent ON proactive_events(scope_key,task_id,event_type,occurred_at DESC);
+   CREATE INDEX IF NOT EXISTS idx_proactive_events_occurred ON proactive_events(occurred_at DESC);
    CREATE TABLE IF NOT EXISTS memory_candidates(id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,scope_value TEXT,task_id TEXT,session_id TEXT,category TEXT NOT NULL,strength TEXT NOT NULL,statement TEXT NOT NULL,fingerprint TEXT NOT NULL,source_ref TEXT,status TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,accepted_note_id TEXT,UNIQUE(scope_key,fingerprint));
    CREATE INDEX IF NOT EXISTS idx_memory_candidates_status ON memory_candidates(scope_key,status,created_at DESC);
    CREATE TABLE IF NOT EXISTS proactive_opportunities(id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,scope_value TEXT,task_id TEXT,category TEXT NOT NULL,title TEXT NOT NULL,explanation TEXT NOT NULL,suggested_action TEXT NOT NULL,source_refs_json TEXT NOT NULL,confidence REAL NOT NULL,impact REAL NOT NULL,urgency REAL NOT NULL,rank_score REAL NOT NULL,status TEXT NOT NULL,dedupe_key TEXT NOT NULL,event_id TEXT NOT NULL,payload_json TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,expires_at INTEGER,due_at INTEGER,snoozed_until INTEGER,last_presented_at INTEGER);
@@ -35,6 +44,14 @@ export class ProactiveStore{
    CREATE TABLE IF NOT EXISTS proactive_settings(id TEXT PRIMARY KEY,settings_json TEXT NOT NULL,updated_at INTEGER NOT NULL);
   `);
   if(databasePath!==":memory:")try{chmodSync(databasePath,0o600);}catch{}
+  this.pruneHistory();
+ }
+ private pruneHistory(now=Date.now()):void{
+  this.db.prepare("DELETE FROM proactive_events WHERE occurred_at<?").run({},now-EVENT_RETENTION_MS);
+  this.db.prepare("DELETE FROM proactive_events WHERE event_id IN (SELECT event_id FROM proactive_events ORDER BY occurred_at DESC LIMIT -1 OFFSET ?)").run({},MAX_PROACTIVE_EVENTS);
+  this.db.prepare("DELETE FROM proactive_feedback WHERE created_at<? AND (suppress_until IS NULL OR suppress_until<=?)").run({},now-FEEDBACK_RETENTION_MS,now);
+  this.db.prepare("DELETE FROM proactive_opportunities WHERE status IN ('dismissed','acted','expired','accepted') AND updated_at<?").run({},now-TERMINAL_RETENTION_MS);
+  this.db.prepare("DELETE FROM memory_candidates WHERE status IN ('rejected','expired') AND updated_at<?").run({},now-CANDIDATE_RETENTION_MS);
  }
  getSettings():AgentProactiveSettings{
   const row=this.db.prepare("SELECT settings_json FROM proactive_settings WHERE id='global'").get({}) as {settings_json?:unknown}|undefined;
@@ -77,7 +94,9 @@ export class ProactiveStore{
   }
   const result=this.db.prepare("INSERT OR IGNORE INTO proactive_events(event_id,scope_key,scope_value,task_id,event_type,occurred_at,source_ref,payload_json,processed_at) VALUES(?,?,?,?,?,?,?,?,?)")
    .run({},event.eventId,keyOf(event.scope),event.scope,event.taskId,event.eventType,event.occurredAt,event.sourceRef,JSON.stringify(safePayload),Date.now());
-  return Number(result.changes)===1;
+  const inserted=Number(result.changes)===1;
+  if(inserted&&++this.eventWrites>=100){this.eventWrites=0;this.pruneHistory();}
+  return inserted;
  }
  createCandidate(input:CandidateInput):AgentMemoryCandidate|null{
   const statement=input.statement.trim().replace(/\s+/g," ").slice(0,240);if(!statement)return null;
@@ -94,7 +113,7 @@ export class ProactiveStore{
   return row?this.toCandidate(row):null;
  }
  listCandidates(scope:string|null,limit=30):AgentMemoryCandidate[]{
-  const keys=keysOf(scope),rows=this.db.prepare("SELECT * FROM memory_candidates WHERE scope_key IN ("+keys.map(()=>"?").join(",")+") AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT ?").all({},...keys,Date.now(),clamp(Math.floor(limit),1,100)) as Array<Record<string,unknown>>;
+  const keys=keysOf(scope),rows=this.db.prepare("SELECT * FROM memory_candidates WHERE scope_key IN ("+keys.map(()=>"?").join(",")+") AND status='pending' AND expires_at>? ORDER BY created_at DESC LIMIT ?").all({},...keys,now,clamp(Math.floor(limit),1,100)) as Array<Record<string,unknown>>;
   return rows.map(row=>this.toCandidate(row));
  }
  updateCandidate(id:string,scope:string|null,status:ProactiveCandidateStatus,noteId?:string):void{
@@ -147,11 +166,11 @@ export class ProactiveStore{
   changes+=Number(this.db.prepare("UPDATE memory_candidates SET status='expired',updated_at=? WHERE scope_key IN ("+p+") AND status='pending' AND expires_at<=?").run({},now,...keys,now).changes);
   return changes>0;
  }
- listActive(scope:string|null,limit=30):AgentProactiveOpportunity[]{
+ listActive(scope:string|null,limit=30,now=Date.now()):AgentProactiveOpportunity[]{
   const settings=this.getSettings();if(!settings.enabled)return[];
-  this.refreshLifecycle(scope);
+  this.refreshLifecycle(scope,now);
   const keys=keysOf(scope),p=keys.map(()=>"?").join(",");
-  const day=new Date();day.setHours(0,0,0,0);
+  const day=new Date(now);day.setHours(0,0,0,0);
   const already=Number((this.db.prepare("SELECT COUNT(*) AS count FROM proactive_opportunities WHERE scope_key IN ("+p+") AND last_presented_at>=?").get({},...keys,day.getTime()) as {count?:number}).count??0);
   const remaining=Math.max(0,settings.maxPerDay-already);
   const rows=this.db.prepare("SELECT * FROM proactive_opportunities WHERE scope_key IN ("+p+") AND status IN ('new','presented','pending_confirmation') AND (expires_at IS NULL OR expires_at>?) ORDER BY rank_score DESC,urgency DESC,created_at DESC LIMIT ?").all({},...keys,Date.now(),clamp(Math.floor(limit),1,100)) as Array<Record<string,unknown>>;
@@ -159,9 +178,8 @@ export class ProactiveStore{
   const existing=eligible.filter(row=>Number(row.last_presented_at??0)>=day.getTime());
   const fresh=eligible.filter(row=>Number(row.last_presented_at??0)<day.getTime());
   const selected=[...existing,...fresh.slice(0,remaining)];
-  const now=Date.now();
-  for(const row of selected)if(Number(row.last_presented_at??0)<day.getTime())this.db.prepare("UPDATE proactive_opportunities SET status=CASE WHEN status='new' THEN 'presented' ELSE status END,last_presented_at=?,updated_at=? WHERE id=? AND status IN ('new','pending_confirmation')").run({},now,now,String(row.id));
-  return selected.map(row=>this.toOpportunity(row));
+  for(const row of selected)if(Number(row.last_presented_at??0)<day.getTime())this.db.prepare("UPDATE proactive_opportunities SET status=CASE WHEN status='new' THEN 'presented' ELSE status END,last_presented_at=?,updated_at=? WHERE id=? AND status IN ('new','presented','pending_confirmation')").run({},now,now,String(row.id));
+  return selected.map(row=>this.getOpportunity(String(row.id),scope)).filter((item):item is AgentProactiveOpportunity=>item!==null);
  }
  private toCandidate(row:Record<string,unknown>):AgentMemoryCandidate{
   return{id:String(row.id),scope:typeof row.scope_value==="string"?row.scope_value:null,taskId:typeof row.task_id==="string"?row.task_id:null,sessionId:typeof row.session_id==="string"?row.session_id:null,category:String(row.category),strength:String(row.strength) as AgentMemoryCandidate["strength"],statement:String(row.statement),status:String(row.status) as ProactiveCandidateStatus,sourceRef:typeof row.source_ref==="string"?row.source_ref:null,createdAt:Number(row.created_at),updatedAt:Number(row.updated_at),expiresAt:Number(row.expires_at),acceptedNoteId:typeof row.accepted_note_id==="string"?row.accepted_note_id:null};
