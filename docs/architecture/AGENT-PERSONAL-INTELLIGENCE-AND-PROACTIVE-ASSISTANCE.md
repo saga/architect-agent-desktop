@@ -150,7 +150,7 @@ CodeBuddy 在每次 `sendCodeBuddy()` 时重新组装 System Prompt，行为不�
 
 Provider 只拿到当前任务所需的上下文。它不会因为拥有 Memory 权限而自动看到其他 Workspace 的历史，也不会因收到主动建议而获得更高工具权限。
 
-请求上下文是一次请求的快照，Memory 更新不会改写已发出的请求；下一轮重新解析并获取最新版本。高优先级规则不依赖当前查询的 FTS / Embedding 命中结果，而是从当前 Workspace 与 Personal Scope 的专用列表读取，再由 appliesTo 和当前任务主题过滤。普通记忆预算不足时，先移除 Workspace Context 和软偏好，不先丢弃高优先级规则。高优先级规则的 unverified 状态只表示没有外部事实核验，不会削弱直接用户指令的效力。
+请求上下文是一次请求的快照，Memory 更新不会改写已发出的请求；下一轮重新解析并获取最新版本。高优先级规则不依赖当前查询的 FTS / Embedding 命中结果，而是从当前 Workspace 与 Personal Scope 的专用列表读取，再由 appliesTo 和当前任务主题过滤。规则有独立的 4,800 字符预算；普通记忆使用单独预算，预算不足时先移除 Workspace Context 和软偏好，不先丢弃高优先级规则。高优先级规则的 unverified 状态只表示没有外部事实核验，不会削弱直接用户指令的效力。
 
 ## 5. Preference Learning：持续学习用户偏好
 
