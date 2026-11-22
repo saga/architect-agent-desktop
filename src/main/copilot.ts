@@ -7,7 +7,7 @@ import type { PluginNativeComponents } from "./plugins/plugin-registry";
 import { prepareCopilotPluginDirectories } from "./plugins/copilot-plugin-adapter";
 import { stagePluginRuntimeDirectories } from "./plugins/plugin-content";
 import { app, session } from "electron";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { mkdir as mkdirAsync, mkdtemp as mkdtempAsync, readFile as readFileAsync, rm as rmAsync, writeFile as writeFileAsync } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
