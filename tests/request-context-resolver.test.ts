@@ -52,6 +52,20 @@ describe("Request memory context resolver",()=>{
   expect(result.text).toContain("avoid_repeating_user_requirements");
   store.close();
  });
+ it("applies high-priority execution workflow rules to implementation and test tasks",()=>{
+  const store=new AgentMemoryStore(path.join(temporaryDirectory(),"memory.sqlite"));
+  store.saveConfirmedPreference({
+   id:"workflow-rule",scope:"/workspace/workflow-rules",title:"High-priority workflow rule",
+   content:"Do not wait for CI; run the relevant local checks and commit directly to main when asked.",
+   category:"workflow",key:"delivery_workflow",
+   sourceSessionId:"session-workflow-rule",sourceTraceId:"trace-workflow-rule",createdAt:Date.now(),
+   crossWorkspaceConfirmed:false,strength:"repeated_correction",priority:"high",
+  });
+  const candidates=store.listHighPriorityPreferences("/workspace/workflow-rules",20);
+  const result=createRequestMemoryContext("Implement this feature and run the relevant tests.",candidates);
+  expect(result.highPriorityRuleCount).toBe(1);
+  store.close();
+ });
  it("injects domain-specific high-priority rules only for relevant requests",()=>{
   const store=new AgentMemoryStore(path.join(temporaryDirectory(),"memory.sqlite"));
   store.saveConfirmedPreference({
