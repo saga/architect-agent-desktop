@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { constants as fsConstants, closeSync, cpSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { constants as fsConstants, closeSync, cpSync, fstatSync, lstatSync, mkdirSync, openSync, opendirSync, readSync, rmSync } from "node:fs";
 import path from "node:path";
 
 const MAX_PLUGIN_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_PLUGIN_TOTAL_BYTES = 20 * 1024 * 1024;
 const MAX_PLUGIN_FILES = 4096;
+const MAX_PLUGIN_ENTRIES = 8192;
 const MAX_PLUGIN_DEPTH = 32;
 const NO_FOLLOW = fsConstants.O_NOFOLLOW ?? 0;
 
@@ -25,9 +26,24 @@ export function pluginContentFingerprint(root: string): string {
   const hash = createHash("sha256");
   let totalBytes = 0;
   let fileCount = 0;
+  let entryCount = 0;
   const visit = (directory: string, depth: number): void => {
     if (depth > MAX_PLUGIN_DEPTH) throw new Error("插件目录层级超过限制。");
-    for (const entry of readdirSync(directory).sort((a, b) => a.localeCompare(b))) {
+    const handle = opendirSync(directory);
+    const entries: import("node:fs").Dirent[] = [];
+    try {
+      while (true) {
+        const entry = handle.readSync();
+        if (!entry) break;
+        entryCount += 1;
+        if (entryCount > MAX_PLUGIN_ENTRIES) throw new Error("插件目录条目数量超过限制。");
+        entries.push(entry);
+      }
+    } finally {
+      handle.closeSync();
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
       const fullPath = path.join(directory, entry);
       const stat = lstatSync(fullPath);
       const relative = path.relative(root, fullPath).split(path.sep).join("/");
@@ -53,7 +69,21 @@ export function pluginContentFingerprint(root: string): string {
             throw new Error("插件文件在指纹计算期间发生变化：" + relative);
           }
           hash.update("file\\0");
-          hash.update(readFileSync(descriptor));
+          const contents = Buffer.allocUnsafe(opened.size);
+          let offset = 0;
+          while (offset < contents.length) {
+            const bytesRead = readSync(descriptor, contents, offset, contents.length - offset, offset);
+            if (bytesRead === 0) break;
+            offset += bytesRead;
+          }
+          const after = fstatSync(descriptor);
+          const stableIdentity = !opened.ino || !after.ino
+            ? opened.dev === after.dev
+            : opened.dev === after.dev && opened.ino === after.ino;
+          if (offset !== opened.size || after.size !== opened.size || !stableIdentity) {
+            throw new Error("插件文件在指纹计算期间发生变化：" + relative);
+          }
+          hash.update(contents);
           hash.update("\\0");
         } finally {
           closeSync(descriptor);

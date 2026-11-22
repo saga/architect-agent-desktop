@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { pluginContentFingerprint, type PluginRuntimeEntry } from "./plugin-content";
 import {
-  cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync,
+  cpSync, existsSync, lstatSync, mkdirSync, opendirSync, readFileSync, readdirSync,
   renameSync, rmSync, writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -41,6 +41,8 @@ interface RegistryState {
 }
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
+const MAX_PACKAGE_ENTRIES = 8192;
+const MAX_PACKAGE_DEPTH = 32;
 const MAX_SKILL_CONTEXT = 40_000;
 const SCRIPT_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".sh", ".bash", ".py", ".ps1", ".cmd", ".bat"]);
 
@@ -88,20 +90,31 @@ function assertSafeTree(root: string): number {
   const rootStat = lstatSync(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error("插件包必须是普通目录，不能是符号链接。");
   let total = 0;
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const fullPath = path.join(directory, entry.name);
-      const stat = lstatSync(fullPath);
-      if (stat.isSymbolicLink()) throw new Error("插件包不能包含符号链接：" + entry.name);
-      if (stat.isDirectory()) visit(fullPath);
-      else if (stat.isFile()) {
-        if (stat.size > MAX_FILE_BYTES) throw new Error("插件文件超过 2 MB 限制：" + entry.name);
-        total += stat.size;
-        if (total > MAX_PACKAGE_BYTES) throw new Error("插件包总大小不能超过 20 MB。");
-      } else throw new Error("插件包包含不支持的文件类型：" + entry.name);
+  let entryCount = 0;
+  const visit = (directory: string, depth: number): void => {
+    if (depth > MAX_PACKAGE_DEPTH) throw new Error("插件目录层级超过限制。");
+    const handle = opendirSync(directory);
+    try {
+      while (true) {
+        const entry = handle.readSync();
+        if (!entry) break;
+        entryCount += 1;
+        if (entryCount > MAX_PACKAGE_ENTRIES) throw new Error("插件包目录条目数量不能超过 " + MAX_PACKAGE_ENTRIES + "。");
+        const fullPath = path.join(directory, entry.name);
+        const stat = lstatSync(fullPath);
+        if (stat.isSymbolicLink()) throw new Error("插件包不能包含符号链接：" + entry.name);
+        if (stat.isDirectory()) visit(fullPath, depth + 1);
+        else if (stat.isFile()) {
+          if (stat.size > MAX_FILE_BYTES) throw new Error("插件文件超过 2 MB 限制：" + entry.name);
+          total += stat.size;
+          if (total > MAX_PACKAGE_BYTES) throw new Error("插件包总大小不能超过 20 MB。");
+        } else throw new Error("插件包包含不支持的文件类型：" + entry.name);
+      }
+    } finally {
+      handle.closeSync();
     }
   };
-  visit(root);
+  visit(root, 0);
   return total;
 }
 

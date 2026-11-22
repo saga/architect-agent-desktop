@@ -280,8 +280,6 @@ export default function AgentPanel({ onClose, onDock, onFloat, onDragState, onMa
       eventsReady = true;
       for (const event of queuedEvents.splice(0)) processCopilotEvent(event);
       setSessionReady(true);
-      if (cancelled) { off(); return; }
-      unsubscribe = off;
     })();
     const unsubscribeSettings = window.browser.onAgentSettingsUpdated((saved) => { setSettings(saved); void refreshStatus(); });
     void Promise.all([window.browser.agentGetSettings(), window.browser.copilotStatus()])
