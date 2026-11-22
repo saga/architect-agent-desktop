@@ -118,8 +118,15 @@ export class UtilityProcessAgentRuntime {
       abortHandler = () => finish("cancelled", undefined, "Execution cancelled.");
       request.signal?.addEventListener("abort", abortHandler, { once: true });
       child.on("message", (event) => {
-        const message = event.data as Record<string, unknown>;
-        if (!message || message.executionId !== id) return;
+        // Electron UtilityProcess emits the posted payload directly here.
+        // The MessageEvent.data wrapper belongs to process.parentPort in the
+        // UtilityProcess, not to this Main-process EventEmitter callback.
+        // Accept the wrapper as a compatibility fallback for older adapters.
+        const payload = event && typeof event === "object" && "data" in event
+          ? (event as { data: unknown }).data
+          : event;
+        const message = payload as Record<string, unknown>;
+        if (!message || typeof message !== "object" || message.executionId !== id) return;
         if (message.type === "log") {
           const level = message.level === "warn" || message.level === "error" ? message.level : "info";
           if (logs.length < limits.maxLogEntries) logs.push({ level, message: String(message.message ?? "").slice(0, 4_000), timestamp: Date.now() });

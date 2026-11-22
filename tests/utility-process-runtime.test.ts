@@ -65,8 +65,10 @@ describe("UtilityProcess Code Mode execution isolation", () => {
     const executionB = runtime.executeGeneratedCode(request, handlerB);
     const childB = runtimeMocks.children[1]!, messageB = childB.messages[0] as { executionId: string };
 
-    childA.emit("message", { data: { type: "capability.request", executionId: messageA.executionId,
-      requestId: "a", capability: "tools.call", args: { name: "browser.listTabs" } } });
+    // Electron UtilityProcess emits the posted payload directly to Main.
+    childA.emit("message", { type: "capability.request", executionId: messageA.executionId,
+      requestId: "a", capability: "tools.call", args: { name: "browser.listTabs" } });
+    // Keep a wrapped event case for adapters that expose MessageEvent-like data.
     childB.emit("message", { data: { type: "capability.request", executionId: messageB.executionId,
       requestId: "b", capability: "tools.call", args: { name: "browser.listTabs" } } });
 
