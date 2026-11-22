@@ -1910,6 +1910,7 @@ async function processDueAgentSchedules(manualScheduleId?: string): Promise<void
         await activateAgentTask(runTask.id, false, true);
         agentToolTabId = activeTabId;
         activeAgentTraceId = runId;
+        copilotAgent.setMemoryContext(runTask.sessionId, runId, runTask.id, true);
         scheduledCapture = { taskId: runTask.id, answer: "" };
         recordAgentTrace("schedule.started", {
           scheduleId: schedule.id, scheduleRunId: runId, trigger: runRecord.trigger,
