@@ -27,6 +27,10 @@ describe("Preference learning",()=>{
   expect(detectPreferenceCandidate("Remember my religious affiliation and political party.")).toBeNull();
   expect(detectPreferenceCandidate("Please remember my API token is secret.")).toBeNull();
  });
+ it("excludes sensitive financial and account information from automatic candidates",()=>{
+  expect(detectPreferenceCandidate("Remember my salary and personal debt.")).toBeNull();
+  expect(detectPreferenceCandidate("请记住我的银行账户余额和信用卡信息。")).toBeNull();
+ });
  it("does not infer a Personal scope from an ordinary preference statement",()=>{
   expect(detectPreferenceCandidate("我偏好简洁的架构说明。")).toMatchObject({scopeSuggestion:"workspace",explicitSaveRequest:false});
  });
