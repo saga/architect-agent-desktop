@@ -111,7 +111,7 @@ describe("Copilot Claude Plugin runtime projection", () => {
     expect(manifest).not.toHaveProperty("hooks");
     expect(manifest).not.toHaveProperty("mcpServers");
     expect(manifest).not.toHaveProperty("lspServers");
-    expect(manifest.commands).toBe("custom-commands");
+    expect(manifest.commands).toBe("./custom-commands");
   });
 
   it("preserves explicit LSP configuration and existing Copilot lsp.json", () => {
