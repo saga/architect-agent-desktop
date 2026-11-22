@@ -401,11 +401,13 @@ export class CopilotDesktopAgent {
   }
  }
  private async resolveRequestMemoryContext(prompt:string):Promise<string>{
-  const candidate=detectPreferenceCandidate(prompt);
+  const directUserText=prompt.split(/\n## 本轮附件解析结果/i,1)[0]??prompt;
+  const candidate=detectPreferenceCandidate(directUserText);
   if(candidate){
    this.recordTrace("memory.preference_candidate.detected",{
-    category:candidate.category,signalStrength:candidate.strength,
+    category:candidate.category,strength:candidate.strength,
     scopeSuggestion:candidate.scopeSuggestion,explicitSaveRequest:candidate.explicitSaveRequest,
+    statement:candidate.statement,
    });
   }
   const query=buildRequestMemorySearchQuery(prompt);
@@ -439,6 +441,10 @@ export class CopilotDesktopAgent {
   }
  }
 
+ confirmPreferenceCandidate(input:{id:string;scope:string|null;title:string;content:string;category:string;sourceSessionId:string|null;sourceTraceId:string|null;createdAt:number;crossWorkspaceConfirmed:boolean;strength:"explicit"|"strong_signal"|"repeated_correction"}){
+  if(this.active)throw new Error("Agent 正在运行，不能同时确认用户偏好。");
+  return this.memory.saveConfirmedPreference(input);
+ }
  getMemorySnapshot(scope: string | null) {
   return {
    embeddingIndex:this.getMemoryEmbeddingStatus(scope),
