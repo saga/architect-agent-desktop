@@ -38,6 +38,11 @@ UtilityProcess 是进程隔离和崩溃隔离边界，不是安全沙箱。本 A
 - GitHub Actions Build run [44999451094](https://github.com/saga/architect-agent-desktop/actions/runs/44999451094) 的 Ubuntu、macOS、Windows 三个平台均通过真实 Node 父/子/孙进程树清理测试、TypeScript、Vitest 和应用 build。
 - 该测试验证 OS 进程树算法和 Runtime 清理器接线，不替代完整 GUI Agent Code Mode 手工验收。
 
+## 跨平台 CI 结果
+
+- Build run [44999748352](https://github.com/saga/architect-agent-desktop/actions/runs/44999748352) 在 Ubuntu、macOS、Windows 三个平台全部成功，覆盖 TypeScript、完整 Vitest（含真实进程树集成）、应用 build 和 Layout Engine 测试。
+- 该结果验证操作系统进程树清理实现与 Runtime 清理调用接线；未声称完成完整 Electron GUI Agent Code Mode 的人工验收。
+
 ## 验收
 
 - POSIX：多层子进程均被停止，结束顺序为叶节点优先；清理器等待已发现进程退出。
