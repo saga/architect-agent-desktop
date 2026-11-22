@@ -49,7 +49,8 @@ describe("Claude Plugin runtime permission gate", () => {
       PATH: "/bin",
     });
   });
-\n  it("caps the number of plugin directories passed to a provider", () => {
+
+  it("caps the number of plugin directories passed to a provider", () => {
     const many = Array.from({ length: 75 }, (_, index) => ({ id: "p" + index, directory: "/plugins/p" + index, skills: [], fingerprint: "hash-" + index }));
     expect(filterPluginRuntimeEntries("copilot", "allow-all", true, undefined, many)).toHaveLength(50);
   });

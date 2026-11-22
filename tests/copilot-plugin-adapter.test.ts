@@ -82,6 +82,7 @@ describe("Copilot Claude Plugin runtime projection", () => {
     const source = path.join(root, "custom-runtime");
     mkdirSync(path.join(source, ".claude-plugin"), { recursive: true });
     mkdirSync(path.join(source, "configs"), { recursive: true });
+    mkdirSync(path.join(source, "custom-commands"), { recursive: true });
     writeFileSync(path.join(source, ".claude-plugin", "plugin.json"), JSON.stringify({
       name: "custom-runtime",
       hooks: "configs/hooks.json",
