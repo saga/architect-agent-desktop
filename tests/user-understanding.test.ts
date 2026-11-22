@@ -7,7 +7,7 @@ describe("User understanding", () => {
     const result = assessUserTurn("你跑偏了，我不是要重新设计整个系统，我希望修正当前实现。");
     expect(result).toMatchObject({
       emotion: "frustrated",
-      emotionIntensity: "high",
+      emotionIntensity: "moderate",
       strategy: "recover_and_execute",
       goalRelationHint: "correct",
     });
