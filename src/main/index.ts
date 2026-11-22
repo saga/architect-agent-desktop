@@ -150,7 +150,7 @@ function proactiveEventType(type:string,data?:unknown):AgentDomainEventType|null
 }
 function ingestProactiveTrace(type:string,data:unknown,traceId:string,scope:string|null,taskId:string|null,sessionId:string|null):void{
   const eventType=proactiveEventType(type,data);if(!eventType)return;
-  const payload=data&&typeof data==="object"&&!Array.isArray(data)?{...(data as Record<string,unknown>)}:{value:data};
+  const payload:Record<string,unknown>=data&&typeof data==="object"&&!Array.isArray(data)?{...(data as Record<string,unknown>)}:{value:data};
   if(eventType==="agent.tool.failed"&&!payload.toolName&&typeof payload.name==="string")payload.toolName=payload.name;
   const stableEventId=payload.toolCallId??payload.requestId??payload.eventId;
   const identity=typeof stableEventId==="string"&&stableEventId.trim()?stableEventId.trim().slice(0,120):randomUUID();
