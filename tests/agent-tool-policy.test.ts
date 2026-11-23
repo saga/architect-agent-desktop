@@ -34,11 +34,13 @@ describe("CodeBuddy native builtin policy", () => {
     expect(policy.disallowedTools).toEqual([]);
   });
 
-  it("restricts assisted mode to read-only native tools", () => {
-    const policy = resolveCodeBuddyBuiltinToolPolicy("assisted", true, allBuiltinTools, readonlyTools);
-    expect(policy.unrestricted).toBe(false);
-    expect(policy.tools).toEqual(readonlyTools);
-    expect(policy.disallowedTools).toEqual(allBuiltinTools.filter(name => !readonlyTools.includes(name)));
+  it("restricts assisted and workspace modes to read-only native tools", () => {
+    for (const permission of ["assisted", "workspace"] as const) {
+      const policy = resolveCodeBuddyBuiltinToolPolicy(permission, true, allBuiltinTools, readonlyTools);
+      expect(policy.unrestricted).toBe(false);
+      expect(policy.tools).toEqual(readonlyTools);
+      expect(policy.disallowedTools).toEqual(allBuiltinTools.filter(name => !readonlyTools.includes(name)));
+    }
   });
 
   it("denies native tools for none and browser-only modes", () => {
@@ -109,11 +111,21 @@ describe("Elevated Host tools", () => {
     { name: "browser_cdp" },
   ];
 
-  it("keeps elevated file and browser operations exclusive to Allow all", () => {
-    for (const permission of ["none", "browser-only", "assisted"] as const) {
-      expect(filterAgentHostTools(elevated, permission, [], true)).toEqual([]);
+  it("keeps elevated browser operations exclusive to Allow all", () => {
+    const browserTools = elevated.filter(tool => tool.name !== "workspace_write_file");
+    for (const permission of ["none", "browser-only", "assisted", "workspace"] as const) {
+      expect(filterAgentHostTools(browserTools, permission, [], true)).toEqual([]);
     }
-    expect(filterAgentHostTools(elevated, "allow-all", [], true)).toEqual(elevated);
+    expect(filterAgentHostTools(browserTools, "allow-all", [], true)).toEqual(browserTools);
+  });
+
+  it("allows workspace writes only in Workspace or Allow all mode", () => {
+    const writeTool = [{ name: "workspace_write_file" }];
+    for (const permission of ["none", "browser-only", "assisted"] as const) {
+      expect(filterAgentHostTools(writeTool, permission, [], true)).toEqual([]);
+    }
+    expect(filterAgentHostTools(writeTool, "workspace", [], true)).toEqual(writeTool);
+    expect(filterAgentHostTools(writeTool, "allow-all", [], true)).toEqual(writeTool);
   });
 
   it("still applies the Expert allowlist in Allow all mode", () => {
