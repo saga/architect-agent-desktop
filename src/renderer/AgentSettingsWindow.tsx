@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS: AgentSettings = {
 
 export default function AgentSettingsWindow() {
   const [settings, setSettings] = useState<AgentSettings>(DEFAULT_SETTINGS);
+  const [codeBuddyEnabled, setCodeBuddyEnabled] = useState(false);
   const [activeSection, setActiveSection] = useState<"agent" | "mcp" | "skills" | "memory" | "plugins">("agent");
   const [models, setModels] = useState<AgentModelInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,6 +54,7 @@ export default function AgentSettingsWindow() {
   }, []);
 
   useEffect(() => {
+    void window.browser.agentGetCapabilities().then(value => setCodeBuddyEnabled(value.providers.includes("codebuddy"))).catch(() => setCodeBuddyEnabled(false));
     void refreshPlugins();
     void window.browser.agentDataGetDirectory().then(setAgentDataDirectory).catch((error: unknown) => message.error(error instanceof Error ? error.message : String(error)));
     void window.browser.agentGetSettings()
@@ -65,6 +67,7 @@ export default function AgentSettingsWindow() {
     setSettings(current => ({ ...current, [key]: value }));
 
   const changeProvider = async (provider: AgentProvider) => {
+    if (provider === "codebuddy" && !codeBuddyEnabled) return;
     setSettings(current => ({ ...current, provider, contextWindow: undefined }));
     await inspect(provider);
   };
@@ -172,7 +175,7 @@ export default function AgentSettingsWindow() {
         <Form.Item label="默认 Provider">
           <Select value={settings.provider} onChange={(value: AgentProvider) => void changeProvider(value)} options={[
             { label: "GitHub Copilot", value: "copilot" },
-            { label: "CodeBuddy", value: "codebuddy" },
+            ...(codeBuddyEnabled ? [{ label: "CodeBuddy (Dev only)", value: "codebuddy" as const }] : []),
           ]} />
         </Form.Item>
         <Form.Item label="工具权限">
@@ -188,7 +191,11 @@ export default function AgentSettingsWindow() {
             </Radio>
             <Radio value="assisted">
               <span className="tool-permission-title">辅助权限</span>
-              <span className="tool-permission-desc">允许只读工具查看上下文；危险工具仍被禁用。</span>
+              <span className="tool-permission-desc">允许只读工具查看上下文；文件修改和命令执行仍关闭。</span>
+            </Radio>
+            <Radio value="workspace">
+              <span className="tool-permission-title">Workspace 自主执行</span>
+              <span className="tool-permission-desc">在当前选定工作区内自动读取、创建和修改文件；不开放 Shell、任意代码执行、MCP 或浏览器脚本注入。</span>
             </Radio>
             <Radio value="allow-all">
               <span className="tool-permission-title">Allow all</span>
