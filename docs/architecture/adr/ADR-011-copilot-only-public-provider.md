@@ -17,7 +17,7 @@
 4. Dev Mode 只允许在未打包的开发运行中启用；app.isPackaged === true 时无条件禁用，即使系统环境变量显式设为 true。
 5. Provider 能力由 Main 进程确定并通过受信 IPC 返回。Renderer 只根据能力列表显示 CodeBuddy；Main IPC、Agent configure、模型发现和请求派发再次校验，不能依赖 UI 隐藏作为安全边界。
 6. 当 Dev Mode 关闭时，旧设置文件中保存的 CodeBuddy Provider 自动回退到 Copilot；直接提交 CodeBuddy 设置或模型发现请求必须失败。
-7. CodeBuddy 不作为 Copilot 启动失败时的 fallback。
+7. CodeBuddy SDK 放在 devDependencies，不进入正式安装包的生产依赖树；CodeBuddy 不作为 Copilot 启动失败时的 fallback。
 
 ## 配置
 
