@@ -83,6 +83,7 @@ const api: BrowserApi = {
   agentSkillSetEnabled: (id: string, enabled: boolean): Promise<AgentSkillSummary[]> => ipcRenderer.invoke("agent-skill:set-enabled", { id, enabled }),
   agentSkillRemove: (id: string): Promise<AgentSkillSummary[]> => ipcRenderer.invoke("agent-skill:remove", id),
   agentGetSettings: () => ipcRenderer.invoke("agent:get-settings"),
+  agentGetCapabilities: (): Promise<{ devMode: boolean; providers: AgentProvider[] }> => ipcRenderer.invoke("agent:get-capabilities"),
   agentInspectModels: (provider: AgentProvider): Promise<AgentModelInfo[]> => ipcRenderer.invoke("agent:inspect-models", provider),
   onAgentSettingsUpdated: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, settings: AgentSettings) => listener(settings);
