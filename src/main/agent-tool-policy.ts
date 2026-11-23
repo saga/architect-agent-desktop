@@ -7,7 +7,7 @@ export function codeBuddyBuiltinToolSelection(
   readOnlyBuiltinTools: readonly string[],
 ): string[] | null {
   if (permission === "none" || permission === "browser-only" || !expertAllowsAllTools) return [];
-  if (permission === "assisted") return [...readOnlyBuiltinTools];
+  if (permission === "assisted" || permission === "workspace") return [...readOnlyBuiltinTools];
   return null;
 }
 
@@ -46,7 +46,6 @@ export function filterAgentHostTools<T extends { name: string }>(
 ): T[] {
   const expertAllowsTool = (toolName: string) => expertAllowsAllTools || expertTools.includes(toolName);
   const elevatedTools = new Set([
-    "workspace_write_file",
     "browser_execute_javascript",
     "browser_inject_css",
     "browser_cdp",
@@ -55,7 +54,7 @@ export function filterAgentHostTools<T extends { name: string }>(
     const permissionAllowsTool =
       permission === "allow-all" ||
       (permission !== "none" && tool.name.startsWith("browser_")) ||
-      (permission === "assisted" && (
+      ((permission === "assisted" || permission === "workspace") && (
         tool.name.startsWith("workspace_") ||
         tool.name.startsWith("duckdb_") ||
         tool.name.startsWith("document_") ||
@@ -63,7 +62,8 @@ export function filterAgentHostTools<T extends { name: string }>(
         tool.name.startsWith("a2ui_") ||
         tool.name.startsWith("goal_context_")
       ));
-    const permissionDeniesElevatedTool = permission !== "allow-all" && elevatedTools.has(tool.name);
+    const permissionDeniesElevatedTool = (permission !== "allow-all" && elevatedTools.has(tool.name))
+      || (permission !== "workspace" && permission !== "allow-all" && tool.name === "workspace_write_file");
     return permissionAllowsTool &&
       !permissionDeniesElevatedTool &&
       expertAllowsTool(tool.name);
