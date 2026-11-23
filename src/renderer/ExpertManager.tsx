@@ -185,9 +185,10 @@ export default function ExpertManager({ onChanged }: ExpertManagerProps) {
                 <Radio value="none">No tools</Radio>
                 <Radio value="browser-only">Browser only</Radio>
                 <Radio value="assisted">Assisted</Radio>
+                <Radio value="workspace">Workspace</Radio>
                 <Radio value="allow-all">Allow all</Radio>
               </Radio.Group>
-              <span className="pure-form-help">这是该工作模式的权限上限，不能突破全局 Agent 权限。默认 No tools；如需全部工具，再单独开启下方开关。</span>
+              <span className="pure-form-help">这是该工作模式的权限上限，不能突破全局 Agent 权限。Workspace 仅允许当前工作区文件操作；Allow all 才开放完整工具集。</span>
             </label>
             <label className="pure-expert-tool-access">
               <span>Allow all tools</span>
