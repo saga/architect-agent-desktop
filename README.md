@@ -118,7 +118,7 @@ Agent 支持从系统文件选择器读取 PDF、Word、Excel、CSV、TSV、JSON
 
 在「Agent 与插件配置 → Memory & Dreaming」中可以查看 Notes、知识页、关系、证据和变更快照，也可以置顶、归档、放弃待处理 Run 或回滚最近一次整理。Dreaming 工具需要当前 Task 使用的 Expert 开启「长期记忆」工具组，并将工具权限设置为 assisted 或 allow-all；工具仍受当前 Workspace 范围限制。
 
-详细设计、数据边界和当前限制见 [Agent 数据分析、文件理解、A2UI 与长期记忆设计](docs/architecture/AGENT-ANALYTICS-DOCUMENTS-A2UI-MEMORY.md)。当前不包含后台定时 Dreaming、跨 Workspace 全局记忆、向量检索、扫描 PDF OCR 或防篡改审计账本。
+详细设计、数据边界和当前限制见 [Agent 数据分析、文件理解、A2UI 与长期记忆设计](docs/architecture/AGENT-ANALYTICS-DOCUMENTS-A2UI-MEMORY.md)。当前不包含后台定时 Dreaming、跨 Workspace 全局记忆、向量检索、扫描 PDF OCR 或防篡改审计账本。\n\nPDF 版面分析与可视化设计编辑目前属于规划能力，尚未实现；设计方案见 [PDF 分析与可视化设计编辑能力设计](docs/architecture/PDF-ANALYSIS-AND-DESIGN-EDITOR.md)。
 
 ## Claude Code Plugins
 
