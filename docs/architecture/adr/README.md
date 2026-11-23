@@ -11,6 +11,8 @@
 | [ADR-007](./ADR-007-utility-process-process-tree-cleanup.md) | UtilityProcess 子进程树清理 | 已采纳，第一阶段代码已实现，待平台验收 |
 | [ADR-008](./ADR-008-workspace-document-single-source-of-truth.md) | WorkspaceDocument 作为唯一布局状态来源 | 已采纳并通过 CI，待 GUI 验收 |
 | [ADR-009](./ADR-009-main-async-file-io.md) | Main 文件 I/O 异步化与 CPU 工作边界 | 已采纳并完成实现、CI 与性能基准验证 |
+| [ADR-010](./ADR-010-workspace-scoped-autonomous-permissions.md) | Workspace 范围内自主执行与权限边界 | 已采纳，第一阶段实现 |
+| [ADR-011](./ADR-011-copilot-only-public-provider.md) | 正式版本 Copilot-only 与本机 CodeBuddy Dev Mode | 已采纳 |
 
 Layout Engine 和 Electron 原生视图相关决策记录在以下文档中：
 
