@@ -37,7 +37,7 @@ export interface AgentModelInfo {
   credits?: number;
 }
 export type AgentThinkingLevel = "low" | "medium" | "high" | "xhigh";
-export type AgentToolPermission = "none" | "browser-only" | "assisted" | "allow-all";
+export type AgentToolPermission = "none" | "browser-only" | "assisted" | "workspace" | "allow-all";
 export interface AgentChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -397,6 +397,7 @@ export interface BrowserApi {
   agentSkillSetEnabled(id: string, enabled: boolean): Promise<AgentSkillSummary[]>;
   agentSkillRemove(id: string): Promise<AgentSkillSummary[]>;
   agentGetSettings(): Promise<AgentSettings>;
+  agentGetCapabilities(): Promise<{ devMode: boolean; providers: AgentProvider[] }>;
   agentInspectModels(provider: AgentProvider): Promise<AgentModelInfo[]>;
   onAgentSettingsUpdated(listener: (settings: AgentSettings) => void): () => void;
   agentSaveSettings(settings: AgentSettings): Promise<AgentSettings>;
