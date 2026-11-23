@@ -28,7 +28,7 @@ const expertSchema = z.object({
   name: z.string().trim().min(1).max(80),
   description: z.string().max(500),
   systemPrompt: z.string().max(12000),
-  toolPermission: z.enum(["none", "browser-only", "assisted", "allow-all"]),
+  toolPermission: z.enum(["none", "browser-only", "assisted", "workspace", "allow-all"]),
   allowAllTools: z.boolean().default(false),
   skills: z.array(z.string().min(1).max(200)).max(100),
   tools: z.array(z.string().min(1).max(100)).max(100),
