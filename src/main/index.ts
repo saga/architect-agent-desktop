@@ -32,6 +32,7 @@ import type { AgentChatMessage, AgentProvider, AgentSessionItem, AgentSettings, 
 import { parseAgentSessionItems } from "./agent-session";
 import { installCrashHandlers, recordCrash, recordOperation } from "./diagnostics";
 import { writeJsonAtomic } from "./json-store";
+import { loadAgentDevMode } from "./provider-mode";
 import { exportPlugin, importPlugin, listApprovedPluginRuntimeEntries, listPlugins, readEnabledPluginInstructions, removePlugin, setPluginEnabled, setPluginRuntimeApproved } from "./plugins/plugin-registry";
 import { importAgentSkill, importAgentSkillArchive, listAgentSkills, listMcpServers, readEnabledAgentSkillInstructions, removeAgentSkill, removeMcpServer, saveMcpServer, setAgentSkillEnabled, setMcpServerEnabled } from "./agent-extensions";
 import { disposeLoginShellEnvironment, primeLoginShellEnvironment } from "./login-shell-env";
@@ -106,6 +107,7 @@ let snapshotActive = false;
 let snapshotCapturing = false;
 let currentBrowserBounds: { x: number; y: number; width: number; height: number } | null = null;
 let reportedBrowserBounds: { x: number; y: number; width: number; height: number } | null = null;
+const AGENT_DEV_MODE = loadAgentDevMode(app.getAppPath(), app.isPackaged);
 const SETTINGS_PATH = path.join(app.getPath("userData"), "agent-settings.json");
 const AGENT_SESSION_ROOT = path.join(app.getPath("userData"), "agent-sessions");
 const AGENT_TASKS_PATH = path.join(app.getPath("userData"), "agent-tasks.json");
@@ -401,9 +403,9 @@ function loadAgentSettings(): AgentSettings {
     return {
       ...DEFAULT_SETTINGS,
       ...raw,
-      provider: raw.provider === "codebuddy" ? "codebuddy" : "copilot",
+      provider: AGENT_DEV_MODE && raw.provider === "codebuddy" ? "codebuddy" : "copilot",
       thinkingLevel: raw.thinkingLevel === "low" || raw.thinkingLevel === "high" || raw.thinkingLevel === "xhigh" ? raw.thinkingLevel : "medium",
-      toolPermission: hasExplicitPermissionModel && (raw.toolPermission === "none" || raw.toolPermission === "browser-only" || raw.toolPermission === "assisted" || raw.toolPermission === "allow-all") ? raw.toolPermission : "none",
+      toolPermission: hasExplicitPermissionModel && (raw.toolPermission === "none" || raw.toolPermission === "browser-only" || raw.toolPermission === "assisted" || raw.toolPermission === "workspace" || raw.toolPermission === "allow-all") ? raw.toolPermission : "none",
       contextWindow: typeof raw.contextWindow === "number" && Number.isSafeInteger(raw.contextWindow) && raw.contextWindow > 0 ? raw.contextWindow : undefined,
       copilotModel: typeof raw.copilotModel === "string" ? raw.copilotModel.slice(0, 200) : "",
       codebuddyModel: typeof raw.codebuddyModel === "string" ? raw.codebuddyModel.slice(0, 200) : "",
@@ -2134,7 +2136,7 @@ function notifyScheduleRun(title: string, succeeded: boolean): void {
 }
 
 function memoryDreamTaskEligible(task: AgentTask): boolean {
-  const rank: Record<AgentToolPermission, number> = { none: 0, "browser-only": 1, assisted: 2, "allow-all": 3 };
+  const rank: Record<AgentToolPermission, number> = { none: 0, "browser-only": 1, assisted: 2, workspace: 3, "allow-all": 4 };
   if (task.workspacePath) {
     try {
       const resolved = realpathSync(task.workspacePath);
@@ -2585,7 +2587,7 @@ function registerIpcHandlers(): void {
       name: z.string().trim().min(1).max(80),
       description: z.string().max(500),
       systemPrompt: z.string().max(12000),
-      toolPermission: z.enum(["none", "browser-only", "assisted", "allow-all"]),
+      toolPermission: z.enum(["none", "browser-only", "assisted", "workspace", "allow-all"]),
       allowAllTools: z.boolean().default(false),
       skills: z.array(z.string().min(1).max(200)).max(100),
       tools: z.array(z.string().min(1).max(100)).max(100),
@@ -3106,9 +3108,14 @@ function registerIpcHandlers(): void {
     assertTrustedSender(event);
     return await copilotAgent.status();
   });
+  ipcMain.handle("agent:get-capabilities", (event) => {
+    assertTrustedSender(event);
+    return { devMode: AGENT_DEV_MODE, providers: AGENT_DEV_MODE ? ["copilot", "codebuddy"] : ["copilot"] };
+  });
   ipcMain.handle("agent:inspect-models", async (event, provider: unknown) => {
     assertTrustedSender(event);
     if (provider !== "copilot" && provider !== "codebuddy") throw new Error("Unsupported Agent provider.");
+    if (provider === "codebuddy" && !AGENT_DEV_MODE) throw new Error("CodeBuddy is disabled in this build.");
     return await copilotAgent.inspectModels(provider as AgentProvider);
   });
   ipcMain.handle("agent:get-settings", (event) => {
@@ -3123,7 +3130,7 @@ function registerIpcHandlers(): void {
       copilotModel: z.string().max(200),
       codebuddyModel: z.string().max(200),
       thinkingLevel: z.enum(["low", "medium", "high", "xhigh"]),
-      toolPermission: z.enum(["none", "browser-only", "assisted", "allow-all"]),
+      toolPermission: z.enum(["none", "browser-only", "assisted", "workspace", "allow-all"]),
       contextWindow: z.number().int().positive().optional(),
       memoryEmbeddingProvider: z.enum(["disabled","ollama"]).optional().default("disabled"),
       memoryEmbeddingBaseUrl: z.string().max(300).optional().default("http://127.0.0.1:11434"),
@@ -3131,6 +3138,7 @@ function registerIpcHandlers(): void {
       systemPrompt: z.string().max(12000),
     }).safeParse(input);
     if (!parsed.success) throw new Error("Invalid Agent settings.");
+    if (parsed.data.provider === "codebuddy" && !AGENT_DEV_MODE) throw new Error("CodeBuddy is disabled in this build.");
     await copilotAgent.configure(parsed.data);
     agentSettings = parsed.data;
     writeJsonAtomic(SETTINGS_PATH, { ...agentSettings, toolPermissionModelVersion: 2 });
