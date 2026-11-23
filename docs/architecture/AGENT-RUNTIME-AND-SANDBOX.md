@@ -46,6 +46,27 @@ Electron 内置 Node.js 可以执行本地 JavaScript/TypeScript 编译产物，
 
 Runtime 后端只负责执行和生命周期；Capability Host 负责授权与实际操作；Agent/LLM 不直接获得 Electron API、IPC 对象或主进程对象。
 
+## 2.1 Workspace 自主权限档位
+
+Agent Settings 新增 Workspace 权限。用户显式选择该档位后，Agent 可在当前 Task 选定的 Workspace 内自动调用 Host-mediated 文件工具（list/read/search/write），不再要求每次修改都切换到 Allow all。
+
+该授权不是任意本机文件访问，也不是 OS Sandbox：
+
+- 文件工具只接收 Workspace 相对路径；Host 解析真实根目录，拒绝绝对路径、路径穿越和符号链接，并校验打开文件的身份与大小。
+- Task 没有 Workspace 时，文件操作失败关闭，不会回退到用户 Home 或应用目录。
+- 全局权限与 Expert 权限上限、Expert 工具 allowlist 仍取交集。
+- CodeBuddy 原生 Bash / 文件工具、MCP、插件可执行运行时、浏览器 JS/CSS/CDP 和 JavaScript execute_code 不因 Workspace 档位而开放。
+- Workspace 档位选择持久化为 Agent 设置；执行时资源范围动态绑定当前 Task 的 Workspace。它不是逐路径独立 Grant，也不提供对 Workspace 外目录的临时授权。
+- Workspace 写入允许覆盖工作区内已有文件。此模式表示用户信任 Agent 在所选项目内进行常规开发修改；删除、部署、发布、发送消息、购买和生产变更等外部或不可逆动作不属于此授权。
+
+Shell 自主执行仍需跨平台 OS Sandbox；不能将 UtilityProcess、CodeBuddy 的局部 Bash Sandbox 或 Prompt 视为完整隔离。
+
+## 2.2 Provider 发布边界
+
+正式公开构建只支持 GitHub Copilot SDK。CodeBuddy SDK 是本机开发测试适配器，不属于正式产品支持矩阵，也不要求与 Copilot SDK 保持完整功能对等。
+
+开发者在仓库根目录的 .env 中设置 ARCHITECT_AGENT_DEV_MODE=true 才能在未打包的本机运行中启用 CodeBuddy。缺少该配置时默认为 Copilot-only；打包构建无论环境变量如何设置都强制 Copilot-only。Renderer Provider 列表、IPC、Agent configure/model inspection/request dispatch 均由 Main 进程的同一 Dev Mode 状态控制，不能仅靠隐藏 UI 开关启用。
+
 ## 3. 第一阶段已实现的基础
 
 代码位于 **src/main/runtime/**：
