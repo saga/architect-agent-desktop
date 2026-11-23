@@ -15,6 +15,7 @@ import { gunzipSync } from "node:zlib";
 import path from "node:path";
 import { UtilityProcessAgentRuntime } from "./runtime/utility-process-runtime";
 import { filterAgentHostTools, resolveCodeBuddyBuiltinToolPolicy } from "./agent-tool-policy";
+import { isAgentDevMode } from "./provider-mode";
 import { CODE_MODE_SYSTEM_INSTRUCTIONS, createCodeModeDescription, createToolProviders, normalizeCode, resolveProvider } from "./runtime/codemode";
 import { detachedCliOptions, isManagedSession, parseCredits } from "./agent-runtime.js";
 import { agentProcessEnvironment, proxyUrlFromRules } from "./login-shell-env.js";
@@ -139,8 +140,15 @@ const BROWSER_ONLY_INSTRUCTIONS = [
 const ASSISTED_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser with assisted permissions.",
 "Browser tools are always available. Read-only local tools are available for the selected workspace: workspace_list_files, workspace_read_file and workspace_search_files.",
-"Never use shell, file-writing, editing, deployment or other consequential tools. Browser-page JavaScript evaluation, CSS injection and generated-code execution are not available in this mode. If a task requires a restricted operation, ask the user to switch permissions to Allow all or perform it themselves.",
+"Never use shell, file-writing, editing, deployment or other consequential tools. Browser-page JavaScript evaluation, CSS injection and generated-code execution are not available in this mode. If a task requires a restricted operation, ask the user to switch permissions to Workspace or Allow all, or perform it themselves.",
 "Prefer browser tools for page questions and page actions; report what actually changed."
+].join("\n");
+const WORKSPACE_INSTRUCTIONS = [
+"You are the AI assistant embedded in this desktop browser with Workspace permissions.",
+"Browser tools and host-mediated workspace file tools are available. You may list, read, search, create and modify files only inside the currently selected Workspace. The host validates relative paths, rejects traversal and symbolic links, and enforces file-size limits.",
+"This mode does not provide shell commands, arbitrary Node.js execution, execute_code, MCP servers, plugin executable runtimes, browser JavaScript/CSS injection or unrestricted network access. Do not claim that the UtilityProcess is a sandbox.",
+"Do not perform destructive or externally consequential actions such as deleting project data, publishing, deployment, sending messages, purchases or production changes. Ask the user to perform or explicitly authorize those actions outside this mode.",
+"Prefer the host workspace tools for project work and report what actually changed."
 ].join("\n");
 const ALLOW_ALL_INSTRUCTIONS = [
 "You are the AI assistant embedded in this desktop browser with Allow all permissions.",
@@ -157,7 +165,10 @@ const NO_TOOLS_INSTRUCTIONS = [
 
 function instructionsFor(permission: AgentSettings["toolPermission"]): string {
   if (permission === "none") return NO_TOOLS_INSTRUCTIONS + "\n\n" + BASE_INSTRUCTIONS;
-  const mode = permission === "allow-all" ? ALLOW_ALL_INSTRUCTIONS : permission === "assisted" ? ASSISTED_INSTRUCTIONS : BROWSER_ONLY_INSTRUCTIONS;
+  const mode = permission === "allow-all" ? ALLOW_ALL_INSTRUCTIONS
+    : permission === "workspace" ? WORKSPACE_INSTRUCTIONS
+    : permission === "assisted" ? ASSISTED_INSTRUCTIONS
+    : BROWSER_ONLY_INSTRUCTIONS;
   return mode + "\n\n" + BASE_INSTRUCTIONS + (permission === "allow-all" ? "\n\n" + CODE_MODE_SYSTEM_INSTRUCTIONS : "");
 }
 function historyPrompt(history: AgentChatMessage[] | undefined, prompt: string): string {
@@ -605,15 +616,15 @@ export class CopilotDesktopAgent {
   if(runtimeRoot)await rmAsync(runtimeRoot,{recursive:true,force:true});
  }
  private effectivePermission():AgentToolPermission{
-  const rank:Record<AgentToolPermission,number>={"none":0,"browser-only":1,assisted:2,"allow-all":3};
+  const rank:Record<AgentToolPermission,number>={"none":0,"browser-only":1,assisted:2,workspace:3,"allow-all":4};
   const ceiling=this.taskContext?.toolPermission??"allow-all";
   return rank[this.settings.toolPermission]<=rank[ceiling]?this.settings.toolPermission:ceiling;
  }
  private workspaceInstructions():string{return this.workspacePath?"Current local project workspace root: "+this.workspacePath+". Treat this as the project root. Use relative paths for workspace file tools and do not access files outside this directory.":"No local project workspace is selected. Do not attempt local project file operations until the user selects a workspace."; }
- async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(!["low","medium","high","xhigh"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");if(!["none","browser-only","assisted","allow-all"].includes(settings.toolPermission))throw new Error("Unsupported tool permission.");const embedding=normalizeLocalEmbeddingConfig({provider:settings.memoryEmbeddingProvider,baseUrl:settings.memoryEmbeddingBaseUrl,model:settings.memoryEmbeddingModel});const normalized={...settings,memoryEmbeddingProvider:embedding.provider,memoryEmbeddingBaseUrl:embedding.baseUrl,memoryEmbeddingModel:embedding.model};const changed=normalized.provider!==this.settings.provider||normalized.copilotModel!==this.settings.copilotModel||normalized.codebuddyModel!==this.settings.codebuddyModel||normalized.thinkingLevel!==this.settings.thinkingLevel||normalized.toolPermission!==this.settings.toolPermission||normalized.contextWindow!==this.settings.contextWindow||normalized.systemPrompt!==this.settings.systemPrompt||normalized.memoryEmbeddingProvider!==this.settings.memoryEmbeddingProvider||normalized.memoryEmbeddingBaseUrl!==this.settings.memoryEmbeddingBaseUrl||normalized.memoryEmbeddingModel!==this.settings.memoryEmbeddingModel;if(changed)await this.stop();this.settings=normalized;}
+ async configure(settings:AgentSettings):Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before changing Agent settings.");if(settings.provider!=="copilot"&&settings.provider!=="codebuddy")throw new Error("Unsupported Agent provider.");if(settings.provider==="codebuddy"&&!isAgentDevMode())throw new Error("CodeBuddy is available only in local development mode. Set ARCHITECT_AGENT_DEV_MODE=true in .env.");if(!["low","medium","high","xhigh"].includes(settings.thinkingLevel))throw new Error("Unsupported thinking level.");if(!["none","browser-only","assisted","workspace","allow-all"].includes(settings.toolPermission))throw new Error("Unsupported tool permission.");const embedding=normalizeLocalEmbeddingConfig({provider:settings.memoryEmbeddingProvider,baseUrl:settings.memoryEmbeddingBaseUrl,model:settings.memoryEmbeddingModel});const normalized={...settings,memoryEmbeddingProvider:embedding.provider,memoryEmbeddingBaseUrl:embedding.baseUrl,memoryEmbeddingModel:embedding.model};const changed=normalized.provider!==this.settings.provider||normalized.copilotModel!==this.settings.copilotModel||normalized.codebuddyModel!==this.settings.codebuddyModel||normalized.thinkingLevel!==this.settings.thinkingLevel||normalized.toolPermission!==this.settings.toolPermission||normalized.contextWindow!==this.settings.contextWindow||normalized.systemPrompt!==this.settings.systemPrompt||normalized.memoryEmbeddingProvider!==this.settings.memoryEmbeddingProvider||normalized.memoryEmbeddingBaseUrl!==this.settings.memoryEmbeddingBaseUrl||normalized.memoryEmbeddingModel!==this.settings.memoryEmbeddingModel;if(changed)await this.stop();this.settings=normalized;}
 
  async inspectModels(provider: AgentProvider): Promise<AgentModelInfo[]> {
-  if (provider === "codebuddy") { const models=readCodeBuddyCatalog().map(model => normalizeModelInfo("codebuddy", model)).filter((m): m is AgentModelInfo => Boolean(m)); models.forEach(model=>this.inspectedModels.set("codebuddy:"+model.id,model)); return models; }
+  if (provider === "codebuddy") { if(!isAgentDevMode())throw new Error("CodeBuddy is available only in local development mode."); const models=readCodeBuddyCatalog().map(model => normalizeModelInfo("codebuddy", model)).filter((m): m is AgentModelInfo => Boolean(m)); models.forEach(model=>this.inspectedModels.set("codebuddy:"+model.id,model)); return models; }
   const { CopilotClient } = await import("@github/copilot-sdk");
   const inspectDirectory = path.join(app.getPath("userData"), "copilot-inspect");
   mkdirSync(inspectDirectory, { recursive: true });
@@ -688,7 +699,7 @@ export class CopilotDesktopAgent {
    {name:"workspace_read_file",description:"Read a UTF-8 text file by a path relative to the selected workspace root. Files over 256 KB and binary files are rejected.",schema:z.object({path:z.string().min(1).max(1000)}),handler:({path:relativePath}:{path:string})=>report("Read workspace file",async()=>readWorkspaceFile(this.workspacePath as string,relativePath))},
    {name:"workspace_search_files",description:"Search text in files under the selected workspace. Dependency and build output directories are omitted.",schema:z.object({query:z.string().min(2).max(200)}),handler:({query}:{query:string})=>report("Search workspace",async()=>searchWorkspaceFiles(this.workspacePath as string,query))}
   );
-  if(this.workspacePath&&permission==="allow-all")tools.push(
+  if(this.workspacePath&&(permission==="workspace"||permission==="allow-all"))tools.push(
    {name:"workspace_write_file",description:"Create or replace a UTF-8 text file under the selected workspace. Parent directories must already exist; paths cannot escape the workspace or traverse symlinks.",schema:z.object({path:z.string().min(1).max(1000),content:z.string().max(262144)}),handler:({path:relativePath,content}:{path:string;content:string})=>report("Write workspace file",async()=>writeWorkspaceFile(this.workspacePath as string,relativePath,content))}
   );
   if(permission==="allow-all")tools.push(
@@ -1112,6 +1123,7 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
   return results.map(item=>"<tool_result name=\""+item.name+"\">\n"+JSON.stringify(item.error?{error:item.error}:item.result)+"\n</tool_result>").join("\n");
  }
  private async sendCodeBuddy(prompt:string,history?:AgentChatMessage[]){
+  if(!isAgentDevMode())throw new Error("CodeBuddy is available only in local development mode.");
   const MAX_TOTAL_MODEL_TURNS = 12;
   const MAX_QUERIES = 6;
   const MAX_TURNS_PER_QUERY = Math.ceil(MAX_TOTAL_MODEL_TURNS / MAX_QUERIES);
@@ -1329,7 +1341,7 @@ private async executeRawToolCalls(calls:RawToolInvocation[],handlers:Array<{name
    [],
   );
  }
- async send(prompt:string,history?:AgentChatMessage[],attachments:string[]=[]):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.currentUserEvidenceText=[...(history??[]).filter(message=>message.role==="user").map(message=>message.content),prompt.split(/\n## 本轮附件解析结果/i,1)[0]??prompt].join("\u0000");this.publish({type:"status",status:"starting"});try{await this.ensureA2UI();const attachmentContext=await this.prepareAttachments(attachments);const effectivePrompt=attachmentContext?prompt+"\n\n"+attachmentContext:prompt;if(this.settings.provider==="codebuddy")await this.sendCodeBuddy(effectivePrompt,history);else await this.sendCopilot(effectivePrompt,history);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;this.currentUserEvidenceText="";}}
+ async send(prompt:string,history?:AgentChatMessage[],attachments:string[]=[]):Promise<void>{if(this.active)throw new Error("Agent is already processing a message.");this.active=true;this.currentUserEvidenceText=[...(history??[]).filter(message=>message.role==="user").map(message=>message.content),prompt.split(/\n## 本轮附件解析结果/i,1)[0]??prompt].join("\u0000");this.publish({type:"status",status:"starting"});try{await this.ensureA2UI();const attachmentContext=await this.prepareAttachments(attachments);const effectivePrompt=attachmentContext?prompt+"\n\n"+attachmentContext:prompt;if(this.settings.provider==="codebuddy"){if(!isAgentDevMode())throw new Error("CodeBuddy is disabled in this build.");await this.sendCodeBuddy(effectivePrompt,history);}else await this.sendCopilot(effectivePrompt,history);this.publish({type:"done"});}catch(error){const message=error instanceof Error?error.message:String(error);const hint=this.settings.provider==="codebuddy"?"":"\n\n请检查 GitHub Copilot 账号授权状态，并确认当前账号有可用模型权限。";this.publish({type:"error",text:message+hint});throw error;}finally{this.active=false;this.currentUserEvidenceText="";}}
  async cancel():Promise<void>{for(const controller of this.codeRuntimeAbortControllers)controller.abort();if(this.settings.provider==="codebuddy"){this.codeBuddyAbortController?.abort();if(this.codeBuddyQuery?.interrupt)await this.codeBuddyQuery.interrupt();}else if(this.active&&this.session)await this.session.abort();}
  isBusy():boolean{return this.active;}
  async resetConversation():Promise<void>{if(this.active)throw new Error("Wait for the current Agent request to finish before switching Tasks.");if(this.a2ui)this.a2ui.reset(this.a2uiSessionScope());await this.stopCopilotSession();}
