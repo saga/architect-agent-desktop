@@ -1,3 +1,4 @@
+import { request as httpRequest } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocalApiServer } from "../src/main/local-api-server";
 
@@ -28,7 +29,19 @@ describe("LocalApiServer", () => {
   it("rejects an invalid Host header", async () => {
     server = new LocalApiServer({ port: 4318 });
     await server.start();
-    const response = await fetch("http://127.0.0.1:4318/health", { headers: { host: "evil.example" } });
-    expect(response.status).toBe(403);
+    const status = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest({
+        hostname: "127.0.0.1",
+        port: 4318,
+        path: "/health",
+        headers: { host: "evil.example" },
+      }, response => {
+        resolve(response.statusCode ?? 0);
+        response.resume();
+      });
+      request.once("error", reject);
+      request.end();
+    });
+    expect(status).toBe(403);
   });
 });
