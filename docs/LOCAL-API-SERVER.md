@@ -8,7 +8,7 @@ The server starts with the desktop application on port `4317` by default.
 - `GET http://127.0.0.1:4317/v1/models`
 - `POST http://127.0.0.1:4317/v1/chat/completions`
 
-The model endpoints use an OpenAI-compatible local inference server. Ollama is supported through its OpenAI-compatible API; LM Studio, llama.cpp server and vLLM can be used when configured with a loopback URL.
+The model endpoints use an OpenAI-compatible local inference server. The model server itself must already be installed and running; this desktop API does not download model weights or launch Ollama/LM Studio/vLLM. Ollama is supported through its OpenAI-compatible API; LM Studio, llama.cpp server and vLLM can be used when configured with a loopback URL.
 
 Environment configuration:
 
@@ -26,3 +26,5 @@ curl http://127.0.0.1:4317/v1/chat/completions \
 ```
 
 The local API validates Host and Origin, limits request bodies to 1 MB, and only permits a loopback inference endpoint. The desktop's existing Agent permission model remains separate: this API is a local model gateway, not a way to bypass workspace or tool permissions.
+
+The API is intentionally unauthenticated because it is restricted to loopback. Any process running as the local user can call it; do not treat it as a boundary between mutually untrusted local users or applications.
