@@ -122,7 +122,18 @@ export class LocalApiServer {
       return;
     }
 
-    const pathname = new URL(request.url ?? "/", this.address).pathname;
+    const pathname = (request.url ?? "/").split("?", 1)[0] ?? "/";
+    if (request.method === "OPTIONS") {
+      response.writeHead(204, {
+        ...(origin ? { "access-control-allow-origin": origin, vary: "Origin" } : {}),
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-headers": "content-type, authorization",
+        "access-control-max-age": "600",
+      });
+      response.end();
+      return;
+    }
+    if (origin) response.setHeader("access-control-allow-origin", origin);
     if (request.method === "GET" && pathname === "/health") {
       sendJson(response, 200, { status: "ok", bind: HOST, llm: this.upstream.origin });
       return;
@@ -141,6 +152,10 @@ export class LocalApiServer {
   private async proxy(request: IncomingMessage, response: ServerResponse, endpoint: string): Promise<void> {
     try {
       const body = request.method === "POST" ? await readBody(request) : undefined;
+      if (endpoint === "/chat/completions" && (!body || !body.length)) {
+        sendJson(response, 400, { error: { message: "A model and messages array are required." } });
+        return;
+      }
       if (body && body.length) {
         try {
           const parsed = JSON.parse(body.toString("utf8")) as { model?: unknown; messages?: unknown };
@@ -154,7 +169,7 @@ export class LocalApiServer {
         }
       }
       const target = new URL(this.upstream.toString().replace(/\/$/, "") + endpoint);
-      const headers: Record<string, string> = { accept: request.headers.accept ?? "application/json" };
+      const headers: Record<string, string> = { accept: "application/json" };
       if (body) headers["content-type"] = "application/json";
       if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`;
       const upstreamResponse = await fetch(target, {
