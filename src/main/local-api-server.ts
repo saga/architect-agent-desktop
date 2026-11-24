@@ -48,7 +48,7 @@ function isLoopbackOrigin(value: string): boolean {
     const url = new URL(value);
     const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
     return (url.protocol === "http:" || url.protocol === "https:")
-      && (host === "localhost" || host === "::1" || host.startsWith("127."));
+      && (host === "localhost" || host === "::1" || (isIP(host) === 4 && host.startsWith("127.")));
   } catch {
     return false;
   }
