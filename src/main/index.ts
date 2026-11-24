@@ -42,6 +42,7 @@ import { resolveAgentBrowserTab, resolveAgentBrowserTabId, shouldBlockAgentTabOp
 import { canOpenScheduleBrowserPopup, cancelScheduleBrowserDownloads, clearScheduleBrowserProfileData, destroyScheduleBrowserProfileWindows, initializeScheduleBrowserContext, registerScheduleBrowserDownloadHandler, scheduleBrowserDownloadsDirectory, scheduleBrowserPartition } from "./schedule-browser-profile";
 import { NativeViewStackManager } from "./layout/native-view-stack";
 import { setPanelVisibility } from "./layout/layout-tree";
+import { LocalApiServer } from "./local-api-server";
 
 import type { WorkspaceDocument, WorkspaceProject, McpServerConfig } from "../shared/types";
 import { parseWorkspaceDocument, createFloatingPanel, redockFloatingPanel, setWorkspacePanelDockPosition } from "../shared/workspace-document";
@@ -95,6 +96,7 @@ let sessionExplorerWindow: BrowserWindow | null = null;
 let agentPanelWindow: BrowserWindow | null = null;
 let closingAgentPanelForRedock = false;
 let isQuitting = false;
+let localApiServer: LocalApiServer | null = null;
 let browserSession: Session;
 let activeTabId: string | null = null;
 let agentToolTabId: string | null | undefined = undefined;
@@ -3513,6 +3515,14 @@ if (hasSingleInstanceLock) {
     browserSession = session.fromPartition(BROWSER_PARTITION);
     // Explicitly use the OS proxy configuration for the embedded browser.
     await browserSession.setProxy({ mode: "system" });
+    try {
+      localApiServer = new LocalApiServer();
+      await localApiServer.start();
+      recordOperation("local-api", "listening at " + localApiServer.address);
+    } catch (error) {
+      localApiServer = null;
+      recordOperation("local-api", "startup failed: " + (error instanceof Error ? error.message : String(error)));
+    }
     installPermissionHandlers();
     registerIpcHandlers();
     installApplicationMenu();
@@ -3660,6 +3670,9 @@ async function shutdown(): Promise<void> {
   saveWindowState();
   recordOperation("app", "quit");
   await stopAgentForQuit();
+  try { await localApiServer?.stop(); }
+  catch (error) { recordOperation("local-api", "shutdown failed: " + (error instanceof Error ? error.message : String(error))); }
+  localApiServer = null;
   await cleanupScheduleBrowserResourcesForQuit();
 
   quitState = "ready";
