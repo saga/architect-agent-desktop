@@ -1,5 +1,8 @@
 # Architect Agent Desktop
 
+本机 HTTP API 与本地模型接入见 [Local API Server](./docs/LOCAL-API-SERVER.md)。API 仅监听 `127.0.0.1`，不支持远程或局域网访问。
+
+
 A cross-platform Electron desktop application. The first milestone is a built-in, multi-tab Chromium browser that will serve as the foundation for the desktop agent workspace.
 
 ## Current scope
