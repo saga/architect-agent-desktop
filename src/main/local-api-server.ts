@@ -40,8 +40,7 @@ function isLoopbackHostHeader(value: string | undefined, port: number): boolean 
   if (!value) return false;
   const candidate = value.toLowerCase();
   return candidate === `127.0.0.1:${port}` || candidate === `localhost:${port}`
-    || candidate === `[::1]:${port}` || candidate === "127.0.0.1"
-    || candidate === "localhost" || candidate === "[::1]";
+    || candidate === `[::1]:${port}`;
 }
 
 function isLoopbackOrigin(value: string): boolean {
